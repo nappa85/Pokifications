@@ -1,4 +1,4 @@
-use std::fmt;
+extern crate serde;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", content = "message")]
@@ -82,7 +82,12 @@ impl ::serde::Serialize for Gender {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where S: ::serde::Serializer
     {
-        serializer.serialize_str(&self.to_string())
+        serializer.serialize_u32(match *self {
+            Gender::Unset => 0,
+            Gender::Male => 1,
+            Gender::Female => 2,
+            Gender::Genderless => 3,
+        })
     }
 }
 
@@ -90,32 +95,17 @@ impl<'de> ::serde::Deserialize<'de> for Gender {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where D: ::serde::Deserializer<'de>
     {
-        struct Visitor;
+        let value = usize::deserialize(deserializer)?;
 
-        impl<'de> ::serde::de::Visitor<'de> for Visitor {
-            type Value = Gender;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("string")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Gender, E>
-                where E: ::serde::de::Error
-            {
-                // Rust does not come with a simple way of converting a
-                // number to an enum, so use a big `match`.
-                match value {
-                    "unset" => Ok(Gender::Unset),
-                    "male" => Ok(Gender::Male),
-                    "female" => Ok(Gender::Female),
-                    "genderless" => Ok(Gender::Genderless),
-                    _ => Err(E::custom(format!("unknown Gender value: {}", value))),
-                }
-            }
+        // Rust does not come with a simple way of converting a
+        // number to an enum, so use a big `match`.
+        match value {
+            0 => Ok(Gender::Unset),
+            1 => Ok(Gender::Male),
+            2 => Ok(Gender::Female),
+            3 => Ok(Gender::Genderless),
+            _ => Err(serde::de::Error::custom(format!("unknown Gender value: {}", value))),
         }
-
-        // Deserialize the enum from a u64.
-        deserializer.deserialize_str(Visitor)
     }
 }
 
@@ -171,7 +161,12 @@ impl ::serde::Serialize for Team {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where S: ::serde::Serializer
     {
-        serializer.serialize_str(&self.to_string())
+        serializer.serialize_u32(match *self {
+            Team::Uncontested => 0,
+            Team::Mystic => 1,
+            Team::Valor => 2,
+            Team::Instinct => 3,
+        })
     }
 }
 
@@ -179,32 +174,17 @@ impl<'de> ::serde::Deserialize<'de> for Team {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where D: ::serde::Deserializer<'de>
     {
-        struct Visitor;
+        let value = usize::deserialize(deserializer)?;
 
-        impl<'de> ::serde::de::Visitor<'de> for Visitor {
-            type Value = Team;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("string")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Team, E>
-                where E: ::serde::de::Error
-            {
-                // Rust does not come with a simple way of converting a
-                // number to an enum, so use a big `match`.
-                match value {
-                    "uncontested" => Ok(Team::Uncontested),
-                    "mystic" => Ok(Team::Mystic),
-                    "valor" => Ok(Team::Valor),
-                    "instinct" => Ok(Team::Instinct),
-                    _ => Err(E::custom(format!("unknown Team value: {}", value))),
-                }
-            }
+        // Rust does not come with a simple way of converting a
+        // number to an enum, so use a big `match`.
+        match value {
+            0 => Ok(Team::Uncontested),
+            1 => Ok(Team::Mystic),
+            2 => Ok(Team::Valor),
+            3 => Ok(Team::Instinct),
+            _ => Err(serde::de::Error::custom(format!("unknown Team value: {}", value))),
         }
-
-        // Deserialize the enum from a u64.
-        deserializer.deserialize_str(Visitor)
     }
 }
 
@@ -312,31 +292,16 @@ impl<'de> ::serde::Deserialize<'de> for CaptchaStatus {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where D: ::serde::Deserializer<'de>
     {
-        struct Visitor;
+        let value: &str = &String::deserialize(deserializer)?;
 
-        impl<'de> ::serde::de::Visitor<'de> for Visitor {
-            type Value = CaptchaStatus;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("string")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<CaptchaStatus, E>
-                where E: ::serde::de::Error
-            {
-                // Rust does not come with a simple way of converting a
-                // number to an enum, so use a big `match`.
-                match value {
-                    "encounter" => Ok(CaptchaStatus::Encounter),
-                    "success" => Ok(CaptchaStatus::Success),
-                    "failure" => Ok(CaptchaStatus::Failure),
-                    "error" => Ok(CaptchaStatus::Error),
-                    _ => Err(E::custom(format!("unknown CaptchaStatus value: {}", value))),
-                }
-            }
+        // Rust does not come with a simple way of converting a
+        // number to an enum, so use a big `match`.
+        match value {
+            "encounter" => Ok(CaptchaStatus::Encounter),
+            "success" => Ok(CaptchaStatus::Success),
+            "failure" => Ok(CaptchaStatus::Failure),
+            "error" => Ok(CaptchaStatus::Error),
+            _ => Err(serde::de::Error::custom(format!("unknown CaptchaStatus value: {}", value))),
         }
-
-        // Deserialize the enum from a u64.
-        deserializer.deserialize_str(Visitor)
     }
 }

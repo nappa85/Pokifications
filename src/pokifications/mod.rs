@@ -18,13 +18,16 @@ impl Pokifications {
         //convert chunks to String
         match (String::from_utf8(chunks).map_err(|e| format!("Unable to convert request body to string: {}", e)))
             //convert request to struct Request
-            .and_then(|body| serde_json::from_str::<entities::Request>(&body).map_err(|e| format!("Syntax error on json request: {}", e)))
+            .and_then(|body| serde_json::from_str::<Vec<entities::Request>>(&body).map_err(|e| format!("Syntax error on json request {}: {:?}", body, e)))
             .and_then(|ref _request|
                 //TODO: dispatch request
                 Ok("test")
             ) {
             Ok(out) => Response::new().with_status(StatusCode::Ok).with_body(out),
-            Err(e) => Response::new().with_status(StatusCode::InternalServerError).with_body(e),
+            Err(e) => {
+                println!("{}", e);
+                Response::new().with_status(StatusCode::InternalServerError).with_body(e)
+            },
         }
     }
 }
