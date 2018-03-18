@@ -1,6 +1,7 @@
 extern crate serde;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(tag = "type", content = "message")]
 pub enum Request {
     #[serde(rename = "pokemon")]
@@ -19,10 +20,11 @@ pub enum Request {
     Captcha(Captcha),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Pokemon {
-    spawnpoint_id: String,
-    encounter_id: String,
+    spawnpoint_id: usize,
+    encounter_id: usize,
     pokemon_id: usize,
     latitude: f64,
     longitude: f64,
@@ -34,32 +36,62 @@ pub struct Pokemon {
     spawn_end: usize,
     gender: Gender,
     #[serde(default)]
-    cp: Option<String>,
+    cp: Option<usize>,
     #[serde(default)]
     form: Option<String>,
     #[serde(default)]
-    costume: Option<String>,
+    costume: Option<usize>,
     #[serde(default)]
-    individual_attack: Option<String>,
+    individual_attack: Option<usize>,
     #[serde(default)]
-    individual_defense: Option<String>,
+    individual_defense: Option<usize>,
     #[serde(default)]
-    individual_stamina: Option<String>,
+    individual_stamina: Option<usize>,
     #[serde(default)]
-    cp_multiplier: Option<String>,
+    cp_multiplier: Option<f64>,
     #[serde(default)]
-    move_1: Option<String>,
+    move_1: Option<usize>,
     #[serde(default)]
-    move_2: Option<String>,
+    move_2: Option<usize>,
     #[serde(default)]
-    weight: Option<String>,
+    weight: Option<f64>,
     #[serde(default)]
-    height: Option<String>,
+    height: Option<f64>,
+    #[serde(default)]
+    base_catch: Option<f64>,
+    #[serde(default)]
+    great_catch: Option<f64>,
+    #[serde(default)]
+    ultra_catch: Option<f64>,
+    #[serde(default)]
+    boosted_weather: Option<usize>,
+    #[serde(default)]
+    def_grade: Option<String>,
+    #[serde(default)]
+    atk_grade: Option<String>,
+    #[serde(default)]
+    rating_attack: Option<String>,
+    #[serde(default)]
+    rating_defense: Option<String>,
+    #[serde(default)]
+    catch_prob_1: Option<f64>,
+    #[serde(default)]
+    catch_prob_2: Option<f64>,
+    #[serde(default)]
+    catch_prob_3: Option<f64>,
+    #[serde(default)]
+    weather: Option<usize>,
+    #[serde(default)]
+    weather_boosted_condition: Option<usize>,
+    #[serde(default)]
+    pokemon_level: Option<usize>,
+    #[serde(default)]
+    s2_cell_id: Option<usize>,
     player_level: usize,
     verified: bool,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Gender {
     Unset,
     Male,
@@ -109,7 +141,8 @@ impl<'de> ::serde::Deserialize<'de> for Gender {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Pokestop {
     pokestop_id: String,
     latitude: f64,
@@ -122,7 +155,8 @@ pub struct Pokestop {
     lure_expiration: Option<usize>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Gym {
     gym_id: String,
     latitude: f64,
@@ -138,7 +172,7 @@ pub struct Gym {
     raid_active_until: usize,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Team {
     Uncontested,
     Mystic,
@@ -188,7 +222,8 @@ impl<'de> ::serde::Deserialize<'de> for Team {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GymDetails {
     id: String,
     name: String,
@@ -200,7 +235,8 @@ pub struct GymDetails {
     pokemon: Vec<GymPokemon>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GymPokemon {
     pokemon_uid: usize,
     pokemon_id: usize,
@@ -223,7 +259,8 @@ pub struct GymPokemon {
     deployment_time: usize,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Raid {
     gym_id: String,
     team_id: Team,
@@ -241,9 +278,14 @@ pub struct Raid {
     move_1: Option<usize>,
     #[serde(default)]
     move_2: Option<usize>,
+    #[serde(default)]
+    weather: Option<usize>,
+    #[serde(default)]
+    s2_cell_id: Option<usize>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Scheduler {
     name: String,
     instance: String,
@@ -251,7 +293,8 @@ pub struct Scheduler {
     spawns_found: usize,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Captcha {
     status_name: String,
     account: String,
@@ -261,7 +304,7 @@ pub struct Captcha {
     mode: String,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum CaptchaStatus {
     Encounter,
     Success,
@@ -304,4 +347,9 @@ impl<'de> ::serde::Deserialize<'de> for CaptchaStatus {
             _ => Err(serde::de::Error::custom(format!("unknown CaptchaStatus value: {}", value))),
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Config {
+
 }

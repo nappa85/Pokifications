@@ -2,6 +2,8 @@ extern crate hyper;
 extern crate futures;
 extern crate serde_json;
 
+use std::sync::{Arc, Mutex};
+
 use self::futures::future::Future;
 use self::futures::Stream;
 
@@ -9,6 +11,10 @@ use self::hyper::StatusCode;
 use self::hyper::server::{Request, Response, Service};
 
 pub mod entities;
+
+pub mod dispatcher;
+
+use self::dispatcher::Dispatcher;
 
 pub struct Pokifications;
 
@@ -19,10 +25,12 @@ impl Pokifications {
         match (String::from_utf8(chunks).map_err(|e| format!("Unable to convert request body to string: {}", e)))
             //convert request to struct Request
             .and_then(|body| serde_json::from_str::<Vec<entities::Request>>(&body).map_err(|e| format!("Syntax error on json request {}: {:?}", body, e)))
-            .and_then(|ref _request|
-                //TODO: dispatch request
-                Ok("test")
-            ) {
+            .and_then(|requests| {
+                lazy_static! {
+                    static ref D: Arc<Mutex<Dispatcher<'static>>> = Arc::new(Mutex::new(Dispatcher::new().unwrap()));
+                }
+                (D.lock().map_err(|e| format!("Dispatch error: {}", e))).and_then(|d| d.dispatch(requests))
+            }) {
             Ok(out) => Response::new().with_status(StatusCode::Ok).with_body(out),
             Err(e) => {
                 println!("{}", e);
