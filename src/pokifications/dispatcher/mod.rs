@@ -1,14 +1,16 @@
 extern crate notify;
 extern crate serde_json;
+extern crate futures;
 
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Sender, Receiver};
-use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use std::path::{Path, PathBuf};
 use std::fs::{self, File};
 use std::ffi::OsString;
 use std::io::Read;
+
+use tokio::executor::{self, Spawn};
 
 use pokifications::entities::{Request, Config};
 
@@ -21,7 +23,7 @@ use self::notify::{RecommendedWatcher, Watcher, RecursiveMode, DebouncedEvent};
 pub struct Dispatcher<'a> {
     _watcher: RecommendedWatcher,
     _watch_recv: Receiver<DebouncedEvent>,
-    workers: HashMap<OsString, (Sender<Request>, Sender<Config>, JoinHandle<()>)>,
+    workers: HashMap<OsString, (Sender<Request>, Sender<Config>, Spawn)>,
     config_path: &'a Path,
 }
 
@@ -61,11 +63,7 @@ impl<'a> Dispatcher<'a> {
                             let (request_tx, request_rx) = channel();
                             let (config_tx, config_rx) = channel();
 
-                            let worker = Worker::new(request_rx, config_rx, config);
-
-                            self.workers.insert(file.file_name(), (request_tx, config_tx, thread::spawn(move || {
-                                worker.run();
-                            })));
+                            self.workers.insert(file.file_name(), (request_tx, config_tx, executor::spawn(Worker::new(request_rx, config_rx, config))));
 
                             Ok(())
                         })
