@@ -10,7 +10,7 @@ use std::fs::{self, File};
 use std::ffi::OsString;
 use std::io::Read;
 
-use tokio::executor::{self, Spawn};
+use self::futures::executor::{self, Spawn};
 
 use pokifications::entities::{Request, Config};
 
@@ -23,7 +23,7 @@ use self::notify::{RecommendedWatcher, Watcher, RecursiveMode, DebouncedEvent};
 pub struct Dispatcher<'a> {
     _watcher: RecommendedWatcher,
     _watch_recv: Receiver<DebouncedEvent>,
-    workers: HashMap<OsString, (Sender<Request>, Sender<Config>, Spawn)>,
+    workers: HashMap<OsString, (Sender<Request>, Sender<Config>, Spawn<Worker>)>,
     config_path: &'a Path,
 }
 

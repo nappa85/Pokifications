@@ -1,7 +1,11 @@
+extern crate futures;
+
 use std::sync::RwLock;
 
+use self::futures::{Async, Future};
+
 use pokifications::entities::{Request, Config};
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, TryRecvError};
 
 pub struct Worker {
     request_recv: Receiver<Request>,
@@ -30,14 +34,20 @@ impl Future for Worker {
     fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
         println!("test");
 
-        match self.config_recv.try_recv().and_then(|config| self.config.write()) {
-            Ok(mut cfg) => { *cfg = config; },
-            Err(e) => if e != TryRecvError::Empty { println!("Error updating configuration: {:?}", e); },
+        match (self.config_recv.try_recv().map_err(|e| if e == TryRecvError::Empty { String::from("") } else { format!("{:?}", e) }))
+            .and_then(|config| (self.config.write().map_err(|e| format!("{:?}", e)))
+                .and_then(|mut cfg| { *cfg = config; Ok(()) })
+            ) {
+            Ok(_) => {},
+            Err(e) => if e.len() > 0 { println!("Error updating configuration: {:?}", e); },
         }
 
-        match self.request_recv.try_recv().and_then(|request| self.config.read()) {
-            Ok(mut cfg) => { cfg.match(request); },
-            Err(e) => if e != TryRecvError::Empty { println!("Error reading configuration: {:?}", e); },
+        match (self.request_recv.try_recv().map_err(|e| if e == TryRecvError::Empty { String::from("") } else { format!("{:?}", e) }))
+            .and_then(|request| (self.config.read().map_err(|e| format!("{:?}", e)))
+                .and_then(|cfg| { (*cfg).matches(request); Ok(()) })
+            ) {
+            Ok(_) => {},
+            Err(e) => if e.len() > 0 { println!("Error reading configuration: {:?}", e); },
         }
 
         Ok(Async::NotReady)
