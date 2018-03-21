@@ -27,7 +27,7 @@ impl Pokifications {
             .and_then(|body| serde_json::from_str::<Vec<entities::Request>>(&body).map_err(|e| format!("Syntax error on json request {}: {:?}", body, e)))
             .and_then(|requests| {
                 lazy_static! {
-                    static ref D: Arc<Mutex<Dispatcher<'static>>> = Arc::new(Mutex::new(Dispatcher::new().unwrap()));
+                    static ref D: Arc<Mutex<Dispatcher>> = Arc::new(Mutex::new(Dispatcher::new().unwrap()));
                 }
                 (D.lock().map_err(|e| format!("Dispatch error: {}", e))).and_then(|d| d.dispatch(requests))
             }) {

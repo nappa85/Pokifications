@@ -348,14 +348,3 @@ impl<'de> ::serde::Deserialize<'de> for CaptchaStatus {
         }
     }
 }
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Config {
-
-}
-
-impl Config {
-    pub fn matches(&self, _r: Request) {
-
-    }
-}
