@@ -1,5 +1,6 @@
 #![deny(warnings)]
 #![deny(missing_docs)]
+#![recursion_limit="128"]
 
 //! # pokefications
 //!
@@ -7,53 +8,51 @@
 //!
 //! A notifications daemon alternative to PokeAlarm
 
-#[macro_use]
-extern crate lazy_static;
-#[macro_use]
-extern crate serde_derive;
-extern crate serde;
-extern crate serde_json;
-extern crate hyper;
-extern crate toml;
+mod entities;
+mod db;
+mod config;
+mod bot;
+mod lists;
 
-mod pokifications;
+use hyper::{Body, Request, Response, Server};
+use hyper::service::service_fn_ok;
 
-use std::env;
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
+use tokio::{run, spawn};
+use tokio::prelude::{Future, Stream};
 
-use hyper::server::Http;
-use toml::Value;
+use log::{info, error};
 
-use pokifications::Pokifications as Pokifications;
-
-/// Launch Pokifications according to config
+/// Launch service according to config
 fn main() {
-    let args:Vec<String> = env::args().collect();
-
-    //config file can be the first argument
-    let config_file = if args.len() > 1 {
-        args.get(1).expect("Cannot retrieve config path").to_owned()
-    }
-    else {
-        let path = Path::new(args.get(0).expect("Cannot find executable path"));
-        format!("config/{}.toml", path.file_stem().expect("Cannot find executable name").to_str().expect("Cannot parse executable name"))
-    };
-    let mut toml = File::open(&config_file).expect(&format!("File {} not found", config_file));
-    let mut s = String::new();
-    toml.read_to_string(&mut s).expect("Unable to read Toml file");
-    //read config file in toml format
-    let config:Value = toml::from_str(&s).expect("Syntax error on Tolm file");
+    //log4rs::init_file("log4rs.yaml", Default::default()).expect("Unable to init logging");
+    env_logger::init();
 
     //retrieve address and port, defaulting if not configured
-    let addr = format!("{}:{}", config["address"].as_str().expect("Error interpreting address value"), if config.get("port").is_none() {
-            "80"
-        } else {
-            config["port"].as_str().expect("Error interpreting port value")
-        }).parse().expect("Error parsing webserver address");
+    let addr = format!(
+            "{}:{}",
+            config::CONFIG.service.address.as_ref().map(|s| s.as_str()).unwrap_or_else(|| "0.0.0.0"),
+            config::CONFIG.service.port.unwrap_or_else(|| 80)
+        ).parse().expect("Error parsing webserver address");
 
-    //start webserver
-    let server = Http::new().bind(&addr, || Ok(Pokifications)).expect("Error on webserver init");
-    server.run().expect("Error on webserver run");
+    //basic service function
+    let make_service = || {
+        service_fn_ok(|req: Request<Body>| {
+            //spawn an independent future to parse the stream
+            spawn(req.into_body()
+                    .concat2()
+                    .map_err(|e| error!("concat error: {}", e))
+                    .and_then(|chunks| String::from_utf8(chunks.to_vec()).map_err(|e| error!("encoding error: {}", e)))
+                    .and_then(|s| serde_json::from_str(&s).map_err(|e| error!("deserialize error: {}\n{}", e, s)))
+                    .and_then(bot::BotConfigs::submit)
+                );
+            //always reply empty 200 OK
+            Response::new(Body::empty())
+        })
+    };
+
+    info!("Starting webserver at {}", addr);//debug
+    //bind and serve...
+    run(Server::bind(&addr).serve(make_service).map_err(|e| {
+        error!("server error: {}", e);
+    }));
 }

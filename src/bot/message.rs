@@ -1,0 +1,617 @@
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Write};
+use std::path::Path;
+
+use tokio::prelude::{Future, Stream, future::IntoFuture};
+
+use reqwest::r#async::{Client, multipart::{Form, Part}};
+
+use chrono::Local;
+use chrono::offset::TimeZone;
+
+use log::error;
+
+use crate::entities::{Pokemon, Raid, Pokestop};
+use crate::lists::{LIST, MOVES, FORMS, GRUNTS};
+use crate::config::CONFIG;
+
+pub trait Message {
+    fn send(&self, chat_id: String, map: image::DynamicImage, map_type: String) -> Result<(String, Form), ()> {
+        Ok((chat_id.clone(), Form::new()
+            .text("chat_id", chat_id)
+            .part("photo", Part::bytes(self.get_image(map)?)
+                .file_name("image.png")
+                .mime_str("image/png")
+                .map_err(|e| error!("error attaching image: {}", e))?)
+            .text("caption", self.get_caption()?)
+            .text("reply_markup", self.message_button(&map_type)?)
+            .text("disable_web_page_preview", "true")
+        ))
+    }
+
+    fn open_font(path: String) -> Result<rusttype::Font<'static>, ()> {
+        let mut file = File::open(&path).map_err(|e| error!("error opening font {}: {}", path, e))?;
+        let mut font_data = Vec::new();
+        file.read_to_end(&mut font_data).map_err(|e| error!("error reading font {}: {}", path, e))?;
+        rusttype::Font::from_bytes(font_data).map_err(|e| error!("error decoding font {}: {}", path, e))
+    }
+
+    fn get_map(&self) -> Box<Future<Item=image::DynamicImage, Error=()> + Send> {
+        // $lat = number_format(round($ilat, 3), 3);
+        // $lon = number_format(round($ilon, 3), 3);
+        // $map_path = "../../data/bot/img_maps/" . $lat . "_" . $lon . ".png";
+        let map_path_str = format!("{}img_maps/{:.3}_{:.3}.png", CONFIG.images.bot, self.get_latitude(), self.get_longitude());
+        let map_path = Path::new(&map_path_str);
+
+        if map_path.exists() {
+            Box::new(image::open(&map_path).map_err(|e| error!("error opening map image {}: {}", map_path_str, e)).into_future())
+        }
+        else {
+            let m_link = format!("https://maps.googleapis.com/maps/api/staticmap?center={:.3},{:.3}&zoom=14&size=280x101&maptype=roadmap&markers={:.3},{:.3}&key={}", self.get_latitude(), self.get_longitude(), self.get_latitude(), self.get_longitude(), CONFIG.google.maps_key);
+            let map_path_str2 = map_path_str.clone();
+            let client = Client::new();
+            Box::new(client.get(&m_link)
+                .send()
+                .map_err(|e| error!("error calling google maps: {}", e))
+                .and_then(|res| {
+                    res.into_body()
+                        .concat2()
+                        .map_err(|e| error!("error reading google maps response: {}", e))
+                        .and_then(move |chunks| {
+                            let mut file = OpenOptions::new()
+                                .write(true)
+                                .create(true)
+                                .open(&map_path_str)
+                                .map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
+                            let mut buf = chunks.to_vec();
+                            file.write_all(&mut buf).map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
+                            Ok(())
+                        })
+                        .then(move |_| {
+                            image::open(&map_path_str2).map_err(|e| error!("error opening map image {}: {}", map_path_str2, e))
+                        })
+                }))
+        }
+    }
+
+    fn get_text_width(font: &rusttype::Font, scale: rusttype::Scale, text: &str) -> i32 {
+        let space = font.glyph(' ').scaled(scale).h_metrics().advance_width.round() as i32;
+        font.layout(text, scale, rusttype::Point { x: 0f32, y: 0f32 })
+            .fold(0, |acc, l| acc + l.pixel_bounding_box().map(|bb| bb.width()).unwrap_or_else(|| space))
+    }
+
+    fn meteo_icon(meteo: u8) -> Result<String, ()> {
+        Ok(format!(" {}", String::from_utf8(match meteo {
+            1 => vec![0xe2, 0x98, 0x80, 0xef, 0xb8, 0x8f],//CLEAR
+            2 => vec![0xf0, 0x9f, 0x8c, 0xa7],//RAINY
+            3 => vec![0xe2, 0x9b, 0x85, 0xef, 0xb8, 0x8f],//PARTLY_CLOUDY
+            4 => vec![0xe2, 0x98, 0x81, 0xef, 0xb8, 0x8f],//OVERCAST
+            5 => vec![0xf0, 0x9f, 0x8c, 0xac],//WINDY
+            6 => vec![0xe2, 0x9d, 0x84, 0xef, 0xb8, 0x8f],//SNOW
+            7 => vec![0xf0, 0x9f, 0x8c, 0xab],//FOG
+            _ => return Ok(String::new()),
+        }).map_err(|e| error!("error converting meteo icon: {}", e))?))
+    }
+
+    fn message_button(&self, mtype: &str) -> Result<String, ()> {
+        let lat = self.get_latitude();
+        let lon = self.get_longitude();
+
+        let maplink = match mtype {
+            "g" => format!("https://maps.google.it/maps/?q={},{}", lat, lon),
+            "g2" => format!("https://www.google.it/maps/place/{},{}", lat, lon),
+            "g3" => format!("https://www.google.com/maps/search/?api=1&query={},{}", lat, lon),
+            "gd" => format!("https://www.google.com/maps/dir/?api=1&destination={},{}", lat, lon),
+            "a" => format!("http://maps.apple.com/?ll={},{}", lat, lon),
+            "w" => format!("https://waze.com/ul?ll={},{}", lat, lon),
+            _ => format!("https://maps.google.it/maps/?q={},{}", lat, lon),
+        };
+        let title = format!("{} Mappa", String::from_utf8(vec![0xf0, 0x9f, 0x8c, 0x8e]).map_err(|e| error!("error encoding map icon: {}", e))?);
+
+        Ok(serde_json::json!({
+                "inline_keyboard": [[{
+                    "text": title,
+                    "url": maplink
+                }]]
+            }).to_string())
+    }
+
+    fn get_latitude(&self) -> f64;
+
+    fn get_longitude(&self) -> f64;
+
+    fn get_caption(&self) -> Result<String, ()>;
+
+    fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()>;
+}
+
+#[derive(Debug)]
+pub struct PokemonMessage {
+    pub pokemon: Box<Pokemon>,
+    pub iv: Option<f32>,
+    pub distance: f64,
+    pub direction: String,
+}
+
+impl Message for PokemonMessage {
+    fn get_latitude(&self) -> f64 {
+        self.pokemon.latitude
+    }
+
+    fn get_longitude(&self) -> f64 {
+        self.pokemon.longitude
+    }
+
+    fn get_caption(&self) -> Result<String, ()> {
+        // $icon_pkmn = "\xf0\x9f\x94\xb0 #" . $t_msg["pokemon_id"];
+        // $icon_raid = "\xe2\x9a\x94\xef\xb8\x8f";
+        // if (intval(date("Ymd")) >= 20171222 && intval(date("Ymd")) <= 20180106) {
+        //   $icon_pkmn = "\xf0\x9f\x8e\x81"; // natale
+        //   $icon_raid = "\xf0\x9f\x8e\x84"; // natale
+        // }
+        let date = Local::today();
+        let date: usize = date.format("%m%d").to_string().parse().map_err(|e| error!("error parsing date: {}", e))?;
+        let icon = if date < 106 || date > 1222 {
+            String::from_utf8(vec![0xf0, 0x9f, 0x8e, 0x81])//natale
+                .map_err(|e| error!("error parsing pokemon christmas icon: {}", e))?
+        }
+        else {
+            format!("{} #{}",
+                String::from_utf8(vec![0xf0, 0x9f, 0x94, 0xb0])
+                    .map_err(|e| error!("error parsing pokemon icon: {}", e))?,
+                self.pokemon.pokemon_id
+            )
+        };
+
+        // $dir_icon = " " . $t_msg["direction"];
+        // if ($t_msg["distance"] == 0) {
+        //     $dir_icon = " \xf0\x9f\x8f\xa0";
+        // }
+        let dir_icon = if self.distance > 0f64 {
+            self.direction.clone()
+        }
+        else {
+            String::from_utf8(vec![0xf0, 0x9f, 0x8f, 0xa0]).map_err(|e| error!("error parsing direction icon: {}", e))?
+        };
+
+        // if ($t_msg["cp"] != "") {
+        Ok(if let Some(iv) = self.iv {
+            // $v_iv = GetIV($t_msg["atk_iv"], $t_msg["def_iv"], $t_msg["sta_iv"]);
+
+            // $t_corpo = $icon_pkmn . " " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]);
+            // $t_corpo .= ($t_msg["pokemon_id"] == 201 ? " (" . $unown_letter[$t_msg["form"]] . ")" : "");
+            // $t_corpo .= " (" . $v_iv . "%)" . MeteoIcon($t_msg["wb"]) . "\n";
+            // $t_corpo .= "PL " . number_format($t_msg["cp"], 0, ",", ".") . " | Lv " . $t_msg["level"] . "\n";
+            // $t_corpo .= $t_msg["distance"] . "km" . $dir_icon . " | " . date("H:i", $t_msg["expire_timestamp"]);
+            format!("{} {}{} ({:.0}%){}\n{}{:.1} km {} | {}",//debug
+                icon,
+                LIST[&self.pokemon.pokemon_id].name.to_uppercase(),
+                self.pokemon.form.and_then(|id| FORMS.get(&id).map(|s| format!(" ({})", s))).unwrap_or_else(String::new),
+                iv.round(),
+                self.pokemon.weather.and_then(|id| Self::meteo_icon(id).ok()).unwrap_or_else(String::new),
+                match (self.pokemon.cp, self.pokemon.pokemon_level) {
+                    (Some(cp), Some(level)) => format!("PL {} | Lv {}\n", cp, level),
+                    _ => String::new(),
+                },
+                self.distance,
+                dir_icon,
+                Local.timestamp(self.pokemon.disappear_time, 0).format("%T").to_string()
+            )
+        }
+        else {
+            // $t_corpo = $icon_pkmn . " " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]);
+            // $t_corpo .= ($t_msg["pokemon_id"] == 201 ? " (" . $unown_letter[$t_msg["form"]] . ")" : "") . MeteoIcon($t_msg["wb"]) . "\n";
+            // $t_corpo .= $t_msg["distance"] . "km" . $dir_icon . " | " . date("H:i", $t_msg["expire_timestamp"]);
+            format!("{} {}{}{}\n{:.1} km {} | {}",//debug
+                icon,
+                LIST[&self.pokemon.pokemon_id].name.to_uppercase(),
+                self.pokemon.form.and_then(|id| FORMS.get(&id).map(|s| format!(" ({})", s))).unwrap_or_else(String::new),
+                self.pokemon.weather.and_then(|id| Self::meteo_icon(id).ok()).unwrap_or_else(String::new),
+                self.distance,
+                dir_icon,
+                Local.timestamp(self.pokemon.disappear_time, 0).format("%T").to_string()
+            )
+        })
+    }
+
+    fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
+        let now = Local::now();
+        let img_path_str = format!("{}img_sent/poke_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.pokemon.encounter_id, self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new));
+        let img_path = Path::new(&img_path_str);
+
+        if img_path.exists() {
+            let mut image = File::open(&img_path).map_err(|e| error!("error opening pokemon image {}: {}", img_path_str, e))?;
+            let mut bytes = Vec::new();
+            image.read_to_end(&mut bytes).map_err(|e| error!("error reading pokemon image {}: {}", img_path_str, e))?;
+            return Ok(bytes);
+        }
+
+        let f_cal1 = Self::open_font(format!("{}fonts/calibri.ttf", CONFIG.images.sender))?;
+        let f_cal2 = Self::open_font(format!("{}fonts/calibrib.ttf", CONFIG.images.sender))?;
+        let scale11 = rusttype::Scale::uniform(16f32);
+        let scale12 = rusttype::Scale::uniform(17f32);
+        let scale13 = rusttype::Scale::uniform(18f32);
+        let scale18 = rusttype::Scale::uniform(23f32);
+
+        // $mBg = null;
+        let mut background = image::open(format!("{}{}", CONFIG.images.sender, match self.iv {
+            Some(i) if i < 80f32 => "images/msg-bgs/msg-poke-big-norm.png",
+            Some(i) if i >= 80f32 && i < 90f32 => "images/msg-bgs/msg-poke-big-med.png",
+            Some(i) if i >= 90f32 && i < 100f32 => "images/msg-bgs/msg-poke-big-hi.png",
+            Some(i) if i == 100f32 => "images/msg-bgs/msg-poke-big-top.png",
+            _ => "images/msg-bgs/msg-poke-sm.png",
+        })).map_err(|e| error!("error opening pokemon background image: {:?}", e))?;
+
+        let pokemon = match self.pokemon.form {
+            Some(form) if form > 0 => {
+                let image = format!("{}img/pkmns/shuffle/{}-{}.png",
+                    CONFIG.images.assets,
+                    self.pokemon.pokemon_id,
+                    form
+                );
+                image::open(&image)
+                    .map_err(|e| error!("error opening pokemon form image {}: {:?}", image, e))
+                    .or_else(|_| {
+                        let image = format!("{}img/pkmns/shuffle/{}.png",
+                            CONFIG.images.assets,
+                            self.pokemon.pokemon_id
+                        );
+                        image::open(&image).map_err(|e| error!("error opening pokemon image {}: {:?}", image, e))
+                    })?
+            },
+            _ => {
+                let image = format!("{}img/pkmns/shuffle/{}.png",
+                    CONFIG.images.assets,
+                    self.pokemon.pokemon_id
+                );
+                image::open(&image).map_err(|e| error!("error opening pokemon image {}: {:?}", image, e))?
+            },
+        };
+
+        image::imageops::overlay(&mut background, &pokemon, 5, 5);
+
+        // imagettftext($mBg, 18, 0, 63, 25, 0x00000000, $f_cal2, strtoupper($p_name));
+        let name = LIST[&self.pokemon.pokemon_id].name.to_uppercase();
+        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale18, &f_cal2, &name);
+        if let Some(id) = self.pokemon.form {
+            if let Some(form_name) = FORMS.get(&id) {
+                let dm = Self::get_text_width(&f_cal2, scale18, &name);
+                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 73 + dm as u32, 7, scale11, &f_cal2, &format!("({})", form_name));
+            }
+        }
+        // imagettftext($mBg, 12, 0, 82, 46, 0x00000000, $f_cal2, $v_exit);
+        let v_exit = Local.timestamp(self.pokemon.disappear_time, 0);
+        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 82, 34, scale12, &f_cal2, &v_exit.format("%T").to_string());
+
+        //     imagecopymerge($mBg, $mMap, 0, ($v_ivs ? 136 : 58), 0, 0, 280, 101, 100);
+        image::imageops::overlay(&mut background, &map, 0, if self.iv.is_some() { 136 } else { 58 });
+
+        // //////////////////////////////////////////////
+        // // IV, PL e MOSSE
+        if let Some(iv) = self.iv {
+            // $dm = imagettfbbox(11, 0, $f_cal1, strtoupper($m_move1));
+            // imagettftext($mBg, 11, 0, 80 - (abs($dm[4] - $dm[6]) / 2), 75, 0x00000000, $f_cal1, strtoupper($m_move1));
+            let m_move1 = self.pokemon.move_1.and_then(|i| MOVES.get(&i).map(|s| s.to_uppercase())).unwrap_or_else(|| String::from("-"));
+            let dm = Self::get_text_width(&f_cal1, scale11, &m_move1);
+            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 80 - (dm / 2) as u32, 64, scale11, &f_cal1, &m_move1);
+            // $dm = imagettfbbox(11, 0, $f_cal1, strtoupper($m_move2));
+            // imagettftext($mBg, 11, 0, 200 - (abs($dm[4] - $dm[6]) / 2), 75, 0x00000000, $f_cal1, strtoupper($m_move2));
+            let m_move2 = self.pokemon.move_2.and_then(|i| MOVES.get(&i).map(|s| s.to_uppercase())).unwrap_or_else(|| String::from("-"));
+            let dm = Self::get_text_width(&f_cal1, scale11, &m_move2);
+            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 200 - (dm / 2) as u32, 64, scale11, &f_cal1, &m_move2);
+
+            let v_ivcolor = match self.iv {
+                Some(i) if i == 0f32 => image::Rgba::<u8>([0x2D, 0x90, 0xFF, 0]),//0x002D90FF, // NULL Azzurro
+                Some(i) if i >= 80f32 && i < 90f32 => image::Rgba::<u8>([0xFF, 0x62, 0x14, 0]),//0x00FF6214, // MED Arancione
+                Some(i) if i >= 90f32 && i < 100f32 => image::Rgba::<u8>([0xFF, 0, 0, 0]),//0x00FF0000, // HI Rosso
+                Some(i) if i == 100f32 => image::Rgba::<u8>([0xDC, 0, 0xEA, 0]),//0x00DC00EA, // TOP Viola
+                _ => image::Rgba::<u8>([0, 0, 0, 0]),//0x00000000,
+            };
+            // $dm = imagettfbbox(13, 0, $f_cal2, "IV " . $v_iv . " %");
+            // imagettftext($mBg, 13, 0, 80 - (abs($dm[4] - $dm[6]) / 2), 100, $v_ivcolor, $f_cal2, "IV " . $v_iv . " %");
+            let text = format!("IV {:.0}%", iv.round());
+            let dm = Self::get_text_width(&f_cal2, scale13, &text);
+            imageproc::drawing::draw_text_mut(&mut background, v_ivcolor, 80 - (dm / 2) as u32, 87, scale13, &f_cal2, &text);
+
+            let v_plcolor = match self.pokemon.pokemon_level {
+                Some(i) if i >= 25 && i < 30 => image::Rgba::<u8>([0xFF, 0x62, 0x14, 0]),//0x00FF6214, // MED Arancione
+                Some(i) if i >= 30 && i < 35 => image::Rgba::<u8>([0xFF, 0, 0, 0]),//0x00FF0000, // HI Rosso
+                Some(i) if i >= 35 => image::Rgba::<u8>([0xDC, 0, 0xEA, 0]),//0x00DC00EA, // TOP Viola
+                _ => image::Rgba::<u8>([0, 0, 0, 0]),//0x00000000,
+            };
+            // $dm = imagettfbbox(13, 0, $f_cal2, "PL " . number_format($v_pl, 0, '', '.'));
+            // imagettftext($mBg, 13, 0, 200 - (abs($dm[4] - $dm[6]) / 2), 100, $v_plcolor, $f_cal2, "PL " . number_format($v_pl, 0, '', '.'));
+            let text = format!("PL {}", self.pokemon.cp.unwrap_or_else(|| 0));
+            let dm = Self::get_text_width(&f_cal2, scale13, &text);
+            imageproc::drawing::draw_text_mut(&mut background, v_plcolor, 200 - (dm / 2) as u32, 87, scale13, &f_cal2, &text);
+
+            // $v_str = "ATK: " . $v_atk . "   DEF: " . $v_def . "   STA: " . $v_sta;
+            // $dm = imagettfbbox(12, 0, $f_cal1, $v_str);
+            // imagettftext($mBg, 12, 0, 140 - (abs($dm[4] - $dm[6]) / 2), 123, 0x00000000, $f_cal1, $v_str);
+            let text = format!("ATK: {}   DEF: {}   STA: {}", self.pokemon.individual_attack.unwrap_or_else(|| 0), self.pokemon.individual_defense.unwrap_or_else(|| 0), self.pokemon.individual_stamina.unwrap_or_else(|| 0));
+            let dm = Self::get_text_width(&f_cal1, scale12, &text);
+            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 140 - (dm / 2) as u32, 111, scale12, &f_cal1, &text);
+        }
+
+        background.save(&img_path).map_err(|e| error!("error saving pokemon image {}: {}", img_path_str, e))?;
+
+        let mut out = Vec::new();
+        background.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting pokemon image {}: {}", img_path_str, e))?;
+        Ok(out)
+    }
+}
+
+#[derive(Debug)]
+pub struct RaidMessage {
+    pub raid: Raid,
+    pub distance: f64,
+}
+
+impl Message for RaidMessage {
+    fn get_latitude(&self) -> f64 {
+        self.raid.latitude
+    }
+
+    fn get_longitude(&self) -> f64 {
+        self.raid.longitude
+    }
+
+    fn get_caption(&self) -> Result<String, ()> {
+        // $icon_pkmn = "\xf0\x9f\x94\xb0 #" . $t_msg["pokemon_id"];
+        // $icon_raid = "\xe2\x9a\x94\xef\xb8\x8f";
+        // if (intval(date("Ymd")) >= 20171222 && intval(date("Ymd")) <= 20180106) {
+        //   $icon_pkmn = "\xf0\x9f\x8e\x81"; // natale
+        //   $icon_raid = "\xf0\x9f\x8e\x84"; // natale
+        // }
+        let date = Local::today();
+        let date: usize = date.format("%m%d").to_string().parse().map_err(|e| error!("error parsing date: {}", e))?;
+        let icon = if date < 106 || date > 1222 {
+            String::from_utf8(vec![0xf0, 0x9f, 0x8e, 0x84])//natale
+                .map_err(|e| error!("error parsing raid christmas icon: {}", e))?
+        }
+        else {
+            String::from_utf8(vec![0xe2, 0x9a, 0x94, 0xef, 0xb8, 0x8f])
+                .map_err(|e| error!("error parsing raid icon: {}", e))?
+        };
+
+        Ok(if let Some(pokemon_id) = self.raid.pokemon_id.and_then(|id| if id > 0 { Some(id) } else { None }) {
+            // $t_corpo = $icon_raid . " "; // Battaglia
+            // $t_corpo .= "RAID " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]) . " iniziato\n";
+            // $t_corpo .= "\xf0\x9f\x93\x8d " . (strlen($gym_name) > 36 ? substr($gym_name, 0, 35) . ".." : $gym_name) . "\n";
+            // $t_corpo .= "\xf0\x9f\x95\x92 Termina: " . date("H:i:s", $t_msg["time_end"]);
+            format!("{} RAID {}{} iniziato\n{} {}\n{} Termina: {}",//debug
+                icon,
+                LIST[&pokemon_id].name.to_uppercase(),
+                self.raid.form.and_then(|id| FORMS.get(&id).map(|s| format!(" ({})", s))).unwrap_or_else(String::new),
+                String::from_utf8(vec![0xf0, 0x9f, 0x93, 0x8d]).map_err(|e| error!("error parsing POI icon: {}", e))?,
+                self.raid.gym_name,
+                String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92]).map_err(|e| error!("error parsing clock icon: {}", e))?,
+                Local.timestamp(self.raid.end, 0).format("%T").to_string()
+            )
+        }
+        else {
+            // $t_corpo = "\xf0\x9f\xa5\x9a "; // Uovo
+            // $t_corpo .= "RAID liv. " . $t_msg["level"] . "\n";
+            // $t_corpo .= "\xf0\x9f\x93\x8d " . (strlen($gym_name) > 36 ? substr($gym_name, 0, 35) . ".." : $gym_name) . "\n";
+            // $t_corpo .= "\xf0\x9f\x95\x92 Schiude: " . date("H:i:s", $t_msg["time_battle"]);
+            format!("{} RAID liv. {}\n{} {}\n{} Schiude: {}",//debug
+                String::from_utf8(vec![0xf0, 0x9f, 0xa5, 0x9a]).map_err(|e| error!("error parsing egg icon: {}", e))?,
+                self.raid.level,
+                String::from_utf8(vec![0xf0, 0x9f, 0x93, 0x8d]).map_err(|e| error!("error parsing POI icon: {}", e))?,
+                self.raid.gym_name,
+                String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92]).map_err(|e| error!("error parsing clock icon: {}", e))?,
+                Local.timestamp(self.raid.start, 0).format("%T").to_string()
+            )
+        })
+    }
+
+    fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
+        let now = Local::now();
+        let img_path_str = format!("{}img_sent/raid_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.raid.gym_id, self.raid.start);
+        let img_path = Path::new(&img_path_str);
+
+        if img_path.exists() {
+            let mut image = File::open(&img_path).map_err(|e| error!("error opening raid image {}: {}", img_path_str, e))?;
+            let mut bytes = Vec::new();
+            image.read_to_end(&mut bytes).map_err(|e| error!("error reading raid image {}: {}", img_path_str, e))?;
+            return Ok(bytes);
+        }
+
+        let f_cal1 = Self::open_font(format!("{}fonts/calibri.ttf", CONFIG.images.sender))?;
+        let f_cal2 = Self::open_font(format!("{}fonts/calibrib.ttf", CONFIG.images.sender))?;
+        let scale11 = rusttype::Scale::uniform(16f32);
+        let scale12 = rusttype::Scale::uniform(17f32);
+        let scale18 = rusttype::Scale::uniform(23f32);
+
+        let (mut background, pokemon) = match self.raid.pokemon_id {
+            Some(pkmn_id) if pkmn_id > 0 => {
+                // $mBg = imagecreatefrompng("images/msg-bgs/msg-raid-big-t" . $v_team . ".png");
+                let mut background = image::open(format!("{}images/msg-bgs/msg-raid-big-t{}.png", CONFIG.images.sender, self.raid.team_id.get_id())).map_err(|e| error!("error opening raid background image: {:?}", e))?;
+
+                // $mPoke = imagecreatefrompng("../../assets/img/pkmns/shuffle/" . $v_pkmnid . ".png");
+                let pokemon = match self.raid.form {
+                    Some(form) if form > 0 => {
+                        let image = format!("{}img/pkmns/shuffle/{}-{}.png",
+                            CONFIG.images.assets,
+                            pkmn_id,
+                            form
+                        );
+                        image::open(&image)
+                            .map_err(|e| error!("error opening pokemon form image {}: {:?}", image, e))
+                            .or_else(|_| {
+                                let image = format!("{}img/pkmns/shuffle/{}.png",
+                                    CONFIG.images.assets,
+                                    pkmn_id
+                                );
+                                image::open(&image).map_err(|e| error!("error opening pokemon image {}: {:?}", image, e))
+                            })?
+                    },
+                    _ => {
+                        let image = format!("{}img/pkmns/shuffle/{}.png",
+                            CONFIG.images.assets,
+                            pkmn_id
+                        );
+                        image::open(&image).map_err(|e| error!("error opening pokemon image {}: {:?}", image, e))?
+                    },
+                };
+
+                // imagettftext($mBg, 12, 0, 82, 71, 0x00000000, $f_cal2, $v_end);
+                let v_end = Local.timestamp(self.raid.end, 0);
+                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 82, 59, scale12, &f_cal2, &v_end.format("%T").to_string());
+
+                // $dm = imagettfbbox(12, 0, $f_cal2, $v_str);
+                // imagettftext($mBg, 12, 0, 140 - (abs($dm[4] - $dm[6]) / 2), 100, 0x00000000, $f_cal2, $v_str);
+                let text = format!("PL {}", self.raid.cp.unwrap_or_else(|| 0));
+                let dm = Self::get_text_width(&f_cal2, scale12, &text);
+                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 140 - (dm / 2) as u32, 88, scale12, &f_cal2, &text);
+
+                // $dm = imagettfbbox(11, 0, $f_cal1, strtoupper($m_move1));
+                // imagettftext($mBg, 11, 0, 80 - (abs($dm[4] - $dm[6]) / 2), 123, 0x00000000, $f_cal1, strtoupper($m_move1));
+                let m_move1 = self.raid.move_1.and_then(|i| MOVES.get(&i).map(|s| s.to_uppercase())).unwrap_or_else(|| String::from("-"));
+                let dm = Self::get_text_width(&f_cal1, scale11, &m_move1);
+                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 80 - (dm / 2) as u32, 111, scale11, &f_cal1, &m_move1);
+                // $dm = imagettfbbox(11, 0, $f_cal1, strtoupper($m_move2));
+                // imagettftext($mBg, 11, 0, 200 - (abs($dm[4] - $dm[6]) / 2), 123, 0x00000000, $f_cal1, strtoupper($m_move2));
+                let m_move2 = self.raid.move_2.and_then(|i| MOVES.get(&i).map(|s| s.to_uppercase())).unwrap_or_else(|| String::from("-"));
+                let dm = Self::get_text_width(&f_cal1, scale11, &m_move2);
+                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 200 - (dm / 2) as u32, 111, scale11, &f_cal1, &m_move2);
+
+                // imagettftext($mBg, 18, 0, 63, 25, 0x00000000, $f_cal2, $p_name);
+                let name = LIST[&pkmn_id].name.to_uppercase();
+                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale18, &f_cal2, &name);
+                if let Some(id) = self.raid.form {
+                    if let Some(form_name) = FORMS.get(&id) {
+                        let dm = Self::get_text_width(&f_cal2, scale18, &name);
+                        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 73 + dm as u32, 7, scale11, &f_cal2, &format!("({})", form_name));
+                    }
+                }
+
+                (background, pokemon)
+            },
+            _ => {
+                let mut background = image::open(format!("{}images/msg-bgs/msg-raid-sm-t{}.png", CONFIG.images.sender, self.raid.team_id.get_id())).map_err(|e| error!("error opening raid background image: {:?}", e))?;
+                let pokemon = image::open(format!("{}images/raid_{}.png", CONFIG.images.sender, self.raid.level)).map_err(|e| error!("error opening pokemon image: {:?}", e))?;
+
+                // imagettftext($mBg, 12, 0, 82, 71, 0x00000000, $f_cal2, $v_battle);
+                let v_battle = Local.timestamp(self.raid.start, 0);
+                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 82, 59, scale12, &f_cal2, &v_battle.format("%T").to_string());
+
+                // imagettftext($mBg, 18, 0, 63, 25, 0x00000000, $f_cal2, $p_name);
+                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale18, &f_cal2, &format!("RAID liv. {}", self.raid.level));
+
+                (background, pokemon)
+            },
+        };
+
+        image::imageops::overlay(&mut background, &pokemon, 5, 5);
+
+        // imagettftext($mBg, 12, 0, 63, 47, 0x00000000, $f_cal2, (strlen($v_name) > 26 ? substr($v_name, 0, 25) . ".." : ($v_name == "" ? "-" : $v_name)));
+        let mut gym_name = self.raid.gym_name.clone();
+        if gym_name.len() > 30 {
+            gym_name.truncate(29);
+            gym_name.push_str("..");
+        }
+        if gym_name.is_empty() {
+            gym_name.push('-');
+        }
+        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 35, scale12, &f_cal2, &gym_name);
+    
+        // imagecopymerge($mBg, $mMap, 0, ($v_pkmnid == 0 ? 83 : 136), 0, 0, 280, 101, 100);
+        image::imageops::overlay(&mut background, &map, 0, if self.raid.pokemon_id.and_then(|i| if i > 0 { Some(i) } else { None }).is_none() { 83 } else { 136 });
+
+        background.save(&img_path).map_err(|e| error!("error saving raid image {}: {}", img_path_str, e))?;
+
+        let mut out = Vec::new();
+        background.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting raid image {}: {}", img_path_str, e))?;
+        Ok(out)
+    }
+}
+
+#[derive(Debug)]
+pub struct InvasionMessage {
+    pub invasion: Pokestop,
+}
+
+impl Message for InvasionMessage {
+    fn get_latitude(&self) -> f64 {
+        self.invasion.latitude
+    }
+
+    fn get_longitude(&self) -> f64 {
+        self.invasion.longitude
+    }
+
+    fn get_caption(&self) -> Result<String, ()> {
+        if let Some(timestamp) = self.invasion.incident_expire_timestamp {
+            Ok(format!("{} {}\n{} {}\n{} {}",
+                String::from_utf8(vec![0xC2, 0xAE]).map_err(|e| error!("error parsing R icon: {}", e))?,
+                self.invasion.grunt_type.and_then(|id| GRUNTS.get(&id).map(|grunt| grunt.name.as_str())).unwrap_or_else(|| ""),
+                String::from_utf8(vec![0xf0, 0x9f, 0x93, 0x8d]).map_err(|e| error!("error parsing POI icon: {}", e))?,
+                self.invasion.name,
+                String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92]).map_err(|e| error!("error parsing clock icon: {}", e))?,
+                Local.timestamp(timestamp, 0).format("%T").to_string()
+            ))
+        }
+        else {
+            Err(())
+        }
+    }
+
+    fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
+        let now = Local::now();
+        let img_path_str = format!("{}img_sent/invasion_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.invasion.pokestop_id, self.invasion.grunt_type.map(|id| format!("{}", id)).unwrap_or_else(String::new));
+        let img_path = Path::new(&img_path_str);
+
+        if img_path.exists() {
+            let mut image = File::open(&img_path).map_err(|e| error!("error opening invasion image {}: {}", img_path_str, e))?;
+            let mut bytes = Vec::new();
+            image.read_to_end(&mut bytes).map_err(|e| error!("error reading invasion image {}: {}", img_path_str, e))?;
+            return Ok(bytes);
+        }
+
+        // let f_cal1 = Self::open_font(format!("{}fonts/calibri.ttf", CONFIG.images.sender))?;
+        let f_cal2 = Self::open_font(format!("{}fonts/calibrib.ttf", CONFIG.images.sender))?;
+        // let scale11 = rusttype::Scale::uniform(16f32);
+        let scale12 = rusttype::Scale::uniform(17f32);
+        let scale13 = rusttype::Scale::uniform(18f32);
+        // let scale18 = rusttype::Scale::uniform(23f32);
+
+        let mut background = image::open(format!("{}images/msg-bgs/msg-invasion.png", CONFIG.images.sender)).map_err(|e| error!("error opening invasion background image: {:?}", e))?;
+
+        if let Some(grunt) = self.invasion.grunt_type.and_then(|id| GRUNTS.get(&id)) {
+            if let Some(sex) = &grunt.sex {
+                let icon = image::open(format!("{}img/grunts/{}.png", CONFIG.images.assets, sex)).map_err(|e| error!("error opening invasion sex image: {:?}", e))?;
+                image::imageops::overlay(&mut background, &icon, 5, 5);
+            }
+
+            if let Some(element) = &grunt.element {
+                let icon = image::open(format!("{}img/pkmns/types/{}{}.png", CONFIG.images.assets, &element[0..1].to_uppercase(), &element[1..])).map_err(|e| error!("error opening invasion element image: {:?}", e))?;
+                let icon = image::DynamicImage::ImageRgba8(image::imageops::resize(&icon, 24, 24, image::FilterType::Triangle));
+                image::imageops::overlay(&mut background, &icon, 32, 32);
+            }
+        }
+
+        let mut pokestop_name = self.invasion.name.clone();
+        if pokestop_name.len() > 25 {
+            pokestop_name.truncate(24);
+            pokestop_name.push_str("..");
+        }
+        if pokestop_name.is_empty() {
+            pokestop_name.push('-');
+        }
+        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale13, &f_cal2, &pokestop_name);
+
+        if let Some(timestamp) = self.invasion.incident_expire_timestamp {
+            let v_exit = Local.timestamp(timestamp, 0);
+            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 82, 34, scale12, &f_cal2, &v_exit.format("%T").to_string());
+        }
+
+        image::imageops::overlay(&mut background, &map, 0, 58);
+
+        background.save(&img_path).map_err(|e| error!("error saving invasion image {}: {}", img_path_str, e))?;
+
+        let mut out = Vec::new();
+        background.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting invasion image {}: {}", img_path_str, e))?;
+        Ok(out)
+    }
+}

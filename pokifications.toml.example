@@ -1,0 +1,17 @@
+[service]
+address = "0.0.0.0"#0.0.0.0 accepts from any address
+port = 8080
+
+[database]
+url = "mysql://user:password@host/database"
+
+[images]
+sent = "/path/to/img_sent/"
+source = "/path/to/sources/"
+assets = "/path/to/assets"
+
+[google]
+maps_key = ""
+
+[telegram]
+bot_token = ""
