@@ -16,6 +16,8 @@ use crate::lists::{LIST, MOVES, FORMS, GRUNTS};
 use crate::config::CONFIG;
 
 pub trait Message {
+    type Input;
+
     fn send(&self, chat_id: String, map: image::DynamicImage, map_type: String) -> Result<(String, Form), ()> {
         Ok((chat_id.clone(), Form::new()
             .text("chat_id", chat_id)
@@ -134,6 +136,8 @@ pub trait Message {
             }).to_string())
     }
 
+    fn prepare(input: Self::Input) -> Box<Future<Item=(), Error=()> + Send>;
+
     fn get_latitude(&self) -> f64;
 
     fn get_longitude(&self) -> f64;
@@ -152,6 +156,8 @@ pub struct PokemonMessage {
 }
 
 impl Message for PokemonMessage {
+    type Input = Box<Pokemon>;
+
     fn get_latitude(&self) -> f64 {
         self.pokemon.latitude
     }
@@ -357,6 +363,19 @@ impl Message for PokemonMessage {
         background.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting pokemon image {}: {}", img_path_str, e))?;
         Ok(out)
     }
+
+    fn prepare(input: Self::Input) -> Box<Future<Item=(), Error=()> + Send> {
+        let dummy = PokemonMessage {
+            pokemon: input,
+            iv: None,
+            distance: 0f64,
+            direction: String::new(),
+        };
+
+        Box::new(dummy.get_map()
+            .and_then(move |map| dummy.get_image(map))
+            .map(|_| ()))
+    }
 }
 
 #[derive(Debug)]
@@ -366,6 +385,8 @@ pub struct RaidMessage {
 }
 
 impl Message for RaidMessage {
+    type Input = Raid;
+
     fn get_latitude(&self) -> f64 {
         self.raid.latitude
     }
@@ -543,6 +564,17 @@ impl Message for RaidMessage {
         background.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting raid image {}: {}", img_path_str, e))?;
         Ok(out)
     }
+
+    fn prepare(input: Self::Input) -> Box<Future<Item=(), Error=()> + Send> {
+        let dummy = RaidMessage {
+            raid: input,
+            distance: 0f64,
+        };
+
+        Box::new(dummy.get_map()
+            .and_then(move |map| dummy.get_image(map))
+            .map(|_| ()))
+    }
 }
 
 #[derive(Debug)]
@@ -551,6 +583,8 @@ pub struct InvasionMessage {
 }
 
 impl Message for InvasionMessage {
+    type Input = Pokestop;
+
     fn get_latitude(&self) -> f64 {
         self.invasion.latitude
     }
@@ -631,5 +665,15 @@ impl Message for InvasionMessage {
         let mut out = Vec::new();
         background.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting invasion image {}: {}", img_path_str, e))?;
         Ok(out)
+    }
+
+    fn prepare(input: Self::Input) -> Box<Future<Item=(), Error=()> + Send> {
+        let dummy = InvasionMessage {
+            invasion: input,
+        };
+
+        Box::new(dummy.get_map()
+            .and_then(move |map| dummy.get_image(map))
+            .map(|_| ()))
     }
 }

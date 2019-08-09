@@ -6,7 +6,7 @@ use parking_lot::RwLock;
 
 use future_parking_lot::rwlock::{FutureReadable, FutureWriteable};
 
-use tokio::prelude::{Future, future::{self, Either}};
+use tokio::prelude::{Future, future, Stream, stream::FuturesUnordered};
 use tokio::timer::Delay;
 use tokio::spawn;
 
@@ -18,6 +18,8 @@ use log::{info, error};
 
 mod config;
 mod message;
+
+use message::{Message, PokemonMessage, RaidMessage, InvasionMessage};
 
 use crate::entities::Request;
 use crate::db::MYSQL;
@@ -87,21 +89,32 @@ impl BotConfigs {
     }
 
     pub fn submit(inputs: Vec<Request>) -> impl Future<Item=(), Error=()> {
-        for input in &inputs {
-            if let Request::Reload(user_ids) = input {
-                spawn(BotConfigs::reload(user_ids.clone()).then(|_| Err(())));
-                return Either::A(future::ok(()));
-            }
+        let mut set = FuturesUnordered::new();
+        for input in inputs.into_iter() {
+            set.push(Self::prepare(input));
         }
 
-        Either::B(BOT_CONFIGS.future_read(move |lock| {
-            lock.iter().for_each(|(chat_id, config)| {
-                for input in &inputs {
+        set.for_each(|input| {
+            BOT_CONFIGS.future_read(move |lock| {
+                lock.iter().for_each(|(chat_id, config)| {
                     spawn(config.clone().submit(chat_id.clone(), input.clone()));
-                }
-            });
-            Ok(())
-        }))
+                });
+                Ok(())
+            })
+        })
+    }
+
+    fn prepare(input: Request) -> impl Future<Item=Request, Error=()> {
+        match input.clone() {
+            Request::Reload(user_ids) => {
+                spawn(BotConfigs::reload(user_ids).then(|_| Err(())));
+                Box::new(future::err(()))
+            },
+            Request::Pokemon(i) => PokemonMessage::prepare(i),
+            Request::Raid(i) => RaidMessage::prepare(i),
+            Request::Invasion(i) => InvasionMessage::prepare(i),
+            _ => Box::new(future::ok(())),
+        }.and_then(|_| Ok(input))
     }
 }
 
