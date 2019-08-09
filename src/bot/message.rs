@@ -1,8 +1,8 @@
-use std::fs::{File, OpenOptions, remove_file};
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::Path;
 
-use tokio::prelude::{Future, Stream, future::{self, IntoFuture}};
+use tokio::prelude::{Future, Stream, future::IntoFuture};
 
 use reqwest::r#async::{Client, multipart::{Form, Part}};
 
@@ -38,23 +38,6 @@ pub trait Message {
         rusttype::Font::from_bytes(font_data).map_err(|e| error!("error decoding font {}: {}", path, e))
     }
 
-    fn file_exists(path: &Path) -> Result<bool, ()> {
-        if path.exists() {
-            let metadata = path.metadata().map_err(|e| error!("error getting {} metadata: {}", path.display(), e))?;
-            if metadata.len() == 0 {
-                remove_file(path)
-                    .map_err(|e| error!("error removing {}: {}", path.display(), e))
-                    .map(|_| false)
-            }
-            else {
-                Ok(true)
-            }
-        }
-        else {
-            Ok(false)
-        }
-    }
-
     fn get_map(&self) -> Box<Future<Item=image::DynamicImage, Error=()> + Send> {
         // $lat = number_format(round($ilat, 3), 3);
         // $lon = number_format(round($ilon, 3), 3);
@@ -62,35 +45,34 @@ pub trait Message {
         let map_path_str = format!("{}img_maps/{:.3}_{:.3}.png", CONFIG.images.bot, self.get_latitude(), self.get_longitude());
         let map_path = Path::new(&map_path_str);
 
-        match Self::file_exists(&map_path) {
-            Ok(true) => Box::new(image::open(&map_path).map_err(|e| error!("error opening map image {}: {}", map_path_str, e)).into_future()),
-            Ok(false) => {
-                let m_link = format!("https://maps.googleapis.com/maps/api/staticmap?center={:.3},{:.3}&zoom=14&size=280x101&maptype=roadmap&markers={:.3},{:.3}&key={}", self.get_latitude(), self.get_longitude(), self.get_latitude(), self.get_longitude(), CONFIG.google.maps_key);
-                let map_path_str2 = map_path_str.clone();
-                let client = Client::new();
-                Box::new(client.get(&m_link)
-                    .send()
-                    .map_err(|e| error!("error calling google maps: {}", e))
-                    .and_then(|res| {
-                        res.into_body()
-                            .concat2()
-                            .map_err(|e| error!("error reading google maps response: {}", e))
-                            .and_then(move |chunks| {
-                                let mut file = OpenOptions::new()
-                                    .write(true)
-                                    .create(true)
-                                    .open(&map_path_str)
-                                    .map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
-                                let mut buf = chunks.to_vec();
-                                file.write_all(&mut buf).map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
-                                Ok(())
-                            })
-                            .then(move |_| {
-                                image::open(&map_path_str2).map_err(|e| error!("error opening map image {}: {}", map_path_str2, e))
-                            })
-                    }))
-            },
-            Err(_) => Box::new(future::err(())),
+        if map_path.exists() {
+            Box::new(image::open(&map_path).map_err(|e| error!("error opening map image {}: {}", map_path_str, e)).into_future())
+        }
+        else {
+            let m_link = format!("https://maps.googleapis.com/maps/api/staticmap?center={:.3},{:.3}&zoom=14&size=280x101&maptype=roadmap&markers={:.3},{:.3}&key={}", self.get_latitude(), self.get_longitude(), self.get_latitude(), self.get_longitude(), CONFIG.google.maps_key);
+            let map_path_str2 = map_path_str.clone();
+            let client = Client::new();
+            Box::new(client.get(&m_link)
+                .send()
+                .map_err(|e| error!("error calling google maps: {}", e))
+                .and_then(|res| {
+                    res.into_body()
+                        .concat2()
+                        .map_err(|e| error!("error reading google maps response: {}", e))
+                        .and_then(move |chunks| {
+                            let mut file = OpenOptions::new()
+                                .write(true)
+                                .create(true)
+                                .open(&map_path_str)
+                                .map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
+                            let mut buf = chunks.to_vec();
+                            file.write_all(&mut buf).map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
+                            Ok(())
+                        })
+                        .then(move |_| {
+                            image::open(&map_path_str2).map_err(|e| error!("error opening map image {}: {}", map_path_str2, e))
+                        })
+                }))
         }
     }
 
@@ -243,7 +225,7 @@ impl Message for PokemonMessage {
         let img_path_str = format!("{}img_sent/poke_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.pokemon.encounter_id, self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new));
         let img_path = Path::new(&img_path_str);
 
-        if Self::file_exists(&img_path)? {
+        if img_path.exists() {
             let mut image = File::open(&img_path).map_err(|e| error!("error opening pokemon image {}: {}", img_path_str, e))?;
             let mut bytes = Vec::new();
             image.read_to_end(&mut bytes).map_err(|e| error!("error reading pokemon image {}: {}", img_path_str, e))?;
@@ -449,7 +431,7 @@ impl Message for RaidMessage {
         let img_path_str = format!("{}img_sent/raid_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.raid.gym_id, self.raid.start);
         let img_path = Path::new(&img_path_str);
 
-        if Self::file_exists(&img_path)? {
+        if img_path.exists() {
             let mut image = File::open(&img_path).map_err(|e| error!("error opening raid image {}: {}", img_path_str, e))?;
             let mut bytes = Vec::new();
             image.read_to_end(&mut bytes).map_err(|e| error!("error reading raid image {}: {}", img_path_str, e))?;
@@ -614,7 +596,7 @@ impl Message for InvasionMessage {
         let img_path_str = format!("{}img_sent/invasion_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.invasion.pokestop_id, self.invasion.grunt_type.map(|id| format!("{}", id)).unwrap_or_else(String::new));
         let img_path = Path::new(&img_path_str);
 
-        if Self::file_exists(&img_path)? {
+        if img_path.exists() {
             let mut image = File::open(&img_path).map_err(|e| error!("error opening invasion image {}: {}", img_path_str, e))?;
             let mut bytes = Vec::new();
             image.read_to_end(&mut bytes).map_err(|e| error!("error reading invasion image {}: {}", img_path_str, e))?;

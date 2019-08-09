@@ -6,7 +6,7 @@ use parking_lot::RwLock;
 
 use future_parking_lot::rwlock::{FutureReadable, FutureWriteable};
 
-use tokio::prelude::{Future, future, Stream, stream::FuturesUnordered};
+use tokio::prelude::{Future, future};
 use tokio::timer::Delay;
 use tokio::spawn;
 
@@ -89,19 +89,18 @@ impl BotConfigs {
     }
 
     pub fn submit(inputs: Vec<Request>) -> impl Future<Item=(), Error=()> {
-        let mut set = FuturesUnordered::new();
         for input in inputs.into_iter() {
-            set.push(Self::prepare(input));
+            spawn(Self::prepare(input)
+                .and_then(|input| {
+                    BOT_CONFIGS.future_read(move |lock| {
+                        lock.iter().for_each(|(chat_id, config)| {
+                            spawn(config.clone().submit(chat_id.clone(), input.clone()));
+                        });
+                        Ok(())
+                    })
+                }));
         }
-
-        set.for_each(|input| {
-            BOT_CONFIGS.future_read(move |lock| {
-                lock.iter().for_each(|(chat_id, config)| {
-                    spawn(config.clone().submit(chat_id.clone(), input.clone()));
-                });
-                Ok(())
-            })
-        })
+        future::ok(())
     }
 
     fn prepare(input: Request) -> impl Future<Item=Request, Error=()> {
