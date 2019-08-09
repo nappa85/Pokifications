@@ -43,7 +43,11 @@ impl BotConfigs {
     }
 
     fn load(configs: &mut HashMap<String, config::BotConfig>, user_ids: Option<Vec<String>>) -> Result<(), ()> {
-        let now: u64 = Local::now().timestamp() as u64;
+        if let Some(ref user_ids) = user_ids {
+            for user_id in user_ids {
+                configs.remove(user_id);
+            }
+        }
 
         let query = format!("SELECT b.enabled, b.user_id, b.config, b.beta, u.status, c.scadenza FROM utenti_config_bot b
             INNER JOIN utenti u ON u.user_id = b.user_id
@@ -53,11 +57,12 @@ impl BotConfigs {
                 }
                 else {
                     Some(format!("b.user_id IN ({})", v.join(", ")))
-                }).unwrap_or_else(|| String::from("b.beta = 1")));
+                }).unwrap_or_else(|| String::from("b.enabled = 1 AND b.beta = 1 AND u.status != 0")));
 
         let mut conn = MYSQL.get_conn().map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
         let res = conn.query(query).map_err(|e| error!("MySQL query error: {}", e))?;
 
+        let now: u64 = Local::now().timestamp() as u64;
         for r in res {
             let mut row = r.map_err(|e| error!("MySQL row error: {}", e))?;
 
@@ -75,9 +80,6 @@ impl BotConfigs {
                 spawn(Delay::new(Instant::now() + Duration::from_secs(scadenza - now))
                     .map_err(|e| error!("timer error: {}", e))
                     .and_then(move |_| BotConfigs::reload(vec![user_id])));
-            }
-            else {
-                configs.remove(&user_id);
             }
         }
 
