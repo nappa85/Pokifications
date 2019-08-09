@@ -45,10 +45,10 @@ impl BotConfigs {
     fn load(configs: &mut HashMap<String, config::BotConfig>, user_ids: Option<Vec<String>>) -> Result<(), ()> {
         let now: u64 = Local::now().timestamp() as u64;
 
-        let query = format!("SELECT b.user_id, b.config, b.beta, c.scadenza FROM utenti_config_bot b
-            INNER JOIN utenti u ON u.user_id = b.user_id AND u.status != 0
+        let query = format!("SELECT b.enabled, b.user_id, b.config, b.beta, u.status, c.scadenza FROM utenti_config_bot b
+            INNER JOIN utenti u ON u.user_id = b.user_id
             INNER JOIN city c ON c.id = u.city_id AND c.scadenza > UNIX_TIMESTAMP()
-            WHERE b.enabled = 1 AND {}", user_ids.and_then(|v| if v.is_empty() {
+            WHERE {}", user_ids.and_then(|v| if v.is_empty() {
                     None
                 }
                 else {
@@ -61,12 +61,14 @@ impl BotConfigs {
         for r in res {
             let mut row = r.map_err(|e| error!("MySQL row error: {}", e))?;
 
+            let enabled: u8 = row.take("enabled").ok_or_else(|| error!("MySQL utenti_config_bot.enabled encoding error"))?;
             let user_id: String = row.take("user_id").ok_or_else(|| error!("MySQL utenti_config_bot.user_id encoding error"))?;
             let config: String = row.take("config").ok_or_else(|| error!("MySQL utenti_config_bot.config encoding error"))?;
             let beta: u8 = row.take("beta").ok_or_else(|| error!("MySQL utenti_config_bot.beta encoding error"))?;
+            let status: u8 = row.take("status").ok_or_else(|| error!("MySQL utenti.status encoding error"))?;
 
-            if beta > 0 {
-                let config: config::BotConfig = serde_json::from_str(&config).map_err(|e| error!("MySQL config decoding error: {}", e))?;
+            if enabled > 0 && beta > 0 && status > 0 {
+                let config: config::BotConfig = serde_json::from_str(&config).map_err(|e| error!("MySQL utenti_config_bot.config decoding error: {}", e))?;
                 configs.insert(user_id.clone(), config);
 
                 let scadenza: u64 = row.take("scadenza").ok_or_else(|| error!("MySQL city.scadenza encoding error"))?;
