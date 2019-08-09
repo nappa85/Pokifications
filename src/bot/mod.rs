@@ -1,12 +1,16 @@
 use std::sync::Arc;
 use std::collections::HashMap;
+use std::time::{Instant, Duration};
 
 use parking_lot::RwLock;
 
 use future_parking_lot::rwlock::{FutureReadable, FutureWriteable};
 
 use tokio::prelude::{Future, future::{self, Either}};
+use tokio::timer::Delay;
 use tokio::spawn;
+
+use chrono::Local;
 
 use lazy_static::lazy_static;
 
@@ -39,14 +43,16 @@ impl BotConfigs {
     }
 
     fn load(configs: &mut HashMap<String, config::BotConfig>, user_ids: Option<Vec<String>>) -> Result<(), ()> {
-        let query = format!("SELECT b.user_id, b.config, b.beta FROM utenti_config_bot b
+        let now: u64 = Local::now().timestamp() as u64;
+
+        let query = format!("SELECT b.user_id, b.config, b.beta, c.scadenza FROM utenti_config_bot b
             INNER JOIN utenti u ON u.user_id = b.user_id AND u.status != 0
             INNER JOIN city c ON c.id = u.city_id AND c.scadenza > UNIX_TIMESTAMP()
-            WHERE b.enabled = 1 AND {}", user_ids.map(|v| if v.is_empty() {
-                    String::from("b.beta = 1")
+            WHERE b.enabled = 1 AND {}", user_ids.and_then(|v| if v.is_empty() {
+                    None
                 }
                 else {
-                    format!("b.user_id IN ({})", v.join(", "))
+                    Some(format!("b.user_id IN ({})", v.join(", ")))
                 }).unwrap_or_else(|| String::from("b.beta = 1")));
 
         let mut conn = MYSQL.get_conn().map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
@@ -61,7 +67,12 @@ impl BotConfigs {
 
             if beta > 0 {
                 let config: config::BotConfig = serde_json::from_str(&config).map_err(|e| error!("MySQL config decoding error: {}", e))?;
-                configs.insert(user_id, config);
+                configs.insert(user_id.clone(), config);
+
+                let scadenza: u64 = row.take("scadenza").ok_or_else(|| error!("MySQL city.scadenza encoding error"))?;
+                spawn(Delay::new(Instant::now() + Duration::from_secs(scadenza - now))
+                    .map_err(|e| error!("timer error: {}", e))
+                    .and_then(move |_| BotConfigs::reload(vec![user_id])));
             }
             else {
                 configs.remove(&user_id);
