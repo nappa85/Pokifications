@@ -275,7 +275,14 @@ pub struct BotLocs {
 impl BotLocs {
     fn convert_to_i64(input: &JsonValue) -> Result<i64, ()> {
         match input {
-            JsonValue::String(s) => s.parse().map_err(|e| error!("json value convert_to_i64 error: {}", e)),
+            JsonValue::String(s) => {
+                if s.is_empty() {
+                    Err(())
+                }
+                else {
+                    s.parse().map_err(|e| error!("json value convert_to_i64 error: {}", e))
+                }
+            },
             JsonValue::Number(n) => n.as_i64().ok_or_else(|| error!("json value convert_to_i64 error: json element isn't an integer")),
             _ => {
                 error!("json value convert_to_i64 format not recognized: {:?}", input);
@@ -286,7 +293,14 @@ impl BotLocs {
 
     fn convert_to_f64(input: &JsonValue) -> Result<f64, ()> {
         match input {
-            JsonValue::String(s) => s.parse().map_err(|e| error!("json value convert_to_f64 error: {}", e)),
+            JsonValue::String(s) => {
+                if s.is_empty() {
+                    Err(())
+                }
+                else {
+                    s.parse().map_err(|e| error!("json value convert_to_f64 error: {}", e))
+                }
+            },
             JsonValue::Number(n) => n.as_f64().ok_or_else(|| error!("json value convert_to_f64 error: json element isn't a float")),
             _ => {
                 error!("json value convert_to_f64 format not recognized: {:?}", input);
