@@ -17,7 +17,8 @@ mod lists;
 use hyper::{Body, Request, Response, Server};
 use hyper::service::service_fn_ok;
 
-use tokio::{run, spawn};
+use tokio::spawn;
+use tokio::runtime::{Runtime, Builder};
 use tokio::prelude::{Future, Stream};
 
 use log::{info, error};
@@ -51,8 +52,22 @@ fn main() {
     };
 
     info!("Starting webserver at {}", addr);//debug
-    //bind and serve...
-    run(Server::bind(&addr).serve(make_service).map_err(|e| {
+
+    let mut runtime = match config::CONFIG.threads {
+        Some(ref threads) => {
+            let mut runtime_builder = Builder::new();
+            runtime_builder.core_threads(threads.min)
+                .blocking_threads(threads.max)
+                .build().expect("Threadpool build error")
+        },
+        None => Runtime::new().expect("Runtime build error"),
+    };
+
+    // bind and serve...
+    runtime.spawn(Server::bind(&addr).serve(make_service).map_err(|e| {
         error!("server error: {}", e);
     }));
+
+    // wait for compeltion
+    runtime.shutdown_on_idle().wait().unwrap();
 }

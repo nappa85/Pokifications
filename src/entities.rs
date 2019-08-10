@@ -3,7 +3,7 @@ use serde::{Deserialize, Deserializer};
 use serde_json::value::Value;
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+// #[serde(deny_unknown_fields)]
 #[serde(tag = "type", content = "message")]
 pub enum Request {
     #[serde(rename = "pokemon")]
@@ -29,7 +29,7 @@ pub enum Request {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+// #[serde(deny_unknown_fields)]
 pub struct Pokemon {
     pub spawnpoint_id: String,
     pub encounter_id: String,
@@ -141,7 +141,7 @@ impl<'de> Deserialize<'de> for Gender {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+// #[serde(deny_unknown_fields)]
 pub struct Pokestop {
     pub pokestop_id: String,
     pub name: String,
@@ -163,7 +163,7 @@ pub struct Pokestop {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+// #[serde(deny_unknown_fields)]
 pub struct Gym {
     pub gym_id: String,
     pub gym_name: String,
@@ -231,7 +231,7 @@ impl<'de> Deserialize<'de> for Team {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+// #[serde(deny_unknown_fields)]
 pub struct GymDetails {
     pub id: String,
     pub name: String,
@@ -247,7 +247,7 @@ pub struct GymDetails {
 }
 
 // #[derive(Clone, Debug, Deserialize)]
-// #[serde(deny_unknown_fields)]
+// // #[serde(deny_unknown_fields)]
 // pub struct GymPokemon {
 //     pokemon_uid: usize,
 //     pokemon_id: u16,
@@ -271,7 +271,7 @@ pub struct GymDetails {
 // }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+// #[serde(deny_unknown_fields)]
 pub struct Raid {
     pub gym_id: String,
     pub gym_name: String,
@@ -302,7 +302,7 @@ pub struct Raid {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+// #[serde(deny_unknown_fields)]
 pub struct Scheduler {
     pub name: String,
     pub instance: String,
@@ -311,7 +311,7 @@ pub struct Scheduler {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+// #[serde(deny_unknown_fields)]
 pub struct Captcha {
     pub status_name: String,
     pub account: String,
@@ -359,7 +359,7 @@ impl<'de> Deserialize<'de> for CaptchaStatus {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+// #[serde(deny_unknown_fields)]
 pub struct Quest {
     #[serde(rename = "type")]
     pub quest_type: u8,

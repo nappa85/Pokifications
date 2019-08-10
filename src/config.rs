@@ -15,6 +15,7 @@ lazy_static! {
 #[derive(Deserialize)]
 pub struct Config {
     pub service: Service,
+    pub threads: Option<Threads>,
     pub database: Database,
     pub images: Images,
     pub google: Google,
@@ -25,6 +26,12 @@ pub struct Config {
 pub struct Service {
     pub address: Option<String>,
     pub port: Option<u32>,
+}
+
+#[derive(Deserialize)]
+pub struct Threads {
+    pub min: usize,
+    pub max: usize,
 }
 
 #[derive(Deserialize)]

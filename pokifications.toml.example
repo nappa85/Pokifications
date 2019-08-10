@@ -2,6 +2,10 @@
 address = "0.0.0.0"#0.0.0.0 accepts from any address
 port = 8080
 
+[threads]
+min = 12
+max = 12
+
 [database]
 url = "mysql://user:password@host/database"
 
