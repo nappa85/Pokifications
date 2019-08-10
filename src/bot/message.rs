@@ -2,24 +2,79 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::Path;
 
-use tokio::prelude::{Future, Stream, future::IntoFuture};
+use tokio::prelude::{Future, Stream, future::{self, IntoFuture, Either}};
 
 use reqwest::r#async::{Client, multipart::{Form, Part}};
 
 use chrono::Local;
 use chrono::offset::TimeZone;
 
+use serde_json::value::Value;
+
 use log::error;
+
+use super::BotConfigs;
 
 use crate::entities::{Pokemon, Raid, Pokestop};
 use crate::lists::{LIST, MOVES, FORMS, GRUNTS};
 use crate::config::CONFIG;
+use crate::db::MYSQL;
 
 pub trait Message {
     type Input;
 
-    fn send(&self, chat_id: String, map: image::DynamicImage, map_type: String) -> Result<(String, Form), ()> {
-        Ok((chat_id.clone(), Form::new()
+    fn send(&self, chat_id: String, map: image::DynamicImage, map_type: String) -> Box<Future<Item=(), Error=()> + Send> {
+        let form = match self.get_form(chat_id.clone(), map, &map_type) {
+            Ok(form) => form,
+            Err(_) => return Box::new(future::err(())),
+        };
+
+        let url = format!("https://api.telegram.org/bot{}/sendPhoto", CONFIG.telegram.bot_token);
+        let client = Client::new();
+        Box::new(client.post(&url)
+            .multipart(form)
+            .send()
+            .map_err(|e| error!("error calling Telegram: {}", e))
+            .and_then(move |res| {
+                if res.status().is_success() {
+                    Either::A(future::ok(chat_id))
+                }
+                else {
+                    let debug1 = format!("error response from Telegram: {:?}", res);
+                    let debug2 = debug1.clone();
+                    Either::B(res.into_body()
+                        .concat2()
+                        .map_err(move |e| error!("error while reading error {}: {}", debug1, e))
+                        .and_then(move |chunks| {
+                            let body = String::from_utf8(chunks.to_vec()).map_err(|e| error!("error while encoding error {}: {}", debug2, e))?;
+                            error!("{}\nchat_id: {}\n{}", debug2, chat_id, body);
+                            let json: Value = serde_json::from_str(&body).map_err(|e| error!("error while deconfig error: {}", e))?;
+
+                            // blocked, disable bot
+                            if json["description"] == "Forbidden: bot was blocked by the user" {
+                                let mut conn = MYSQL.get_conn().map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+                                conn.query(format!("UPDATE utenti_config_bot SET enabled = 0 WHERE user_id = {}", chat_id)).map_err(|e| error!("MySQL query error: {}", e))?;
+                                Ok(chat_id)
+                            }
+                            else {
+                                Err(())
+                            }
+                        })
+                        .and_then(|chat_id| {
+                            // apply
+                            BotConfigs::reload(vec![chat_id]).then(|_| Err(()))
+                        }))
+                }
+            })
+            .and_then(|chat_id| {
+                let mut conn = MYSQL.get_conn().map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+                conn.query(format!("UPDATE utenti_config_bot SET sent = sent + 1 WHERE user_id = {}", chat_id)).map_err(|e| error!("MySQL query error: {}", e))?;
+                Ok(())
+            }))
+    }
+
+    fn get_form(&self, chat_id: String, map: image::DynamicImage, map_type: &str) -> Result<Form, ()> {
+        Ok(Form::new()
             .text("chat_id", chat_id)
             .part("photo", Part::bytes(self.get_image(map)?)
                 .file_name("image.png")
@@ -27,8 +82,7 @@ pub trait Message {
                 .map_err(|e| error!("error attaching image: {}", e))?)
             .text("caption", self.get_caption()?)
             .text("reply_markup", self.message_button(&map_type)?)
-            .text("disable_web_page_preview", "true")
-        ))
+            .text("disable_web_page_preview", "true"))
     }
 
     fn open_font(path: String) -> Result<rusttype::Font<'static>, ()> {

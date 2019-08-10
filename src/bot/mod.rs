@@ -94,7 +94,9 @@ impl BotConfigs {
                 .and_then(|input| {
                     BOT_CONFIGS.future_read(move |lock| {
                         lock.iter().for_each(|(chat_id, config)| {
-                            spawn(config.clone().submit(chat_id.clone(), input.clone()));
+                            if let Ok(future) = config.submit(chat_id.clone(), input.clone()) {
+                                spawn(future);
+                            }
                         });
                         Ok(())
                     })

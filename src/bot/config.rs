@@ -3,9 +3,7 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
-use tokio::prelude::{Future, Stream, future::{self, IntoFuture, Either}};
-
-use reqwest::r#async::{Client, multipart::Form};
+use tokio::prelude::Future;
 
 use serde_json::Value as JsonValue;
 
@@ -14,11 +12,9 @@ use chrono::Local;
 use log::error;
 
 use crate::lists::COMMON;
-use crate::config::CONFIG;
 use crate::entities::{Pokemon, Pokestop, Raid, Request};
-use crate::db::MYSQL;
 
-use super::{BotConfigs, message::{Message, PokemonMessage, RaidMessage, InvasionMessage}};
+use super::message::{Message, PokemonMessage, RaidMessage, InvasionMessage};
 
 const MAX_DISTANCE: f64 = 15f64;
 const MIN_IV_LIMIT: f32 = 36f32;
@@ -35,78 +31,25 @@ pub struct BotConfig {
 }
 
 impl BotConfig {
-    pub fn submit(self, chat_id: String, input: Request) -> impl Future<Item=(), Error=()> {
-        self._submit()
-            .into_future()
-            .and_then(move |_| match input {
-                Request::Pokemon(p) => Either::A(Either::A(self.submit_pokemon(chat_id, p))),
-                Request::Raid(r) => Either::A(Either::B(self.submit_raid(chat_id, r))),
-                Request::Invasion(i) => Either::B(Either::A(self.submit_invasion(chat_id, i))),
-                _ => Either::B(Either::B(future::err(()))),
-            })
-            .and_then(|(chat_id, form)| {
-                let url = format!("https://api.telegram.org/bot{}/sendPhoto", CONFIG.telegram.bot_token);
-                let client = Client::new();
-                client.post(&url)
-                    .multipart(form)
-                    .send()
-                    .map_err(|e| error!("error calling Telegram: {}", e))
-                    .and_then(move |res| {
-                        if res.status().is_success() {
-                            Either::A(future::ok(chat_id))
-                        }
-                        else {
-                            let debug1 = format!("error response from Telegram: {:?}", res);
-                            let debug2 = debug1.clone();
-                            Either::B(res.into_body()
-                                .concat2()
-                                .map_err(move |e| error!("error while reading error {}: {}", debug1, e))
-                                .and_then(move |chunks| {
-                                    let body = String::from_utf8(chunks.to_vec()).map_err(|e| error!("error while encoding error {}: {}", debug2, e))?;
-                                    error!("{}\nchat_id: {}\n{}", debug2, chat_id, body);
-                                    let json: JsonValue = serde_json::from_str(&body).map_err(|e| error!("error while deconfig error: {}", e))?;
-
-                                    // blocked, disable bot
-                                    if json["description"] == "Forbidden: bot was blocked by the user" {
-                                        let mut conn = MYSQL.get_conn().map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-                                        conn.query(format!("UPDATE utenti_config_bot SET enabled = 0 WHERE user_id = {}", chat_id)).map_err(|e| error!("MySQL query error: {}", e))?;
-                                        Ok(chat_id)
-                                    }
-                                    else {
-                                        Err(())
-                                    }
-                                })
-                                .and_then(|chat_id| {
-                                    // apply
-                                    BotConfigs::reload(vec![chat_id]).then(|_| Err(()))
-                                }))
-                        }
-                    })
-            })
-            .and_then(|chat_id| {
-                let mut conn = MYSQL.get_conn().map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-                conn.query(format!("UPDATE utenti_config_bot SET sent = sent + 1 WHERE user_id = {}", chat_id)).map_err(|e| error!("MySQL query error: {}", e))?;
-                Ok(())
-            })
-    }
-
-    fn _submit(&self) -> Result<(), ()> {
+    pub fn submit(&self, chat_id: String, input: Request) -> Result<Box<Future<Item=(), Error=()> + Send>, ()> {
         if !self.time.is_active()? && self.time.fi[0] == 0 && self.time.fl[0] == 0 {
             // info!("Webhook discarded for time configs");//debug
-            return Err(());
+            Err(())
         }
-
-        Ok(())
+        else {
+            match input {
+                Request::Pokemon(p) => self.submit_pokemon(chat_id, p),
+                Request::Raid(r) => self.submit_raid(chat_id, r),
+                Request::Invasion(i) => self.submit_invasion(chat_id, i),
+                _ => Err(()),
+            }
+        }
     }
 
-    fn submit_pokemon(&self, chat_id: String, input: Box<Pokemon>) -> impl Future<Item=(String, Form), Error=()> {
+    fn submit_pokemon(&self, chat_id: String, input: Box<Pokemon>) -> Result<Box<Future<Item=(), Error=()> + Send>, ()> {
+        let message = self._submit_pokemon(input)?;
         let map_type = self.more.l.clone();
-        self._submit_pokemon(input)
-            .into_future()
-            .and_then(|message| {
-                // info!("this pokémon would have been notified: {:?}", message);//debug
-                message.get_map().and_then(move |map| message.send(chat_id, map, map_type))
-            })
+        Ok(Box::new(message.get_map().and_then(move |map| message.send(chat_id, map, map_type))))
     }
 
     fn _submit_pokemon(&self, input: Box<Pokemon>) -> Result<PokemonMessage, ()> {
@@ -170,14 +113,10 @@ impl BotConfig {
         })
     }
 
-    fn submit_raid(&self, chat_id: String, input: Raid) -> impl Future<Item=(String, Form), Error=()> {
+    fn submit_raid(&self, chat_id: String, input: Raid) -> Result<Box<Future<Item=(), Error=()> + Send>, ()> {
+        let message = self._submit_raid(input)?;
         let map_type = self.more.l.clone();
-        self._submit_raid(input)
-            .into_future()
-            .and_then(|message| {
-                // info!("this raid would have been notified: {:?}", message);//debug
-                message.get_map().and_then(move |map| message.send(chat_id, map, map_type))
-            })
+        Ok(Box::new(message.get_map().and_then(move |map| message.send(chat_id, map, map_type))))
     }
  
     fn _submit_raid(&self, input: Raid) -> Result<RaidMessage, ()> {
@@ -224,14 +163,10 @@ impl BotConfig {
         })
     }
 
-    fn submit_invasion(&self, chat_id: String, input: Pokestop) -> impl Future<Item=(String, Form), Error=()> {
+    fn submit_invasion(&self, chat_id: String, input: Pokestop) -> Result<Box<Future<Item=(), Error=()> + Send>, ()> {
+        let message = self._submit_invasion(input)?;
         let map_type = self.more.l.clone();
-        self._submit_invasion(input)
-            .into_future()
-            .and_then(|message| {
-                // info!("this invasion would have been notified: {:?}", message);//debug
-                message.get_map().and_then(move |map| message.send(chat_id, map, map_type))
-            })
+        Ok(Box::new(message.get_map().and_then(move |map| message.send(chat_id, map, map_type))))
     }
 
     fn _submit_invasion(&self, input: Pokestop) -> Result<InvasionMessage, ()> {
