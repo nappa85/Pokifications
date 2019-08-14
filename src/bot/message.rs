@@ -1,8 +1,10 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::Path;
+use std::time::{Instant, Duration};
 
-use tokio::prelude::{Future, Stream, future::{self, IntoFuture, Either}};
+use tokio::timer::Delay;
+use tokio::prelude::{Future, Stream, future::{self, IntoFuture, Either, loop_fn, Loop}};
 
 use reqwest::r#async::{Client, multipart::{Form, Part}};
 
@@ -23,8 +25,8 @@ use crate::db::MYSQL;
 pub trait Message {
     type Input;
 
-    fn send(&self, chat_id: String, map: image::DynamicImage, map_type: String) -> Box<Future<Item=(), Error=()> + Send> {
-        let form = match self.get_form(chat_id.clone(), map, &map_type) {
+    fn send(&self, chat_id: String, file_id: String, map_type: String) -> Box<Future<Item=(), Error=()> + Send> {
+        let form = match self.get_form(chat_id.clone(), file_id, &map_type) {
             Ok(form) => form,
             Err(_) => return Box::new(future::err(())),
         };
@@ -44,11 +46,11 @@ pub trait Message {
                     let debug2 = debug1.clone();
                     Either::B(res.into_body()
                         .concat2()
-                        .map_err(move |e| error!("error while reading error {}: {}", debug1, e))
+                        .map_err(move |e| error!("error while reading {}: {}", debug1, e))
                         .and_then(move |chunks| {
-                            let body = String::from_utf8(chunks.to_vec()).map_err(|e| error!("error while encoding error {}: {}", debug2, e))?;
+                            let body = String::from_utf8(chunks.to_vec()).map_err(|e| error!("error while encoding {}: {}", debug2, e))?;
                             error!("{}\nchat_id: {}\n{}", debug2, chat_id, body);
-                            let json: Value = serde_json::from_str(&body).map_err(|e| error!("error while deconfig error: {}", e))?;
+                            let json: Value = serde_json::from_str(&body).map_err(|e| error!("error while decoding {}: {}", debug2, e))?;
 
                             // blocked, disable bot
                             if json["description"] == "Forbidden: bot was blocked by the user" {
@@ -73,13 +75,10 @@ pub trait Message {
             }))
     }
 
-    fn get_form(&self, chat_id: String, map: image::DynamicImage, map_type: &str) -> Result<Form, ()> {
+    fn get_form(&self, chat_id: String, file_id: String, map_type: &str) -> Result<Form, ()> {
         Ok(Form::new()
             .text("chat_id", chat_id)
-            .part("photo", Part::bytes(self.get_image(map)?)
-                .file_name("image.png")
-                .mime_str("image/png")
-                .map_err(|e| error!("error attaching image: {}", e))?)
+            .text("photo", file_id)
             .text("caption", self.get_caption()?)
             .text("reply_markup", self.message_button(&map_type)?)
             .text("disable_web_page_preview", "true"))
@@ -172,7 +171,74 @@ pub trait Message {
             }).to_string())
     }
 
-    fn prepare(input: Self::Input) -> Box<Future<Item=(), Error=()> + Send>;
+    fn prepare(input: Self::Input) -> Box<Future<Item=String, Error=()> + Send> {
+        Box::new(Self::_prepare(input)
+            .and_then(|bytes| {
+                loop_fn(bytes, |bytes| {
+                    let part = match Part::bytes(bytes.clone()).file_name("image.png").mime_str("image/png") {
+                        Ok(part) => part,
+                        Err(e) => {
+                            error!("error attaching image: {}", e);
+                            return Either::A(future::err(()));
+                        },
+                    };
+
+                    let url = format!("https://api.telegram.org/bot{}/sendPhoto", CONFIG.telegram.bot_token);
+                    let client = Client::new();
+                    Either::B(client.post(&url)
+                        .multipart(Form::new()
+                            .text("chat_id", CONFIG.telegram.cache_chat.clone())
+                            .text("caption", "caching")
+                            .part("photo", part))
+                        .send()
+                        .map_err(|e| error!("error calling Telegram for caching image: {}", e))
+                        .and_then(|res| {
+                            if res.status().as_u16() == 429u16 {
+                                Either::A(Delay::new(Instant::now() + Duration::from_secs(30))
+                                    .map_err(|e| error!("delay error: {}", e))
+                                    .map(|_| Loop::Continue(bytes)))
+                            }
+                            else {
+                                let success = res.status().is_success();
+                                let debug1 = format!("response from Telegram for caching image: {:?}", res);
+                                let debug2 = debug1.clone();
+                                Either::B(res.into_body()
+                                    .concat2()
+                                    .map_err(move |e| error!("error while reading {}: {}", debug1, e))
+                                    .and_then(move |chunks| {
+                                        let body = String::from_utf8(chunks.to_vec()).map_err(|e| error!("error while encoding {}: {}", debug2, e))?;
+                                        if success {
+                                            let json: Value = serde_json::from_str(&body).map_err(|e| error!("error while decoding {}: {}", debug2, e))?;
+
+                                            if let Some(sizes) = json["result"]["photo"].as_array() {
+                                                // scan various formats to select the best one
+                                                let mut best_index = 0;
+                                                for i in 1..sizes.len() {
+                                                    if sizes[best_index]["file_size"].as_u64() < sizes[i]["file_size"].as_u64() {
+                                                        best_index = i;
+                                                    }
+                                                }
+
+                                                Ok(Loop::Break(sizes[best_index]["file_id"].as_str().map(|s| s.to_owned()).ok_or_else(|| ())?))
+                                            }
+                                            else {
+                                                error!("error while reading {}: photos isn't an array\n{}", debug2, body);
+                                                Err(())
+                                            }
+                                        }
+                                        else {
+                                            error!("error while reading {}\n{}", debug2, body);
+                                            Err(())
+                                        }
+                                    }))
+                            }
+                        }))
+                })
+            }))
+
+    }
+
+    fn _prepare(input: Self::Input) -> Box<Future<Item=Vec<u8>, Error=()> + Send>;
 
     fn get_latitude(&self) -> f64;
 
@@ -400,7 +466,7 @@ impl Message for PokemonMessage {
         Ok(out)
     }
 
-    fn prepare(input: Self::Input) -> Box<Future<Item=(), Error=()> + Send> {
+    fn _prepare(input: Self::Input) -> Box<Future<Item=Vec<u8>, Error=()> + Send> {
         let dummy = PokemonMessage {
             pokemon: input,
             iv: None,
@@ -409,8 +475,7 @@ impl Message for PokemonMessage {
         };
 
         Box::new(dummy.get_map()
-            .and_then(move |map| dummy.get_image(map))
-            .map(|_| ()))
+            .and_then(move |map| dummy.get_image(map)))
     }
 }
 
@@ -601,15 +666,14 @@ impl Message for RaidMessage {
         Ok(out)
     }
 
-    fn prepare(input: Self::Input) -> Box<Future<Item=(), Error=()> + Send> {
+    fn _prepare(input: Self::Input) -> Box<Future<Item=Vec<u8>, Error=()> + Send> {
         let dummy = RaidMessage {
             raid: input,
             distance: 0f64,
         };
 
         Box::new(dummy.get_map()
-            .and_then(move |map| dummy.get_image(map))
-            .map(|_| ()))
+            .and_then(move |map| dummy.get_image(map)))
     }
 }
 
@@ -703,13 +767,12 @@ impl Message for InvasionMessage {
         Ok(out)
     }
 
-    fn prepare(input: Self::Input) -> Box<Future<Item=(), Error=()> + Send> {
+    fn _prepare(input: Self::Input) -> Box<Future<Item=Vec<u8>, Error=()> + Send> {
         let dummy = InvasionMessage {
             invasion: input,
         };
 
         Box::new(dummy.get_map()
-            .and_then(move |map| dummy.get_image(map))
-            .map(|_| ()))
+            .and_then(move |map| dummy.get_image(map)))
     }
 }

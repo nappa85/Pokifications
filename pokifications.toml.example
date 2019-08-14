@@ -19,3 +19,4 @@ maps_key = ""
 
 [telegram]
 bot_token = ""
+cache_chat = ""
