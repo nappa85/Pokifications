@@ -174,7 +174,7 @@ pub trait Message {
     fn prepare(now: DateTime<Local>, input: Self::Input) -> Box<Future<Item=String, Error=()> + Send> {
         Box::new(Self::_prepare(input)
             .and_then(move |bytes| {
-                loop_fn(bytes, move |bytes| {
+                loop_fn((bytes, 0), move |(bytes, retries)| {
                     let part = match Part::bytes(bytes.clone()).file_name("image.png").mime_str("image/png") {
                         Ok(part) => part,
                         Err(e) => {
@@ -188,16 +188,16 @@ pub trait Message {
                     Either::B(client.post(&url)
                         .multipart(Form::new()
                             .text("chat_id", CONFIG.telegram.cache_chat.clone())
-                            .text("caption", now.format("%F %T").to_string())
+                            .text("caption", format!("{}\n{} retries", now.format("%F %T").to_string(), retries))
                             .part("photo", part))
                         .send()
                         .map_err(|e| error!("error calling Telegram for caching image: {}", e))
-                        .and_then(|res| {
+                        .and_then(move |res| {
                             let status = res.status().as_u16();
                             if status == 429u16 || status == 504u16 {
                                 Either::A(Delay::new(Instant::now() + Duration::from_secs(30))
                                     .map_err(|e| error!("delay error: {}", e))
-                                    .map(|_| Loop::Continue(bytes)))
+                                    .map(move |_| Loop::Continue((bytes, retries + 1))))
                             }
                             else {
                                 let success = res.status().is_success();
