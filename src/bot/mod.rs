@@ -89,24 +89,30 @@ impl BotConfigs {
     }
 
     pub fn submit(inputs: Vec<Request>) -> impl Future<Item=(), Error=()> {
-        for input in inputs.into_iter() {
-            spawn(Self::prepare(input)
-                .and_then(|(input, file_id)| {
-                    BOT_CONFIGS.future_read(move |lock| {
-                        lock.iter().for_each(|(chat_id, config)| {
-                            if let Ok(future) = config.submit(chat_id.clone(), file_id.clone(), input.clone()) {
-                                spawn(future);
+        BOT_CONFIGS.future_read(move |lock| {
+            for input in inputs.into_iter() {
+                let mut futures = Vec::new();
+                lock.iter().for_each(|(chat_id, config)| {
+                    if let Ok(future) = config.submit(chat_id.clone(), input.clone()) {
+                        futures.push(future);
+                    }
+                });
+                if !futures.is_empty() {
+                    spawn(Self::prepare(input)
+                        .and_then(move |file_id| {
+                            for future in futures.into_iter() {
+                                spawn(future(file_id.clone()));
                             }
-                        });
-                        Ok(())
-                    })
-                }));
-        }
-        future::ok(())
+                            Ok(())
+                        }));
+                }
+            }
+            Ok(())
+        })
     }
 
-    fn prepare(input: Request) -> impl Future<Item=(Request, String), Error=()> {
-        match input.clone() {
+    fn prepare(input: Request) -> impl Future<Item=String, Error=()> {
+        match input {
             Request::Reload(user_ids) => {
                 spawn(BotConfigs::reload(user_ids).then(|_| Err(())));
                 Box::new(future::err(()))
@@ -115,7 +121,7 @@ impl BotConfigs {
             Request::Raid(i) => RaidMessage::prepare(i),
             Request::Invasion(i) => InvasionMessage::prepare(i),
             _ => Box::new(future::err(())),
-        }.and_then(|file_id| Ok((input, file_id)))
+        }
     }
 }
 

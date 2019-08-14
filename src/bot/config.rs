@@ -31,25 +31,25 @@ pub struct BotConfig {
 }
 
 impl BotConfig {
-    pub fn submit(&self, chat_id: String, file_id: String, input: Request) -> Result<Box<Future<Item=(), Error=()> + Send>, ()> {
+    pub fn submit(&self, chat_id: String, input: Request) -> Result<Box<FnOnce(String) -> Box<Future<Item=(), Error=()> + Send> + Send>, ()> {
         if !self.time.is_active()? && self.time.fi[0] == 0 && self.time.fl[0] == 0 {
             // info!("Webhook discarded for time configs");//debug
             Err(())
         }
         else {
             match input {
-                Request::Pokemon(p) => self.submit_pokemon(chat_id, file_id, p),
-                Request::Raid(r) => self.submit_raid(chat_id, file_id, r),
-                Request::Invasion(i) => self.submit_invasion(chat_id, file_id, i),
+                Request::Pokemon(p) => self.submit_pokemon(chat_id, p),
+                Request::Raid(r) => self.submit_raid(chat_id, r),
+                Request::Invasion(i) => self.submit_invasion(chat_id, i),
                 _ => Err(()),
             }
         }
     }
 
-    fn submit_pokemon(&self, chat_id: String, file_id: String, input: Box<Pokemon>) -> Result<Box<Future<Item=(), Error=()> + Send>, ()> {
+    fn submit_pokemon(&self, chat_id: String, input: Box<Pokemon>) -> Result<Box<FnOnce(String) -> Box<Future<Item=(), Error=()> + Send> + Send>, ()> {
         let message = self._submit_pokemon(input)?;
         let map_type = self.more.l.clone();
-        Ok(message.send(chat_id, file_id, map_type))
+        Ok(Box::new(move |file_id| message.send(chat_id, file_id, map_type)))
     }
 
     fn _submit_pokemon(&self, input: Box<Pokemon>) -> Result<PokemonMessage, ()> {
@@ -113,10 +113,10 @@ impl BotConfig {
         })
     }
 
-    fn submit_raid(&self, chat_id: String, file_id: String, input: Raid) -> Result<Box<Future<Item=(), Error=()> + Send>, ()> {
+    fn submit_raid(&self, chat_id: String, input: Raid) -> Result<Box<FnOnce(String) -> Box<Future<Item=(), Error=()> + Send> + Send>, ()> {
         let message = self._submit_raid(input)?;
         let map_type = self.more.l.clone();
-        Ok(message.send(chat_id, file_id, map_type))
+        Ok(Box::new(move |file_id| message.send(chat_id, file_id, map_type)))
     }
  
     fn _submit_raid(&self, input: Raid) -> Result<RaidMessage, ()> {
@@ -163,10 +163,10 @@ impl BotConfig {
         })
     }
 
-    fn submit_invasion(&self, chat_id: String, file_id: String, input: Pokestop) -> Result<Box<Future<Item=(), Error=()> + Send>, ()> {
+    fn submit_invasion(&self, chat_id: String, input: Pokestop) -> Result<Box<FnOnce(String) -> Box<Future<Item=(), Error=()> + Send> + Send>, ()> {
         let message = self._submit_invasion(input)?;
         let map_type = self.more.l.clone();
-        Ok(message.send(chat_id, file_id, map_type))
+        Ok(Box::new(move |file_id| message.send(chat_id, file_id, map_type)))
     }
 
     fn _submit_invasion(&self, input: Pokestop) -> Result<InvasionMessage, ()> {
