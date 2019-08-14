@@ -193,7 +193,8 @@ pub trait Message {
                         .send()
                         .map_err(|e| error!("error calling Telegram for caching image: {}", e))
                         .and_then(|res| {
-                            if res.status().as_u16() == 429u16 {
+                            let status = res.status().as_u16();
+                            if status == 429u16 || status == 504u16 {
                                 Either::A(Delay::new(Instant::now() + Duration::from_secs(30))
                                     .map_err(|e| error!("delay error: {}", e))
                                     .map(|_| Loop::Continue(bytes)))
