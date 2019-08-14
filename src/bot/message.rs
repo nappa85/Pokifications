@@ -468,9 +468,14 @@ impl Message for PokemonMessage {
     }
 
     fn _prepare(input: Self::Input) -> Box<Future<Item=Vec<u8>, Error=()> + Send> {
+        let iv = match (input.individual_attack, input.individual_defense, input.individual_stamina) {
+            (Some(atk), Some(def), Some(sta)) => Some(((atk + def + sta) as f32 / 45f32) * 100f32),
+            _ => None,
+        };
+
         let dummy = PokemonMessage {
             pokemon: input,
-            iv: None,
+            iv,
             distance: 0f64,
             direction: String::new(),
         };
