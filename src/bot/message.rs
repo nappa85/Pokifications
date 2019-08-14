@@ -8,7 +8,7 @@ use tokio::prelude::{Future, Stream, future::{self, IntoFuture, Either, loop_fn,
 
 use reqwest::r#async::{Client, multipart::{Form, Part}};
 
-use chrono::Local;
+use chrono::{Local, DateTime};
 use chrono::offset::TimeZone;
 
 use serde_json::value::Value;
@@ -171,10 +171,10 @@ pub trait Message {
             }).to_string())
     }
 
-    fn prepare(input: Self::Input) -> Box<Future<Item=String, Error=()> + Send> {
+    fn prepare(now: DateTime<Local>, input: Self::Input) -> Box<Future<Item=String, Error=()> + Send> {
         Box::new(Self::_prepare(input)
-            .and_then(|bytes| {
-                loop_fn(bytes, |bytes| {
+            .and_then(move |bytes| {
+                loop_fn(bytes, move |bytes| {
                     let part = match Part::bytes(bytes.clone()).file_name("image.png").mime_str("image/png") {
                         Ok(part) => part,
                         Err(e) => {
@@ -188,7 +188,7 @@ pub trait Message {
                     Either::B(client.post(&url)
                         .multipart(Form::new()
                             .text("chat_id", CONFIG.telegram.cache_chat.clone())
-                            .text("caption", "caching")
+                            .text("caption", now.format("%F %T").to_string())
                             .part("photo", part))
                         .send()
                         .map_err(|e| error!("error calling Telegram for caching image: {}", e))
@@ -344,14 +344,14 @@ impl Message for PokemonMessage {
     fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
         let now = Local::now();
         let img_path_str = format!("{}img_sent/poke_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.pokemon.encounter_id, self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new));
-        let img_path = Path::new(&img_path_str);
+        // let img_path = Path::new(&img_path_str);
 
-        if img_path.exists() {
-            let mut image = File::open(&img_path).map_err(|e| error!("error opening pokemon image {}: {}", img_path_str, e))?;
-            let mut bytes = Vec::new();
-            image.read_to_end(&mut bytes).map_err(|e| error!("error reading pokemon image {}: {}", img_path_str, e))?;
-            return Ok(bytes);
-        }
+        // if img_path.exists() {
+        //     let mut image = File::open(&img_path).map_err(|e| error!("error opening pokemon image {}: {}", img_path_str, e))?;
+        //     let mut bytes = Vec::new();
+        //     image.read_to_end(&mut bytes).map_err(|e| error!("error reading pokemon image {}: {}", img_path_str, e))?;
+        //     return Ok(bytes);
+        // }
 
         let f_cal1 = Self::open_font(format!("{}fonts/calibri.ttf", CONFIG.images.sender))?;
         let f_cal2 = Self::open_font(format!("{}fonts/calibrib.ttf", CONFIG.images.sender))?;
@@ -460,7 +460,7 @@ impl Message for PokemonMessage {
             imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 140 - (dm / 2) as u32, 111, scale12, &f_cal1, &text);
         }
 
-        background.save(&img_path).map_err(|e| error!("error saving pokemon image {}: {}", img_path_str, e))?;
+        // background.save(&img_path).map_err(|e| error!("error saving pokemon image {}: {}", img_path_str, e))?;
 
         let mut out = Vec::new();
         background.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting pokemon image {}: {}", img_path_str, e))?;
@@ -549,14 +549,14 @@ impl Message for RaidMessage {
     fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
         let now = Local::now();
         let img_path_str = format!("{}img_sent/raid_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.raid.gym_id, self.raid.start);
-        let img_path = Path::new(&img_path_str);
+        // let img_path = Path::new(&img_path_str);
 
-        if img_path.exists() {
-            let mut image = File::open(&img_path).map_err(|e| error!("error opening raid image {}: {}", img_path_str, e))?;
-            let mut bytes = Vec::new();
-            image.read_to_end(&mut bytes).map_err(|e| error!("error reading raid image {}: {}", img_path_str, e))?;
-            return Ok(bytes);
-        }
+        // if img_path.exists() {
+        //     let mut image = File::open(&img_path).map_err(|e| error!("error opening raid image {}: {}", img_path_str, e))?;
+        //     let mut bytes = Vec::new();
+        //     image.read_to_end(&mut bytes).map_err(|e| error!("error reading raid image {}: {}", img_path_str, e))?;
+        //     return Ok(bytes);
+        // }
 
         let f_cal1 = Self::open_font(format!("{}fonts/calibri.ttf", CONFIG.images.sender))?;
         let f_cal2 = Self::open_font(format!("{}fonts/calibrib.ttf", CONFIG.images.sender))?;
@@ -660,7 +660,7 @@ impl Message for RaidMessage {
         // imagecopymerge($mBg, $mMap, 0, ($v_pkmnid == 0 ? 83 : 136), 0, 0, 280, 101, 100);
         image::imageops::overlay(&mut background, &map, 0, if self.raid.pokemon_id.and_then(|i| if i > 0 { Some(i) } else { None }).is_none() { 83 } else { 136 });
 
-        background.save(&img_path).map_err(|e| error!("error saving raid image {}: {}", img_path_str, e))?;
+        // background.save(&img_path).map_err(|e| error!("error saving raid image {}: {}", img_path_str, e))?;
 
         let mut out = Vec::new();
         background.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting raid image {}: {}", img_path_str, e))?;
@@ -713,14 +713,14 @@ impl Message for InvasionMessage {
     fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
         let now = Local::now();
         let img_path_str = format!("{}img_sent/invasion_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.invasion.pokestop_id, self.invasion.grunt_type.map(|id| format!("{}", id)).unwrap_or_else(String::new));
-        let img_path = Path::new(&img_path_str);
+        // let img_path = Path::new(&img_path_str);
 
-        if img_path.exists() {
-            let mut image = File::open(&img_path).map_err(|e| error!("error opening invasion image {}: {}", img_path_str, e))?;
-            let mut bytes = Vec::new();
-            image.read_to_end(&mut bytes).map_err(|e| error!("error reading invasion image {}: {}", img_path_str, e))?;
-            return Ok(bytes);
-        }
+        // if img_path.exists() {
+        //     let mut image = File::open(&img_path).map_err(|e| error!("error opening invasion image {}: {}", img_path_str, e))?;
+        //     let mut bytes = Vec::new();
+        //     image.read_to_end(&mut bytes).map_err(|e| error!("error reading invasion image {}: {}", img_path_str, e))?;
+        //     return Ok(bytes);
+        // }
 
         // let f_cal1 = Self::open_font(format!("{}fonts/calibri.ttf", CONFIG.images.sender))?;
         let f_cal2 = Self::open_font(format!("{}fonts/calibrib.ttf", CONFIG.images.sender))?;
@@ -761,7 +761,7 @@ impl Message for InvasionMessage {
 
         image::imageops::overlay(&mut background, &map, 0, 58);
 
-        background.save(&img_path).map_err(|e| error!("error saving invasion image {}: {}", img_path_str, e))?;
+        // background.save(&img_path).map_err(|e| error!("error saving invasion image {}: {}", img_path_str, e))?;
 
         let mut out = Vec::new();
         background.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting invasion image {}: {}", img_path_str, e))?;

@@ -21,6 +21,8 @@ use tokio::spawn;
 use tokio::runtime::{Runtime, Builder};
 use tokio::prelude::{Future, Stream};
 
+use chrono::Local;
+
 use log::{info, error};
 
 /// Launch service according to config
@@ -38,13 +40,15 @@ fn main() {
     //basic service function
     let make_service = || {
         service_fn_ok(|req: Request<Body>| {
+            let now = Local::now();
+
             //spawn an independent future to parse the stream
             spawn(req.into_body()
                     .concat2()
                     .map_err(|e| error!("concat error: {}", e))
                     .and_then(|chunks| String::from_utf8(chunks.to_vec()).map_err(|e| error!("encoding error: {}", e)))
                     .and_then(|s| serde_json::from_str(&s).map_err(|e| error!("deserialize error: {}\n{}", e, s)))
-                    .and_then(bot::BotConfigs::submit)
+                    .and_then(move |configs| bot::BotConfigs::submit(now, configs))
                 );
             //always reply empty 200 OK
             Response::new(Body::empty())

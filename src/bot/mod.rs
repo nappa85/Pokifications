@@ -10,7 +10,7 @@ use tokio::prelude::{Future, future};
 use tokio::timer::Delay;
 use tokio::spawn;
 
-use chrono::Local;
+use chrono::{Local, DateTime};
 
 use lazy_static::lazy_static;
 
@@ -88,7 +88,7 @@ impl BotConfigs {
         Ok(())
     }
 
-    pub fn submit(inputs: Vec<Request>) -> impl Future<Item=(), Error=()> {
+    pub fn submit(now: DateTime<Local>, inputs: Vec<Request>) -> impl Future<Item=(), Error=()> {
         BOT_CONFIGS.future_read(move |lock| {
             for input in inputs.into_iter() {
                 let mut futures = Vec::new();
@@ -98,7 +98,7 @@ impl BotConfigs {
                     }
                 });
                 if !futures.is_empty() {
-                    spawn(Self::prepare(input)
+                    spawn(Self::prepare(now, input)
                         .and_then(move |file_id| {
                             for future in futures.into_iter() {
                                 spawn(future(file_id.clone()));
@@ -111,15 +111,15 @@ impl BotConfigs {
         })
     }
 
-    fn prepare(input: Request) -> impl Future<Item=String, Error=()> {
+    fn prepare(now: DateTime<Local>, input: Request) -> impl Future<Item=String, Error=()> {
         match input {
             Request::Reload(user_ids) => {
                 spawn(BotConfigs::reload(user_ids).then(|_| Err(())));
                 Box::new(future::err(()))
             },
-            Request::Pokemon(i) => PokemonMessage::prepare(i),
-            Request::Raid(i) => RaidMessage::prepare(i),
-            Request::Invasion(i) => InvasionMessage::prepare(i),
+            Request::Pokemon(i) => PokemonMessage::prepare(now, i),
+            Request::Raid(i) => RaidMessage::prepare(now, i),
+            Request::Invasion(i) => InvasionMessage::prepare(now, i),
             _ => Box::new(future::err(())),
         }
     }
@@ -132,13 +132,15 @@ mod tests {
     use tokio::prelude::Future;
     use tokio::runtime::current_thread::block_on_all;
 
+    use chrono::Local;
+
     use log::info;
 
     #[test]
     fn pokemon_image_iv() {
         env_logger::try_init().ok();
 
-        block_on_all(PokemonMessage::prepare(serde_json::from_str(
+        block_on_all(PokemonMessage::prepare(Local::now(), serde_json::from_str(
                 r#"{"latitude":43.771209013571,"last_modified_time":1564175718,"gender":2,"weight":1.48829138278961,"individual_stamina":13,"cp":656,"individual_attack":15,"pokemon_level":30,"spawnpoint_id":"A54016D1","disappear_time_verified":true,"form":0,"individual_defense":4,"first_seen":1564174573,"pokestop_id":"e5bab95925c040ba8ba9d480665f94dc.16","encounter_id":"12854125514185017067","longitude":11.2560545151937,"costume":0,"move_1":216,"disappear_time":1564175797,"move_2":58,"weather":1,"pokemon_id":339,"height":0.409816652536392}"#
             ).unwrap())
             .and_then(|file_id| {
@@ -151,7 +153,7 @@ mod tests {
     fn pokemon_image_no_iv() {
         env_logger::try_init().ok();
 
-        block_on_all(PokemonMessage::prepare(serde_json::from_str(
+        block_on_all(PokemonMessage::prepare(Local::now(), serde_json::from_str(
                 r#"{"latitude":43.771081,"last_modified_time":1564175718,"gender":2,"weight":null,"individual_stamina":null,"cp":null,"individual_attack":null,"pokemon_level":null,"spawnpoint_id":"None","disappear_time_verified":false,"form":0,"individual_defense":null,"first_seen":1564175718,"pokestop_id":"34eadde33a9a412e9cf74a6137b38d48.16","encounter_id":"1432619712785063368","longitude":11.266252,"costume":0,"move_1":null,"disappear_time":1564176918,"move_2":null,"weather":0,"pokemon_id":109,"height":null}"#
             ).unwrap())
             .and_then(|file_id| {
@@ -164,7 +166,7 @@ mod tests {
     fn raid_image_egg() {
         env_logger::try_init().ok();
 
-        block_on_all(RaidMessage::prepare(serde_json::from_str(
+        block_on_all(RaidMessage::prepare(Local::now(), serde_json::from_str(
                 r#"{"gym_name":"Cesena - Stadio Dino Manuzzi","gym_url":"http://lh3.googleusercontent.com/EDFoOOm1G0hhjtBdJmBUjcUAcfB1se0zPatRviNuHcsK2oxwIokSONXWb8CUAJYYHI0Cl32dWiVlIMXVZe_X","end":1564338495,"form":0,"is_exclusive":false,"longitude":12.262141,"cp":0,"team_id":1,"pokemon_id":0,"gym_id":"fe20dd37398341a4b83751c5c050aaec.16","move_2":0,"level":4,"move_1":0,"start":1564335795,"ex_raid_eligible":false,"spawn":1564332195,"latitude":44.139762}"#
             ).unwrap())
             .and_then(|file_id| {
@@ -177,7 +179,7 @@ mod tests {
     fn raid_image_raidboss() {
         env_logger::try_init().ok();
 
-        block_on_all(RaidMessage::prepare(serde_json::from_str(
+        block_on_all(RaidMessage::prepare(Local::now(), serde_json::from_str(
                 r#"{"latitude":45.468203,"team_id":2,"start":1564212138,"end":1564214838,"spawn":1564208538,"cp":2527,"ex_raid_eligible":false,"form":63,"gym_id":"03213b28587c4063b81c6d9ed39e5f54.16","gym_name":"Parrocchia di San Pietro in Sala","longitude":9.156488,"move_1":202,"move_2":16,"is_exclusive":false,"gym_url":"http://lh5.ggpht.com/5sxTUTkH0Ch1l-w-jMN8i_2-wz1XVjcPv4EAHTBJunHONWr7KFIWHjnh_RfU0lqKPL4j12sSgQJKyKNqD3-p","level":1,"pokemon_id":52}"#
             ).unwrap())
             .and_then(|file_id| {
@@ -190,7 +192,7 @@ mod tests {
     fn invasion_image() {
         env_logger::try_init().ok();
 
-        block_on_all(InvasionMessage::prepare(serde_json::from_str(
+        block_on_all(InvasionMessage::prepare(Local::now(), serde_json::from_str(
                 r#"{"lure_expiration":0,"enabled":true,"updated":1564332327,"url":"http://lh6.ggpht.com/ga78DsEtufPUGu0H0oE2ZOeagwxe8aQ4k4-kBLEDdSfeFVshH8gHhQN1GMcw1OFd_n94NpwTkOa16zR5DqUL","pokestop_display":1,"longitude":11.236241,"lure_id":501,"last_modified":1564329955,"pokestop_id":"54e0ee4c0e7a42ca93d2e93ee720dc90.16","name":"Ancora Un'altra Madonnina.","incident_expire_timestamp":1564333601,"grunt_type":33,"latitude":44.723203}"#
             ).unwrap())
             .and_then(|file_id| {
