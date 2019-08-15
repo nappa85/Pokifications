@@ -14,7 +14,7 @@ use log::error;
 use crate::lists::COMMON;
 use crate::entities::{Pokemon, Pokestop, Raid, Request};
 
-use super::message::{Message, PokemonMessage, RaidMessage, InvasionMessage};
+use super::message::{Image, Message, PokemonMessage, RaidMessage, InvasionMessage};
 
 const MAX_DISTANCE: f64 = 15f64;
 const MIN_IV_LIMIT: f32 = 36f32;
@@ -31,7 +31,7 @@ pub struct BotConfig {
 }
 
 impl BotConfig {
-    pub fn submit(&self, chat_id: String, input: Request) -> Result<Box<FnOnce(String) -> Box<Future<Item=(), Error=()> + Send> + Send>, ()> {
+    pub fn submit(&self, chat_id: String, input: Request) -> Result<Box<FnOnce(Image) -> Box<Future<Item=(), Error=()> + Send> + Send>, ()> {
         if !self.time.is_active()? && self.time.fi[0] == 0 && self.time.fl[0] == 0 {
             // info!("Webhook discarded for time configs");//debug
             Err(())
@@ -46,7 +46,7 @@ impl BotConfig {
         }
     }
 
-    fn submit_pokemon(&self, chat_id: String, input: Box<Pokemon>) -> Result<Box<FnOnce(String) -> Box<Future<Item=(), Error=()> + Send> + Send>, ()> {
+    fn submit_pokemon(&self, chat_id: String, input: Box<Pokemon>) -> Result<Box<FnOnce(Image) -> Box<Future<Item=(), Error=()> + Send> + Send>, ()> {
         let message = self._submit_pokemon(input)?;
         let map_type = self.more.l.clone();
         Ok(Box::new(move |file_id| message.send(chat_id, file_id, map_type)))
@@ -113,7 +113,7 @@ impl BotConfig {
         })
     }
 
-    fn submit_raid(&self, chat_id: String, input: Raid) -> Result<Box<FnOnce(String) -> Box<Future<Item=(), Error=()> + Send> + Send>, ()> {
+    fn submit_raid(&self, chat_id: String, input: Raid) -> Result<Box<FnOnce(Image) -> Box<Future<Item=(), Error=()> + Send> + Send>, ()> {
         let message = self._submit_raid(input)?;
         let map_type = self.more.l.clone();
         Ok(Box::new(move |file_id| message.send(chat_id, file_id, map_type)))
@@ -163,7 +163,7 @@ impl BotConfig {
         })
     }
 
-    fn submit_invasion(&self, chat_id: String, input: Pokestop) -> Result<Box<FnOnce(String) -> Box<Future<Item=(), Error=()> + Send> + Send>, ()> {
+    fn submit_invasion(&self, chat_id: String, input: Pokestop) -> Result<Box<FnOnce(Image) -> Box<Future<Item=(), Error=()> + Send> + Send>, ()> {
         let message = self._submit_invasion(input)?;
         let map_type = self.more.l.clone();
         Ok(Box::new(move |file_id| message.send(chat_id, file_id, map_type)))

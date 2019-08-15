@@ -16,7 +16,9 @@ assets = "/path/to/assets"
 
 [google]
 maps_key = ""
+timeout = 1
 
 [telegram]
 bot_token = ""
+timeout = 1
 cache_chat = ""

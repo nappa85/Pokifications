@@ -49,12 +49,14 @@ pub struct Images {
 #[derive(Deserialize)]
 pub struct Google {
     pub maps_key: String,
+    pub timeout: Option<u64>,
 }
 
 #[derive(Deserialize)]
 pub struct Telegram {
     pub bot_token: String,
-    pub cache_chat: String,
+    pub timeout: Option<u64>,
+    pub cache_chat: Option<String>,
 }
 
 impl Config {

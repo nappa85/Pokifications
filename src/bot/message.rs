@@ -1,12 +1,13 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::Path;
-use std::time::{Instant, Duration};
+// use std::time::{Instant, Duration};
+use std::time::Duration;
 
-use tokio::timer::Delay;
+// use tokio::timer::Delay;
 use tokio::prelude::{Future, Stream, future::{self, IntoFuture, Either, loop_fn, Loop}};
 
-use reqwest::r#async::{Client, multipart::{Form, Part}};
+use reqwest::r#async::{ClientBuilder, Client, multipart::{Form, Part}};
 
 use chrono::{Local, DateTime};
 use chrono::offset::TimeZone;
@@ -22,17 +23,35 @@ use crate::lists::{LIST, MOVES, FORMS, GRUNTS};
 use crate::config::CONFIG;
 use crate::db::MYSQL;
 
+#[derive(Clone, Debug)]
+pub enum Image {
+    FileId(String),
+    Bytes(Vec<u8>),
+}
+
 pub trait Message {
     type Input;
 
-    fn send(&self, chat_id: String, file_id: String, map_type: String) -> Box<Future<Item=(), Error=()> + Send> {
-        let form = match self.get_form(chat_id.clone(), file_id, &map_type) {
+    fn send(&self, chat_id: String, image: Image, map_type: String) -> Box<Future<Item=(), Error=()> + Send> {
+        let form = match self.get_form(chat_id.clone(), image, &map_type) {
             Ok(form) => form,
             Err(_) => return Box::new(future::err(())),
         };
 
         let url = format!("https://api.telegram.org/bot{}/sendPhoto", CONFIG.telegram.bot_token);
-        let client = Client::new();
+        let client = match CONFIG.telegram.timeout {
+            Some(timeout) => {
+                match ClientBuilder::new().timeout(Duration::from_secs(timeout)).build() {
+                    Ok(client) => client,
+                    Err(e) => {
+                        error!("error building Telegram client: {}", e);
+                        return Box::new(future::err(()));
+                    },
+                }
+            },
+            None => Client::new(),
+        };
+
         Box::new(client.post(&url)
             .multipart(form)
             .send()
@@ -75,13 +94,23 @@ pub trait Message {
             }))
     }
 
-    fn get_form(&self, chat_id: String, file_id: String, map_type: &str) -> Result<Form, ()> {
-        Ok(Form::new()
+    fn get_form(&self, chat_id: String, image: Image, map_type: &str) -> Result<Form, ()> {
+        let form = Form::new()
             .text("chat_id", chat_id)
-            .text("photo", file_id)
             .text("caption", self.get_caption()?)
             .text("reply_markup", self.message_button(&map_type)?)
-            .text("disable_web_page_preview", "true"))
+            .text("disable_web_page_preview", "true");
+        
+        Ok(match image {
+            Image::FileId(file_id) => form.text("photo", file_id),
+            Image::Bytes(bytes) => {
+                form.part("photo", Part::bytes(bytes)
+                        .file_name("image.png")
+                        .mime_str("image/png")
+                        .map_err(|e| error!("error attaching image: {}", e))?
+                    )
+            },
+        })
     }
 
     fn open_font(path: String) -> Result<rusttype::Font<'static>, ()> {
@@ -104,7 +133,19 @@ pub trait Message {
         else {
             let m_link = format!("https://maps.googleapis.com/maps/api/staticmap?center={:.3},{:.3}&zoom=14&size=280x101&maptype=roadmap&markers={:.3},{:.3}&key={}", self.get_latitude(), self.get_longitude(), self.get_latitude(), self.get_longitude(), CONFIG.google.maps_key);
             let map_path_str2 = map_path_str.clone();
-            let client = Client::new();
+
+            let client = match CONFIG.google.timeout {
+                Some(timeout) => {
+                    match ClientBuilder::new().timeout(Duration::from_secs(timeout)).build() {
+                        Ok(client) => client,
+                        Err(e) => {
+                            error!("error building Google client: {}", e);
+                            return Box::new(future::err(()));
+                        },
+                    }
+                },
+                None => Client::new(),
+            };
             Box::new(client.get(&m_link)
                 .send()
                 .map_err(|e| error!("error calling google maps: {}", e))
@@ -171,70 +212,88 @@ pub trait Message {
             }).to_string())
     }
 
-    fn prepare(now: DateTime<Local>, input: Self::Input) -> Box<Future<Item=String, Error=()> + Send> {
+    fn prepare(now: DateTime<Local>, input: Self::Input) -> Box<Future<Item=Image, Error=()> + Send> {
         Box::new(Self::_prepare(input)
             .and_then(move |bytes| {
-                loop_fn((bytes, 0), move |(bytes, retries)| {
-                    let part = match Part::bytes(bytes.clone()).file_name("image.png").mime_str("image/png") {
-                        Ok(part) => part,
-                        Err(e) => {
-                            error!("error attaching image: {}", e);
-                            return Either::A(future::err(()));
+                if let Some(ref chat_id) = CONFIG.telegram.cache_chat {
+                    let client = match CONFIG.telegram.timeout {
+                        Some(timeout) => {
+                            match ClientBuilder::new().timeout(Duration::from_secs(timeout)).build() {
+                                Ok(client) => client,
+                                Err(e) => {
+                                    error!("error building cache client: {}", e);
+                                    return Either::A(future::err(()));
+                                },
+                            }
                         },
+                        None => Client::new(),
                     };
 
-                    let url = format!("https://api.telegram.org/bot{}/sendPhoto", CONFIG.telegram.bot_token);
-                    let client = Client::new();
-                    Either::B(client.post(&url)
-                        .multipart(Form::new()
-                            .text("chat_id", CONFIG.telegram.cache_chat.clone())
-                            .text("caption", format!("{}\n{} retries", now.format("%F %T").to_string(), retries))
-                            .part("photo", part))
-                        .send()
-                        .map_err(|e| error!("error calling Telegram for caching image: {}", e))
-                        .and_then(move |res| {
-                            let status = res.status().as_u16();
-                            if status == 429u16 || status == 504u16 {
-                                Either::A(Delay::new(Instant::now() + Duration::from_secs(30))
-                                    .map_err(|e| error!("delay error: {}", e))
-                                    .map(move |_| Loop::Continue((bytes, retries + 1))))
-                            }
-                            else {
-                                let success = res.status().is_success();
-                                let debug1 = format!("response from Telegram for caching image: {:?}", res);
-                                let debug2 = debug1.clone();
-                                Either::B(res.into_body()
-                                    .concat2()
-                                    .map_err(move |e| error!("error while reading {}: {}", debug1, e))
-                                    .and_then(move |chunks| {
-                                        let body = String::from_utf8(chunks.to_vec()).map_err(|e| error!("error while encoding {}: {}", debug2, e))?;
-                                        if success {
-                                            let json: Value = serde_json::from_str(&body).map_err(|e| error!("error while decoding {}: {}", debug2, e))?;
+                    Either::B(loop_fn((client, chat_id.clone(), bytes, 0), move |(client, chat_id, bytes, retries)| {
+                        let part = match Part::bytes(bytes.clone()).file_name("image.png").mime_str("image/png") {
+                            Ok(part) => part,
+                            Err(e) => {
+                                error!("error attaching image: {}", e);
+                                return Either::A(future::err(()));
+                            },
+                        };
 
-                                            if let Some(sizes) = json["result"]["photo"].as_array() {
-                                                // scan various formats to select the best one
-                                                let mut best_index = 0;
-                                                for i in 1..sizes.len() {
-                                                    if sizes[best_index]["file_size"].as_u64() < sizes[i]["file_size"].as_u64() {
-                                                        best_index = i;
+                        let url = format!("https://api.telegram.org/bot{}/sendPhoto", CONFIG.telegram.bot_token);
+                        Either::B(client.post(&url)
+                            .multipart(Form::new()
+                                .text("chat_id", chat_id.clone())
+                                .text("caption", format!("{}\n{} retries", now.format("%F %T").to_string(), retries))
+                                .part("photo", part))
+                            .send()
+                            .map_err(|e| error!("error calling Telegram for caching image: {}", e))
+                            .and_then(move |res| {
+                                let status = res.status().as_u16();
+                                if status == 429u16 || status == 504u16 {
+                                    // Either::A(Delay::new(Instant::now() + Duration::from_secs(30))
+                                    //     .map_err(|e| error!("delay error: {}", e))
+                                    //     .map(move |_| Loop::Continue((client, chat_id, bytes, retries + 1))))
+                                    Either::A(future::ok(Loop::Continue((client, chat_id, bytes, retries + 1))))
+                                }
+                                else {
+                                    let success = res.status().is_success();
+                                    let debug1 = format!("response from Telegram for caching image: {:?}", res);
+                                    let debug2 = debug1.clone();
+                                    Either::B(res.into_body()
+                                        .concat2()
+                                        .map_err(move |e| error!("error while reading {}: {}", debug1, e))
+                                        .and_then(move |chunks| {
+                                            let body = String::from_utf8(chunks.to_vec()).map_err(|e| error!("error while encoding {}: {}", debug2, e))?;
+                                            if success {
+                                                let json: Value = serde_json::from_str(&body).map_err(|e| error!("error while decoding {}: {}", debug2, e))?;
+
+                                                if let Some(sizes) = json["result"]["photo"].as_array() {
+                                                    // scan various formats to select the best one
+                                                    let mut best_index = 0;
+                                                    for i in 1..sizes.len() {
+                                                        if sizes[best_index]["file_size"].as_u64() < sizes[i]["file_size"].as_u64() {
+                                                            best_index = i;
+                                                        }
                                                     }
-                                                }
 
-                                                Ok(Loop::Break(sizes[best_index]["file_id"].as_str().map(|s| s.to_owned()).ok_or_else(|| ())?))
+                                                    Ok(Loop::Break(Image::FileId(sizes[best_index]["file_id"].as_str().map(|s| s.to_owned()).ok_or_else(|| ())?)))
+                                                }
+                                                else {
+                                                    error!("error while reading {}: photos isn't an array\n{}", debug2, body);
+                                                    Err(())
+                                                }
                                             }
                                             else {
-                                                error!("error while reading {}: photos isn't an array\n{}", debug2, body);
+                                                error!("error while reading {}\n{}", debug2, body);
                                                 Err(())
                                             }
-                                        }
-                                        else {
-                                            error!("error while reading {}\n{}", debug2, body);
-                                            Err(())
-                                        }
-                                    }))
-                            }
-                        }))
-                })
+                                        }))
+                                }
+                            }))
+                    }))
+                }
+                else {
+                    Either::A(future::ok(Image::Bytes(bytes)))
+                }
             }))
 
     }
@@ -344,14 +403,14 @@ impl Message for PokemonMessage {
     fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
         let now = Local::now();
         let img_path_str = format!("{}img_sent/poke_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.pokemon.encounter_id, self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new));
-        // let img_path = Path::new(&img_path_str);
+        let img_path = Path::new(&img_path_str);
 
-        // if img_path.exists() {
-        //     let mut image = File::open(&img_path).map_err(|e| error!("error opening pokemon image {}: {}", img_path_str, e))?;
-        //     let mut bytes = Vec::new();
-        //     image.read_to_end(&mut bytes).map_err(|e| error!("error reading pokemon image {}: {}", img_path_str, e))?;
-        //     return Ok(bytes);
-        // }
+        if img_path.exists() {
+            let mut image = File::open(&img_path).map_err(|e| error!("error opening pokemon image {}: {}", img_path_str, e))?;
+            let mut bytes = Vec::new();
+            image.read_to_end(&mut bytes).map_err(|e| error!("error reading pokemon image {}: {}", img_path_str, e))?;
+            return Ok(bytes);
+        }
 
         let f_cal1 = Self::open_font(format!("{}fonts/calibri.ttf", CONFIG.images.sender))?;
         let f_cal2 = Self::open_font(format!("{}fonts/calibrib.ttf", CONFIG.images.sender))?;
@@ -460,7 +519,7 @@ impl Message for PokemonMessage {
             imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 140 - (dm / 2) as u32, 111, scale12, &f_cal1, &text);
         }
 
-        // background.save(&img_path).map_err(|e| error!("error saving pokemon image {}: {}", img_path_str, e))?;
+        background.save(&img_path).map_err(|e| error!("error saving pokemon image {}: {}", img_path_str, e))?;
 
         let mut out = Vec::new();
         background.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting pokemon image {}: {}", img_path_str, e))?;
@@ -554,14 +613,14 @@ impl Message for RaidMessage {
     fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
         let now = Local::now();
         let img_path_str = format!("{}img_sent/raid_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.raid.gym_id, self.raid.start);
-        // let img_path = Path::new(&img_path_str);
+        let img_path = Path::new(&img_path_str);
 
-        // if img_path.exists() {
-        //     let mut image = File::open(&img_path).map_err(|e| error!("error opening raid image {}: {}", img_path_str, e))?;
-        //     let mut bytes = Vec::new();
-        //     image.read_to_end(&mut bytes).map_err(|e| error!("error reading raid image {}: {}", img_path_str, e))?;
-        //     return Ok(bytes);
-        // }
+        if img_path.exists() {
+            let mut image = File::open(&img_path).map_err(|e| error!("error opening raid image {}: {}", img_path_str, e))?;
+            let mut bytes = Vec::new();
+            image.read_to_end(&mut bytes).map_err(|e| error!("error reading raid image {}: {}", img_path_str, e))?;
+            return Ok(bytes);
+        }
 
         let f_cal1 = Self::open_font(format!("{}fonts/calibri.ttf", CONFIG.images.sender))?;
         let f_cal2 = Self::open_font(format!("{}fonts/calibrib.ttf", CONFIG.images.sender))?;
@@ -665,7 +724,7 @@ impl Message for RaidMessage {
         // imagecopymerge($mBg, $mMap, 0, ($v_pkmnid == 0 ? 83 : 136), 0, 0, 280, 101, 100);
         image::imageops::overlay(&mut background, &map, 0, if self.raid.pokemon_id.and_then(|i| if i > 0 { Some(i) } else { None }).is_none() { 83 } else { 136 });
 
-        // background.save(&img_path).map_err(|e| error!("error saving raid image {}: {}", img_path_str, e))?;
+        background.save(&img_path).map_err(|e| error!("error saving raid image {}: {}", img_path_str, e))?;
 
         let mut out = Vec::new();
         background.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting raid image {}: {}", img_path_str, e))?;
@@ -718,14 +777,14 @@ impl Message for InvasionMessage {
     fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
         let now = Local::now();
         let img_path_str = format!("{}img_sent/invasion_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.invasion.pokestop_id, self.invasion.grunt_type.map(|id| format!("{}", id)).unwrap_or_else(String::new));
-        // let img_path = Path::new(&img_path_str);
+        let img_path = Path::new(&img_path_str);
 
-        // if img_path.exists() {
-        //     let mut image = File::open(&img_path).map_err(|e| error!("error opening invasion image {}: {}", img_path_str, e))?;
-        //     let mut bytes = Vec::new();
-        //     image.read_to_end(&mut bytes).map_err(|e| error!("error reading invasion image {}: {}", img_path_str, e))?;
-        //     return Ok(bytes);
-        // }
+        if img_path.exists() {
+            let mut image = File::open(&img_path).map_err(|e| error!("error opening invasion image {}: {}", img_path_str, e))?;
+            let mut bytes = Vec::new();
+            image.read_to_end(&mut bytes).map_err(|e| error!("error reading invasion image {}: {}", img_path_str, e))?;
+            return Ok(bytes);
+        }
 
         // let f_cal1 = Self::open_font(format!("{}fonts/calibri.ttf", CONFIG.images.sender))?;
         let f_cal2 = Self::open_font(format!("{}fonts/calibrib.ttf", CONFIG.images.sender))?;
@@ -766,7 +825,7 @@ impl Message for InvasionMessage {
 
         image::imageops::overlay(&mut background, &map, 0, 58);
 
-        // background.save(&img_path).map_err(|e| error!("error saving invasion image {}: {}", img_path_str, e))?;
+        background.save(&img_path).map_err(|e| error!("error saving invasion image {}: {}", img_path_str, e))?;
 
         let mut out = Vec::new();
         background.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting invasion image {}: {}", img_path_str, e))?;
