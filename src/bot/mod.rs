@@ -93,7 +93,7 @@ impl BotConfigs {
             for input in inputs.into_iter() {
                 let mut futures = Vec::new();
                 lock.iter().for_each(|(chat_id, config)| {
-                    if let Ok(future) = config.submit(chat_id.clone(), input.clone()) {
+                    if let Ok(future) = config.submit(chat_id.clone(), &input) {
                         futures.push(future);
                     }
                 });
@@ -134,7 +134,7 @@ mod tests {
 
     use chrono::Local;
 
-    use log::info;
+    use log::debug;
 
     #[test]
     fn pokemon_image_iv() {
@@ -144,7 +144,7 @@ mod tests {
                 r#"{"latitude":43.771209013571,"last_modified_time":1564175718,"gender":2,"weight":1.48829138278961,"individual_stamina":13,"cp":656,"individual_attack":15,"pokemon_level":30,"spawnpoint_id":"A54016D1","disappear_time_verified":true,"form":0,"individual_defense":4,"first_seen":1564174573,"pokestop_id":"e5bab95925c040ba8ba9d480665f94dc.16","encounter_id":"12854125514185017067","longitude":11.2560545151937,"costume":0,"move_1":216,"disappear_time":1564175797,"move_2":58,"weather":1,"pokemon_id":339,"height":0.409816652536392}"#
             ).unwrap())
             .and_then(|file_id| {
-                info!("file_id: {:?}", file_id);
+                debug!("file_id: {:?}", file_id);
                 Ok(())
             })).unwrap();
     }
@@ -157,7 +157,7 @@ mod tests {
                 r#"{"latitude":43.771081,"last_modified_time":1564175718,"gender":2,"weight":null,"individual_stamina":null,"cp":null,"individual_attack":null,"pokemon_level":null,"spawnpoint_id":"None","disappear_time_verified":false,"form":0,"individual_defense":null,"first_seen":1564175718,"pokestop_id":"34eadde33a9a412e9cf74a6137b38d48.16","encounter_id":"1432619712785063368","longitude":11.266252,"costume":0,"move_1":null,"disappear_time":1564176918,"move_2":null,"weather":0,"pokemon_id":109,"height":null}"#
             ).unwrap())
             .and_then(|file_id| {
-                info!("file_id: {:?}", file_id);
+                debug!("file_id: {:?}", file_id);
                 Ok(())
             })).unwrap();
     }
@@ -170,7 +170,7 @@ mod tests {
                 r#"{"gym_name":"Cesena - Stadio Dino Manuzzi","gym_url":"http://lh3.googleusercontent.com/EDFoOOm1G0hhjtBdJmBUjcUAcfB1se0zPatRviNuHcsK2oxwIokSONXWb8CUAJYYHI0Cl32dWiVlIMXVZe_X","end":1564338495,"form":0,"is_exclusive":false,"longitude":12.262141,"cp":0,"team_id":1,"pokemon_id":0,"gym_id":"fe20dd37398341a4b83751c5c050aaec.16","move_2":0,"level":4,"move_1":0,"start":1564335795,"ex_raid_eligible":false,"spawn":1564332195,"latitude":44.139762}"#
             ).unwrap())
             .and_then(|file_id| {
-                info!("file_id: {:?}", file_id);
+                debug!("file_id: {:?}", file_id);
                 Ok(())
             })).unwrap();
     }
@@ -183,7 +183,7 @@ mod tests {
                 r#"{"latitude":45.468203,"team_id":2,"start":1564212138,"end":1564214838,"spawn":1564208538,"cp":2527,"ex_raid_eligible":false,"form":63,"gym_id":"03213b28587c4063b81c6d9ed39e5f54.16","gym_name":"Parrocchia di San Pietro in Sala","longitude":9.156488,"move_1":202,"move_2":16,"is_exclusive":false,"gym_url":"http://lh5.ggpht.com/5sxTUTkH0Ch1l-w-jMN8i_2-wz1XVjcPv4EAHTBJunHONWr7KFIWHjnh_RfU0lqKPL4j12sSgQJKyKNqD3-p","level":1,"pokemon_id":52}"#
             ).unwrap())
             .and_then(|file_id| {
-                info!("file_id: {:?}", file_id);
+                debug!("file_id: {:?}", file_id);
                 Ok(())
             })).unwrap();
     }
@@ -196,7 +196,7 @@ mod tests {
                 r#"{"lure_expiration":0,"enabled":true,"updated":1564332327,"url":"http://lh6.ggpht.com/ga78DsEtufPUGu0H0oE2ZOeagwxe8aQ4k4-kBLEDdSfeFVshH8gHhQN1GMcw1OFd_n94NpwTkOa16zR5DqUL","pokestop_display":1,"longitude":11.236241,"lure_id":501,"last_modified":1564329955,"pokestop_id":"54e0ee4c0e7a42ca93d2e93ee720dc90.16","name":"Ancora Un'altra Madonnina.","incident_expire_timestamp":1564333601,"grunt_type":33,"latitude":44.723203}"#
             ).unwrap())
             .and_then(|file_id| {
-                info!("file_id: {:?}", file_id);
+                debug!("file_id: {:?}", file_id);
                 Ok(())
             })).unwrap();
     }

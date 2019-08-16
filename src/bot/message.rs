@@ -32,7 +32,7 @@ pub enum Image {
 pub trait Message {
     type Input;
 
-    fn send(&self, chat_id: String, image: Image, map_type: String) -> Box<Future<Item=(), Error=()> + Send> {
+    fn send(&self, chat_id: String, image: Image, map_type: String) -> Box<dyn Future<Item=(), Error=()> + Send> {
         let form = match self.get_form(chat_id.clone(), image, &map_type) {
             Ok(form) => form,
             Err(_) => return Box::new(future::err(())),
@@ -120,7 +120,7 @@ pub trait Message {
         rusttype::Font::from_bytes(font_data).map_err(|e| error!("error decoding font {}: {}", path, e))
     }
 
-    fn get_map(&self) -> Box<Future<Item=image::DynamicImage, Error=()> + Send> {
+    fn get_map(&self) -> Box<dyn Future<Item=image::DynamicImage, Error=()> + Send> {
         // $lat = number_format(round($ilat, 3), 3);
         // $lon = number_format(round($ilon, 3), 3);
         // $map_path = "../../data/bot/img_maps/" . $lat . "_" . $lon . ".png";
@@ -159,8 +159,8 @@ pub trait Message {
                                 .create(true)
                                 .open(&map_path_str)
                                 .map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
-                            let mut buf = chunks.to_vec();
-                            file.write_all(&mut buf).map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
+                            let buf = chunks.to_vec();
+                            file.write_all(&buf).map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
                             Ok(())
                         })
                         .then(move |_| {
@@ -212,7 +212,7 @@ pub trait Message {
             }).to_string())
     }
 
-    fn prepare(now: DateTime<Local>, input: Self::Input) -> Box<Future<Item=Image, Error=()> + Send> {
+    fn prepare(now: DateTime<Local>, input: Self::Input) -> Box<dyn Future<Item=Image, Error=()> + Send> {
         Box::new(Self::_prepare(input)
             .and_then(move |bytes| {
                 if let Some(ref chat_id) = CONFIG.telegram.cache_chat {
@@ -298,7 +298,7 @@ pub trait Message {
 
     }
 
-    fn _prepare(input: Self::Input) -> Box<Future<Item=Vec<u8>, Error=()> + Send>;
+    fn _prepare(input: Self::Input) -> Box<dyn Future<Item=Vec<u8>, Error=()> + Send>;
 
     fn get_latitude(&self) -> f64;
 
@@ -424,7 +424,7 @@ impl Message for PokemonMessage {
             Some(i) if i < 80f32 => "images/msg-bgs/msg-poke-big-norm.png",
             Some(i) if i >= 80f32 && i < 90f32 => "images/msg-bgs/msg-poke-big-med.png",
             Some(i) if i >= 90f32 && i < 100f32 => "images/msg-bgs/msg-poke-big-hi.png",
-            Some(i) if i == 100f32 => "images/msg-bgs/msg-poke-big-top.png",
+            Some(i) if i >= 100f32 => "images/msg-bgs/msg-poke-big-top.png",
             _ => "images/msg-bgs/msg-poke-sm.png",
         })).map_err(|e| error!("error opening pokemon background image: {:?}", e))?;
 
@@ -490,7 +490,7 @@ impl Message for PokemonMessage {
                 Some(i) if i == 0f32 => image::Rgba::<u8>([0x2D, 0x90, 0xFF, 0]),//0x002D90FF, // NULL Azzurro
                 Some(i) if i >= 80f32 && i < 90f32 => image::Rgba::<u8>([0xFF, 0x62, 0x14, 0]),//0x00FF6214, // MED Arancione
                 Some(i) if i >= 90f32 && i < 100f32 => image::Rgba::<u8>([0xFF, 0, 0, 0]),//0x00FF0000, // HI Rosso
-                Some(i) if i == 100f32 => image::Rgba::<u8>([0xDC, 0, 0xEA, 0]),//0x00DC00EA, // TOP Viola
+                Some(i) if i >= 100f32 => image::Rgba::<u8>([0xDC, 0, 0xEA, 0]),//0x00DC00EA, // TOP Viola
                 _ => image::Rgba::<u8>([0, 0, 0, 0]),//0x00000000,
             };
             // $dm = imagettfbbox(13, 0, $f_cal2, "IV " . $v_iv . " %");
@@ -526,9 +526,9 @@ impl Message for PokemonMessage {
         Ok(out)
     }
 
-    fn _prepare(input: Self::Input) -> Box<Future<Item=Vec<u8>, Error=()> + Send> {
+    fn _prepare(input: Self::Input) -> Box<dyn Future<Item=Vec<u8>, Error=()> + Send> {
         let iv = match (input.individual_attack, input.individual_defense, input.individual_stamina) {
-            (Some(atk), Some(def), Some(sta)) => Some(((atk + def + sta) as f32 / 45f32) * 100f32),
+            (Some(atk), Some(def), Some(sta)) => Some((f32::from(atk + def + sta) / 45f32) * 100f32),
             _ => None,
         };
 
@@ -731,7 +731,7 @@ impl Message for RaidMessage {
         Ok(out)
     }
 
-    fn _prepare(input: Self::Input) -> Box<Future<Item=Vec<u8>, Error=()> + Send> {
+    fn _prepare(input: Self::Input) -> Box<dyn Future<Item=Vec<u8>, Error=()> + Send> {
         let dummy = RaidMessage {
             raid: input,
             distance: 0f64,
@@ -832,7 +832,7 @@ impl Message for InvasionMessage {
         Ok(out)
     }
 
-    fn _prepare(input: Self::Input) -> Box<Future<Item=Vec<u8>, Error=()> + Send> {
+    fn _prepare(input: Self::Input) -> Box<dyn Future<Item=Vec<u8>, Error=()> + Send> {
         let dummy = InvasionMessage {
             invasion: input,
         };

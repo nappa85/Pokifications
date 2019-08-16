@@ -11,6 +11,9 @@ use chrono::Local;
 
 use log::error;
 
+#[cfg(test)]
+use log::info;
+
 use crate::lists::COMMON;
 use crate::entities::{Pokemon, Pokestop, Raid, Request};
 
@@ -19,6 +22,8 @@ use super::message::{Image, Message, PokemonMessage, RaidMessage, InvasionMessag
 const MAX_DISTANCE: f64 = 15f64;
 const MIN_IV_LIMIT: f32 = 36f32;
 
+type EmptyFuture = Box<dyn Future<Item=(), Error=()> + Send>;
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BotConfig {
@@ -26,14 +31,16 @@ pub struct BotConfig {
     pub raid: BotRaid,
     pub pkmn: BotPkmn,
     pub time: BotTime,
-    pub invs: Option<Invs>,
+    pub invs: Option<BotInvs>,
     pub more: BotMore,
 }
 
 impl BotConfig {
-    pub fn submit(&self, chat_id: String, input: Request) -> Result<Box<FnOnce(Image) -> Box<Future<Item=(), Error=()> + Send> + Send>, ()> {
+    pub fn submit(&self, chat_id: String, input: &Request) -> Result<Box<dyn FnOnce(Image) -> EmptyFuture + Send>, ()> {
         if !self.time.is_active()? && self.time.fi[0] == 0 && self.time.fl[0] == 0 {
-            // info!("Webhook discarded for time configs");//debug
+            #[cfg(test)]
+            info!("Webhook discarded for time configs");
+
             Err(())
         }
         else {
@@ -46,13 +53,13 @@ impl BotConfig {
         }
     }
 
-    fn submit_pokemon(&self, chat_id: String, input: Box<Pokemon>) -> Result<Box<FnOnce(Image) -> Box<Future<Item=(), Error=()> + Send> + Send>, ()> {
+    fn submit_pokemon(&self, chat_id: String, input: &Box<Pokemon>) -> Result<Box<dyn FnOnce(Image) -> EmptyFuture + Send>, ()> {
         let message = self._submit_pokemon(input)?;
         let map_type = self.more.l.clone();
         Ok(Box::new(move |file_id| message.send(chat_id, file_id, map_type)))
     }
 
-    fn _submit_pokemon(&self, input: Box<Pokemon>) -> Result<PokemonMessage, ()> {
+    fn _submit_pokemon(&self, input: &Box<Pokemon>) -> Result<PokemonMessage, ()> {
         let pokemon_id = input.pokemon_id.to_string();
         let filter = self.pkmn.l.get(&pokemon_id).ok_or_else(|| ())?;
         if filter[0] == 0 {
@@ -73,62 +80,79 @@ impl BotConfig {
 
         let dist = BotLocs::calc_dist(loc, pos)?;
         if dist > rad {
-            // info!("Pokémon discarded for distance: loc {:?} pos {:?} dist {} rad {}", loc, pos, dist, rad);//debug
+            #[cfg(test)]
+            info!("Pokémon discarded for distance: loc {:?} pos {:?} dist {} rad {}", loc, pos, dist, rad);
+
             return Err(());
         }
 
         let iv = match (input.individual_attack, input.individual_defense, input.individual_stamina) {
-            (Some(atk), Some(def), Some(sta)) => Some(((atk + def + sta) as f32 / 45f32) * 100f32),
+            (Some(atk), Some(def), Some(sta)) => Some((f32::from(atk + def + sta) / 45f32) * 100f32),
             _ => None,
         };
 
         if COMMON.contains(&input.pokemon_id) {
             if let Some(i) = iv {
                 if i < MIN_IV_LIMIT {
-                    // info!("Pokémon discarded because common and with low IV");//debug
+                    #[cfg(test)]
+                    info!("Pokémon discarded because common and with low IV");
+
                     return Err(());
                 }
             }
             else {
-                // info!("Pokémon discarded because common and without IV");//debug
+                #[cfg(test)]
+                info!("Pokémon discarded because common and without IV");
+
                 return Err(());
             }
         }
 
-        if !self.time.is_active()? && !self.time.filter(iv, input.pokemon_level) {
-            // info!("Pokémon discarded for time config: pokemon_id {} iv {:?} level {:?}", pokemon_id, iv, input.pokemon_level);//debug
-            return Err(());
-        }
+        if !self.time.is_active()? {
+            if !self.time.bypass(iv, input.pokemon_level) {
+                #[cfg(test)]
+                info!("Pokémon discarded for time config: pokemon_id {} iv {:?} level {:?}", pokemon_id, iv, input.pokemon_level);
 
-        if (filter[1] >= 1 || filter[3] == 1) && !BotPkmn::filter(filter, iv, input.pokemon_level) {
-            // info!("Pokémon discarded for IV-Level config: pokemon_id {} iv {:?} level {:?}", pokemon_id, iv, input.pokemon_level);//debug
-            return Err(());
+                return Err(());
+            }
+        }
+        else {
+            if (filter[1] >= 1 || filter[3] == 1) && !BotPkmn::filter(filter, iv, input.pokemon_level) {
+                #[cfg(test)]
+                info!("Pokémon discarded for IV-Level config: pokemon_id {} iv {:?} level {:?}", pokemon_id, iv, input.pokemon_level);
+
+                return Err(());
+            }
         }
 
         Ok(PokemonMessage {
-            pokemon: input,
+            pokemon: input.clone(),
             iv,
             distance: BotLocs::calc_dist(&self.locs.h, pos)?,
             direction: BotLocs::get_direction(&self.locs.h, pos)?,
         })
     }
 
-    fn submit_raid(&self, chat_id: String, input: Raid) -> Result<Box<FnOnce(Image) -> Box<Future<Item=(), Error=()> + Send> + Send>, ()> {
+    fn submit_raid(&self, chat_id: String, input: &Raid) -> Result<Box<dyn FnOnce(Image) -> EmptyFuture + Send>, ()> {
         let message = self._submit_raid(input)?;
         let map_type = self.more.l.clone();
         Ok(Box::new(move |file_id| message.send(chat_id, file_id, map_type)))
     }
  
-    fn _submit_raid(&self, input: Raid) -> Result<RaidMessage, ()> {
+    fn _submit_raid(&self, input: &Raid) -> Result<RaidMessage, ()> {
         let pokemon_id = input.pokemon_id.map(|i| i.to_string());
         let loc = self.locs.get_raid_settings()?;
         let pos = (input.latitude, input.longitude);
         if self.raid.s == 0 && pokemon_id.is_some() {
-            // info!("Raid discarded for disabled raids");//debug
+            #[cfg(test)]
+            info!("Raid discarded for disabled raids");
+
             return Err(());
         }
         if self.raid.u == 0 && pokemon_id.is_none() {
-            // info!("Raid discarded for disabled eggs");//debug
+            #[cfg(test)]
+            info!("Raid discarded for disabled eggs");
+
             return Err(());
         }
 
@@ -137,39 +161,46 @@ impl BotConfig {
 
         let dist = BotLocs::calc_dist(loc, pos)?;
         if dist > rad {
-            // info!("Raid discarded for distance: loc {:?} pos {:?} dist {} rad {}", loc, pos, dist, rad);//debug
+            #[cfg(test)]
+            info!("Raid discarded for distance: loc {:?} pos {:?} dist {} rad {}", loc, pos, dist, rad);
+
             return Err(());
         }
 
         if !self.time.is_active()? {
-            // info!("Raid discarded for time config");//debug
+            #[cfg(test)]
+            info!("Raid discarded for time config");
             return Err(());
         }
 
         match input.pokemon_id {
             Some(pkmn_id) if pkmn_id > 0 => if !self.raid.p.contains(&pkmn_id) {
-                // info!("Raid discarded for disabled raidboss: raidboss {} config {:?}", pkmn_id, self.raid.p);//debug
+                #[cfg(test)]
+                info!("Raid discarded for disabled raidboss: raidboss {} config {:?}", pkmn_id, self.raid.p);
+
                 return Err(());
             },
             _ => if !self.raid.l.contains(&input.level) {
-                // info!("Raid discarded for disabled egg level: level {} config {:?}", input.level, self.raid.l);//debug
+                #[cfg(test)]
+                info!("Raid discarded for disabled egg level: level {} config {:?}", input.level, self.raid.l);
+
                 return Err(());
             },
         }
 
         Ok(RaidMessage {
-            raid: input,
+            raid: input.clone(),
             distance: BotLocs::calc_dist(&self.locs.h, pos)?,
         })
     }
 
-    fn submit_invasion(&self, chat_id: String, input: Pokestop) -> Result<Box<FnOnce(Image) -> Box<Future<Item=(), Error=()> + Send> + Send>, ()> {
+    fn submit_invasion(&self, chat_id: String, input: &Pokestop) -> Result<Box<dyn FnOnce(Image) -> EmptyFuture + Send>, ()> {
         let message = self._submit_invasion(input)?;
         let map_type = self.more.l.clone();
         Ok(Box::new(move |file_id| message.send(chat_id, file_id, map_type)))
     }
 
-    fn _submit_invasion(&self, input: Pokestop) -> Result<InvasionMessage, ()> {
+    fn _submit_invasion(&self, input: &Pokestop) -> Result<InvasionMessage, ()> {
         let invs = self.invs.as_ref().ok_or_else(|| ())?;
         if invs.n == 0 {
             return Err(());
@@ -190,7 +221,7 @@ impl BotConfig {
         }
 
         Ok(InvasionMessage {
-            invasion: input,
+            invasion: input.clone(),
         })
     }
 }
@@ -343,12 +374,23 @@ pub struct BotPkmn {
 }
 
 impl BotPkmn {
+    /**
+     * [1, 1, 100, 0, 25, 0, 10, 1]
+     * 0: active
+     * 1: IV
+     * 2: IV_min
+     * 3: LVL
+     * 4: LVL_min
+     * 5: rad
+     * 6: custom_rad
+     * 7: or/and
+     */
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn filter(filter: &[u8; 8], iv: Option<f32>, lvl: Option<u8>) -> bool {
         if filter[1] >= 1 && filter[3] == 1 { // IV e PL attivi
             if filter[7] == 1 {
                 if let Some(i) = iv {
-                    if i >= filter[2] as f32 {
+                    if i >= f32::from(filter[2]) {
                         return true;
                     }
                 }
@@ -361,7 +403,7 @@ impl BotPkmn {
             }
             else {
                 if let Some(i) = iv {
-                    if i < filter[2] as f32 {
+                    if i < f32::from(filter[2]) {
                         return false;
                     }
                 }
@@ -376,7 +418,7 @@ impl BotPkmn {
         else {
             if filter[1] >= 1 {
                 if let Some(i) = iv {
-                    if i >= filter[2] as f32 {
+                    if i >= f32::from(filter[2]) {
                         return true;
                     }
                 }
@@ -413,39 +455,62 @@ impl BotTime {
         })
     }
 
-    fn filter(&self, iv: Option<f32>, lvl: Option<u8>) -> bool {
+    fn bypass(&self, iv: Option<f32>, lvl: Option<u8>) -> bool {
         if self.fi[0] == 1 && self.fl[0] == 1 {
             if self.fc == 1 {
                 if let Some(i) = iv {
-                    if i >= self.fi[1] as f32 {
+                    if i >= f32::from(self.fi[1]) {
+                        #[cfg(test)]
+                        info!("Pokémon approved because of fi[0] == 1 && fl[0] == 1 && fc == 1 && IV >= fi[1]");
+
                         return true;
                     }
                 }
                 if let Some(i) = lvl {
                     if i >= self.fl[1] {
+                        #[cfg(test)]
+                        info!("Pokémon approved because of fi[0] == 1 && fl[0] == 1 && fc == 1 && LVL >= fl[1]");
+
                         return true;
                     }
                 }
+
+                #[cfg(test)]
+                info!("Pokémon discarded because of fi[0] == 1 && fl[0] == 1 && fc == 1 && IV < fi[1] && LVL < fl[1]");
+
                 false
             }
             else {
                 if let Some(i) = iv {
-                    if i < self.fi[1] as f32 {
+                    if i < f32::from(self.fi[1]) {
+                        #[cfg(test)]
+                        info!("Pokémon discarded because of fi[0] == 1 && fl[0] == 1 && fc != 1 && IV < fi[1]");
+
                         return false;
                     }
                 }
                 if let Some(i) = lvl {
                     if i < self.fl[1] {
+                        #[cfg(test)]
+                        info!("Pokémon discarded because of fi[0] == 1 && fl[0] == 1 && fc != 1 && LVL < fl[1]");
+
                         return false;
                     }
                 }
+
+                #[cfg(test)]
+                info!("Pokémon approved because of fi[0] == 1 && fl[0] == 1 && fc != 1 && IV IS NULL && LVL IS NULL");
+
                 true
             }
         }
         else {
             if self.fi[0] == 1 {
                 if let Some(i) = iv {
-                    if i >= self.fi[1] as f32 {
+                    if i >= f32::from(self.fi[1]) {
+                        #[cfg(test)]
+                        info!("Pokémon approved because of fi[0] == 1 && fl[0] != 1 && IV >= fi[1]");
+
                         return true;
                     }
                 }
@@ -453,10 +518,17 @@ impl BotTime {
             if self.fl[0] == 1 {
                 if let Some(i) = lvl {
                     if i >= self.fl[1] {
+                        #[cfg(test)]
+                        info!("Pokémon approved because of fi[0] != 1 && fl[0] == 1 && LVL >= fl[1]");
+
                         return true;
                     }
                 }
             }
+
+            #[cfg(test)]
+            info!("Pokémon discarded because of (fi[0] != 1 || fl[0] != 1) && IV IS NULL && LVL IS NULL");
+
             false
         }
     }
@@ -464,7 +536,7 @@ impl BotTime {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Invs {
+pub struct BotInvs {
     pub n: u8,
     pub f: u8,
     pub l: Vec<u8>,
@@ -480,6 +552,8 @@ pub struct BotMore {
 mod tests {
     use super::BotConfig;
 
+    use crate::entities::{Request, Pokemon, Gender};
+
     #[test]
     fn bot_config() {
         let data = [
@@ -489,5 +563,50 @@ mod tests {
         for s in &data {
             serde_json::from_str::<BotConfig>(s).unwrap();
         }
+    }
+
+    #[test]
+    fn kiulomb() {
+        let config = serde_json::from_str::<BotConfig>(r#"{"locs":{"h":["45.653978","8.787760"],"p":["45.653968","8.787805","6"],"r":["45.655640","8.788785","1"],"i":["45.653978","8.787760","15"],"t_p":["0","0","0"],"t_r":["0","0","0"],"t_i":["","",""]},"raid":{"u":1,"s":1,"l":[5],"p":[403,371,303,26,149,105,384]},"pkmn":{"l":{"1":[1,1,100,0,25,0,10,1],"2":[1,1,90,0,25,0,10,1],"3":[1,1,90,0,25,0,10,1],"4":[1,1,94,0,25,0,10,1],"5":[1,1,90,0,25,0,10,1],"6":[1,1,90,0,25,0,10,1],"7":[1,1,86,0,25,0,10,1],"8":[1,1,86,0,25,0,10,1],"9":[1,1,86,0,25,0,10,1],"10":[1,2,100,0,25,0,10,1],"11":[1,1,86,0,25,0,10,1],"12":[1,1,86,0,25,0,10,1],"13":[1,2,100,0,25,0,10,1],"14":[1,1,86,0,25,0,10,1],"15":[1,1,86,0,25,0,10,1],"16":[1,2,100,0,25,0,10,1],"17":[1,1,86,0,25,0,10,1],"18":[1,1,86,0,25,0,10,1],"19":[1,2,100,0,25,0,10,1],"20":[1,1,86,0,25,0,10,1],"21":[1,2,100,0,25,0,10,1],"22":[1,1,86,0,25,0,10,1],"23":[1,2,100,0,25,0,10,1],"24":[1,1,86,0,25,0,10,1],"25":[1,2,100,0,25,0,10,1],"26":[1,1,86,0,25,0,10,1],"27":[1,1,86,0,25,0,10,1],"28":[1,1,86,0,25,0,10,1],"29":[1,2,100,0,25,0,10,1],"30":[1,1,86,0,25,0,10,1],"31":[1,1,86,0,25,0,10,1],"32":[1,2,100,0,25,0,10,1],"33":[1,1,86,0,25,0,10,1],"34":[1,1,86,0,25,0,10,1],"35":[1,1,86,0,25,0,10,1],"36":[1,1,86,0,25,0,10,1],"37":[1,2,100,0,25,0,10,1],"38":[1,1,86,0,25,0,10,1],"39":[1,1,100,0,25,0,10,1],"40":[1,1,94,0,25,0,10,1],"41":[1,2,100,0,25,0,10,1],"42":[1,1,86,0,25,0,10,1],"43":[1,1,100,0,25,0,10,1],"44":[1,1,94,0,25,0,10,1],"45":[1,1,86,0,25,0,10,1],"46":[1,2,100,0,25,0,10,1],"47":[1,1,86,0,25,0,10,1],"48":[1,2,100,0,25,0,10,1],"49":[1,1,86,0,25,0,10,1],"50":[1,1,86,0,25,0,10,1],"51":[1,1,86,0,25,0,10,1],"52":[1,1,100,0,25,0,10,1],"53":[1,1,86,0,25,0,10,1],"54":[1,1,86,0,25,0,10,1],"55":[1,1,86,0,25,0,10,1],"56":[1,1,100,0,25,0,10,1],"57":[1,1,86,0,25,0,10,1],"58":[1,1,100,0,25,0,10,1],"59":[1,1,86,0,25,0,10,1],"60":[1,1,100,0,25,0,10,1],"61":[1,1,94,0,25,0,10,1],"62":[1,1,86,0,25,0,10,1],"63":[1,1,86,0,25,0,10,1],"64":[1,1,86,0,25,0,10,1],"65":[1,1,86,0,25,0,10,1],"66":[1,1,86,0,25,0,10,1],"67":[1,1,86,0,25,0,10,1],"68":[1,1,86,0,25,0,10,1],"69":[1,1,100,0,25,0,10,1],"70":[1,1,86,0,25,0,10,1],"71":[1,1,86,0,25,0,10,1],"72":[1,1,86,0,25,0,10,1],"73":[1,1,86,0,25,0,10,1],"74":[1,2,100,0,25,0,10,1],"75":[1,1,86,0,25,0,10,1],"76":[1,1,86,0,25,0,10,1],"77":[1,1,86,0,25,0,10,1],"78":[1,1,86,0,25,0,10,1],"79":[1,1,86,0,25,0,10,1],"80":[1,1,86,0,25,0,10,1],"81":[1,1,86,0,25,0,10,1],"82":[1,1,86,0,25,0,10,1],"83":[1,1,86,0,25,0,10,1],"84":[1,1,100,0,25,0,10,1],"85":[1,1,86,0,25,0,10,1],"86":[1,1,100,0,25,0,10,1],"87":[1,1,86,0,25,0,10,1],"88":[1,1,86,0,25,0,10,1],"89":[1,1,86,0,25,0,10,1],"90":[1,2,100,0,25,0,10,1],"91":[1,1,86,0,25,0,10,1],"92":[1,1,100,0,25,0,10,1],"93":[1,1,86,0,25,0,10,1],"94":[1,1,86,0,25,0,10,1],"95":[1,1,86,0,25,0,10,1],"96":[1,1,86,0,25,0,10,1],"97":[1,1,86,0,25,0,10,1],"98":[1,1,86,0,25,0,10,1],"99":[1,1,86,0,25,0,10,1],"100":[1,1,86,0,25,0,10,1],"101":[1,1,86,0,25,0,10,1],"102":[1,1,100,0,25,0,10,1],"103":[1,1,96,0,25,0,10,1],"104":[1,1,100,0,25,0,10,1],"105":[1,1,86,0,25,0,10,1],"106":[1,1,86,0,25,0,10,1],"107":[1,1,86,0,25,0,10,1],"108":[1,1,86,0,25,0,10,1],"109":[1,1,100,0,25,0,10,1],"110":[1,1,86,0,25,0,10,1],"111":[1,1,98,0,25,0,10,1],"112":[1,1,86,0,25,0,10,1],"113":[1,1,86,0,25,0,10,1],"114":[1,1,86,0,25,0,10,1],"115":[1,1,86,0,25,0,10,1],"116":[1,1,100,0,25,0,10,1],"117":[1,1,86,0,25,0,10,1],"118":[1,1,86,0,25,0,10,1],"119":[1,1,86,0,25,0,10,1],"120":[1,1,86,0,25,0,10,1],"121":[1,1,86,0,25,0,10,1],"122":[1,1,100,0,25,0,10,1],"123":[1,1,86,0,25,0,10,1],"124":[1,1,86,0,25,0,10,1],"125":[1,1,86,0,25,0,10,1],"126":[1,1,86,0,25,0,10,1],"127":[1,1,86,0,25,0,10,1],"128":[1,1,86,0,25,0,10,1],"129":[1,2,100,0,25,0,10,1],"130":[1,1,86,0,25,0,10,1],"131":[1,1,86,0,25,0,10,1],"132":[1,1,86,0,25,0,10,1],"133":[1,2,100,0,25,0,10,1],"134":[1,1,86,0,25,0,10,1],"135":[1,1,86,0,25,0,10,1],"136":[1,1,86,0,25,0,10,1],"137":[1,1,86,0,25,0,10,1],"138":[1,1,86,0,25,0,10,1],"139":[1,1,86,0,25,0,10,1],"140":[1,1,98,0,25,0,10,1],"141":[1,1,86,0,25,0,10,1],"142":[1,1,86,0,25,0,10,1],"143":[1,1,88,0,25,0,10,1],"147":[1,1,86,0,25,0,10,1],"148":[1,1,86,0,25,0,10,1],"149":[1,1,86,0,25,0,10,1],"152":[1,2,100,0,25,0,10,1],"153":[1,1,86,0,25,0,10,1],"154":[1,1,86,0,25,0,10,1],"155":[1,2,100,0,25,0,10,1],"156":[1,1,86,0,25,0,10,1],"157":[1,1,86,0,25,0,10,1],"158":[1,2,100,0,25,0,10,1],"159":[1,1,86,0,25,0,10,1],"160":[1,1,86,0,25,0,10,1],"161":[1,2,100,0,25,0,10,1],"162":[1,1,86,0,25,0,10,1],"163":[1,2,100,0,25,0,10,1],"164":[1,1,86,0,25,0,10,1],"165":[1,2,100,0,25,0,10,1],"166":[1,1,86,0,25,0,10,1],"167":[1,2,100,0,25,0,10,1],"168":[1,1,86,0,25,0,10,1],"169":[1,1,86,0,25,0,10,1],"170":[1,1,98,0,25,0,10,1],"171":[1,1,86,0,25,0,10,1],"176":[1,1,86,0,25,0,10,1],"177":[1,2,100,0,25,0,10,1],"178":[1,1,86,0,25,0,10,1],"179":[1,1,86,0,25,0,10,1],"180":[1,1,86,0,25,0,10,1],"181":[1,1,86,0,25,0,10,1],"183":[1,1,100,0,25,0,10,1],"184":[1,1,96,0,25,0,10,1],"185":[1,1,100,0,25,0,10,1],"187":[1,2,100,0,25,0,10,1],"188":[1,1,86,0,25,0,10,1],"189":[1,1,86,0,25,0,10,1],"190":[1,2,100,0,25,0,10,1],"191":[1,1,100,0,25,0,10,1],"193":[1,1,100,0,25,0,10,1],"194":[1,2,100,0,25,0,10,1],"195":[1,1,86,0,25,0,10,1],"198":[1,2,100,0,25,0,10,1],"200":[1,1,100,0,25,0,10,1],"201":[1,1,86,0,25,0,10,1],"202":[1,1,86,0,25,0,10,1],"203":[1,1,86,0,25,0,10,1],"204":[1,1,86,0,25,0,10,1],"205":[1,1,86,0,25,0,10,1],"206":[1,1,86,0,25,0,10,1],"207":[1,1,100,0,25,0,10,1],"209":[1,1,100,0,25,0,10,1],"210":[1,1,86,0,25,0,10,1],"211":[1,1,86,0,25,0,10,1],"213":[1,1,86,0,25,0,10,1],"214":[1,1,86,0,25,0,10,1],"215":[1,1,100,0,25,0,10,1],"216":[1,2,100,0,25,0,10,1],"217":[1,1,86,0,25,0,10,1],"218":[1,1,100,0,25,0,10,1],"219":[1,1,86,0,25,0,10,1],"220":[1,1,100,0,25,0,10,1],"221":[1,1,90,0,25,0,10,1],"222":[1,1,86,0,25,0,10,1],"223":[1,1,100,0,25,0,10,1],"224":[1,1,86,0,25,0,10,1],"225":[1,2,100,0,25,0,10,1],"226":[1,1,86,0,25,0,10,1],"227":[1,1,98,0,25,0,10,1],"228":[1,1,100,0,25,0,10,1],"229":[1,1,86,0,25,0,10,1],"231":[1,1,100,0,25,0,10,1],"232":[1,1,86,0,25,0,10,1],"233":[1,1,86,0,25,0,10,1],"234":[1,1,86,0,25,0,10,1],"237":[1,1,86,0,25,0,10,1],"241":[1,1,98,0,25,0,10,1],"242":[1,1,86,0,25,0,10,1],"246":[1,1,86,0,25,0,10,1],"247":[1,1,86,0,25,0,10,1],"248":[1,1,86,0,25,0,10,1],"252":[1,2,100,0,25,0,10,1],"253":[1,1,86,0,25,0,10,1],"254":[1,1,86,0,25,0,10,1],"255":[1,2,100,0,25,0,10,1],"256":[1,1,92,0,25,0,10,1],"257":[1,1,86,0,25,0,10,1],"258":[1,2,100,0,25,0,10,1],"259":[1,1,86,0,25,0,10,1],"260":[1,1,86,0,25,0,10,1],"261":[1,2,100,0,25,0,10,1],"262":[1,1,86,0,25,0,10,1],"263":[1,2,100,0,25,0,10,1],"264":[1,1,86,0,25,0,10,1],"265":[1,2,100,0,25,0,10,1],"266":[1,1,86,0,25,0,10,1],"267":[1,1,86,0,25,0,10,1],"268":[1,1,86,0,25,0,10,1],"269":[1,1,86,0,25,0,10,1],"270":[1,1,86,0,25,0,10,1],"271":[1,1,86,0,25,0,10,1],"272":[1,1,86,0,25,0,10,1],"273":[1,2,100,0,25,0,10,1],"274":[1,1,86,0,25,0,10,1],"275":[1,1,86,0,25,0,10,1],"276":[1,1,100,0,25,0,10,1],"277":[1,1,86,0,25,0,10,1],"278":[1,1,98,0,25,0,10,1],"279":[1,1,86,0,25,0,10,1],"280":[1,2,100,0,25,0,10,1],"281":[1,1,86,0,25,0,10,1],"282":[1,1,86,0,25,0,10,1],"283":[1,1,100,0,25,0,10,1],"284":[1,1,86,0,25,0,10,1],"285":[1,2,100,0,25,0,10,1],"286":[1,1,86,0,25,0,10,1],"287":[1,1,86,0,25,0,10,1],"288":[1,1,86,0,25,0,10,1],"289":[1,1,86,0,25,0,10,1],"290":[1,1,86,0,25,0,10,1],"291":[1,1,86,0,25,0,10,1],"292":[1,1,86,0,25,0,10,1],"293":[1,2,100,0,25,0,10,1],"294":[1,1,86,0,25,0,10,1],"295":[1,1,86,0,25,0,10,1],"296":[1,2,100,0,25,0,10,1],"297":[1,1,86,0,25,0,10,1],"298":[1,1,86,0,25,0,10,1],"299":[1,2,100,0,25,0,10,1],"300":[1,2,100,0,25,0,10,1],"301":[1,1,86,0,25,0,10,1],"302":[1,2,100,0,25,0,10,1],"303":[1,1,86,0,25,0,10,1],"304":[1,2,100,0,25,0,10,1],"305":[1,1,86,0,25,0,10,1],"306":[1,1,86,0,25,0,10,1],"307":[1,2,100,0,25,0,10,1],"308":[1,1,86,0,25,0,10,1],"309":[1,2,100,0,25,0,10,1],"310":[1,1,86,0,25,0,10,1],"311":[1,1,100,0,25,0,10,1],"312":[1,2,100,0,25,0,10,1],"313":[1,1,100,0,25,0,10,1],"314":[1,1,86,0,25,0,10,1],"315":[1,2,100,0,25,0,10,1],"316":[1,2,100,0,25,0,10,1],"317":[1,1,86,0,25,0,10,1],"318":[1,1,86,0,25,0,10,1],"319":[1,1,86,0,25,0,10,1],"320":[1,2,100,0,25,0,10,1],"321":[1,1,86,0,25,0,10,1],"322":[1,2,100,0,25,0,10,1],"323":[1,1,86,0,25,0,10,1],"324":[1,1,86,0,25,0,10,1],"325":[1,2,100,0,25,0,10,1],"326":[1,1,86,0,25,0,10,1],"327":[1,1,86,0,25,0,10,1],"328":[1,1,86,0,25,0,10,1],"329":[1,1,86,0,25,0,10,1],"330":[1,1,86,0,25,0,10,1],"331":[1,2,100,0,25,0,10,1],"332":[1,1,86,0,25,0,10,1],"333":[1,1,100,0,25,0,10,1],"334":[1,1,86,0,25,0,10,1],"335":[1,2,100,0,25,0,10,1],"336":[1,2,100,0,25,0,10,1],"337":[1,1,86,0,25,0,10,1],"338":[1,1,86,0,25,0,10,1],"339":[1,2,100,0,25,0,10,1],"340":[1,1,86,0,25,0,10,1],"341":[1,1,86,0,25,0,10,1],"342":[1,1,86,0,25,0,10,1],"343":[1,2,100,0,25,0,10,1],"344":[1,1,86,0,25,0,10,1],"345":[1,1,86,0,25,0,10,1],"346":[1,1,86,0,25,0,10,1],"347":[1,1,100,0,25,0,10,1],"348":[1,1,86,0,25,0,10,1],"349":[1,1,86,0,25,0,10,1],"350":[1,1,86,0,25,0,10,1],"351":[1,1,100,0,25,0,10,1],"352":[1,1,86,0,25,0,10,1],"353":[1,2,100,0,25,0,10,1],"354":[1,1,86,0,25,0,10,1],"355":[1,2,100,0,25,0,10,1],"356":[1,1,86,0,25,0,10,1],"357":[1,1,86,0,25,0,10,1],"358":[1,1,86,0,25,0,10,1],"359":[1,1,86,0,25,0,10,1],"360":[1,1,86,0,25,0,10,1],"361":[1,1,98,0,25,0,10,1],"362":[1,1,86,0,25,0,10,1],"363":[1,2,100,0,25,0,10,1],"364":[1,1,86,0,25,0,10,1],"365":[1,1,86,0,25,0,10,1],"366":[1,1,86,0,25,0,10,1],"367":[1,0,86,0,25,0,10,1],"368":[1,1,86,0,25,0,10,1],"369":[1,1,86,0,25,0,10,1],"370":[1,1,100,0,25,0,10,1],"371":[1,1,86,0,25,0,10,1],"372":[1,1,86,0,25,0,10,1],"373":[1,1,86,0,25,0,10,1],"374":[1,1,86,0,25,0,10,1],"375":[1,1,86,0,25,0,10,1],"376":[1,1,86,0,25,0,10,1],"380":[1,0,80,0,25,0,10,1],"387":[1,1,90,0,25,0,10,1],"388":[1,1,86,0,25,0,10,1],"389":[1,1,86,0,25,0,10,1],"390":[1,1,94,0,25,0,10,1],"391":[1,1,86,0,25,0,10,1],"392":[1,1,86,0,25,0,10,1],"393":[1,1,94,0,25,0,10,1],"394":[1,1,86,0,25,0,10,1],"395":[1,1,86,0,25,0,10,1],"396":[1,1,100,0,25,0,10,1],"397":[1,1,86,0,25,0,10,1],"398":[1,1,86,0,25,0,10,1],"399":[1,1,86,0,25,0,10,1],"400":[1,1,86,0,25,0,10,1],"401":[1,1,86,0,25,0,10,1],"402":[1,1,86,0,25,0,10,1],"403":[1,1,86,0,25,0,10,1],"404":[1,1,86,0,25,0,10,1],"405":[1,1,86,0,25,0,10,1],"406":[1,1,86,0,25,0,10,1],"407":[1,1,86,0,25,0,10,1],"408":[1,1,86,0,25,0,10,1],"409":[1,1,86,0,25,0,10,1],"410":[1,1,86,0,25,0,10,1],"411":[1,1,86,0,25,0,10,1],"412":[1,1,86,0,25,0,10,1],"415":[1,1,94,0,25,0,10,1],"416":[1,1,86,0,25,0,10,1],"418":[1,1,96,0,25,0,10,1],"419":[1,1,86,0,25,0,10,1],"420":[1,1,98,0,25,0,10,1],"421":[1,1,100,0,25,0,10,1],"422":[1,1,94,0,25,0,10,1],"423":[1,1,86,0,25,0,10,1],"425":[1,1,100,0,25,0,10,1],"426":[1,1,86,0,25,0,10,1],"427":[1,1,100,0,25,0,10,1],"428":[1,1,86,0,25,0,10,1],"429":[1,1,86,0,25,0,10,1],"430":[1,1,86,0,25,0,10,1],"431":[1,1,94,0,25,0,10,1],"432":[1,1,86,0,25,0,10,1],"433":[1,1,86,0,25,0,10,1],"434":[1,1,98,0,25,0,10,1],"435":[1,1,86,0,25,0,10,1],"436":[1,1,86,0,25,0,10,1],"437":[1,1,86,0,25,0,10,1],"442":[1,1,86,0,25,0,10,1],"443":[1,1,86,0,25,0,10,1],"444":[1,1,86,0,25,0,10,1],"446":[1,1,86,0,25,0,10,1],"447":[1,1,86,0,25,0,10,1],"448":[1,1,86,0,25,0,10,1],"449":[1,1,86,0,25,0,10,1],"450":[1,1,86,0,25,0,10,1],"451":[1,1,86,0,25,0,10,1],"452":[1,1,86,0,25,0,10,1],"453":[1,1,100,0,25,0,10,1],"454":[1,1,86,0,25,0,10,1],"455":[1,1,86,0,25,0,10,1],"456":[1,1,86,0,25,0,10,1],"457":[1,1,86,0,25,0,10,1],"458":[1,1,86,0,25,0,10,1],"459":[1,1,96,0,25,0,10,1],"460":[1,1,86,0,25,0,10,1],"464":[1,1,86,0,25,0,10,1],"466":[1,1,86,0,25,0,10,1],"467":[1,1,86,0,25,0,10,1],"468":[1,1,86,0,25,0,10,1],"480":[1,1,86,0,25,0,10,1],"481":[1,1,86,0,25,0,10,1],"482":[1,1,86,0,25,0,10,1],"485":[1,1,86,0,25,0,10,1],"487":[1,1,86,0,25,0,10,1],"488":[1,1,86,0,25,0,10,1]}},"time":{"fi":[1,100],"fl":[0,30],"fc":1,"w1":[0,1,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23],"w2":[0,1,2,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]},"invs":{"n":0,"f":0,"l":[]},"more":{"l":"g"}}"#).unwrap();
+        let input = Pokemon {
+            spawnpoint_id: String::new(),
+            encounter_id: String::new(),
+            pokemon_id: 311,
+            latitude: 45.6492129172427,
+            longitude: 8.78267930515341,
+            disappear_time: 1565903000,
+            disappear_time_verified: true,
+            last_modified_time: 1565903000,
+            first_seen: 1565903000,
+            gender: Gender::Male,
+            cp: Some(76),
+            individual_attack: Some(12),
+            individual_defense: Some(14),
+            individual_stamina: Some(13),
+            pokemon_level: Some(2),
+            pokestop_id: None,
+            form: None,
+            costume: None,
+            cp_multiplier: None,
+            move_1: None,
+            move_2: None,
+            weight: None,
+            height: None,
+            base_catch: None,
+            great_catch: None,
+            ultra_catch: None,
+            boosted_weather: None,
+            def_grade: None,
+            atk_grade: None,
+            rating_attack: None,
+            rating_defense: None,
+            catch_prob_1: None,
+            catch_prob_2: None,
+            catch_prob_3: None,
+            weather: None,
+            weather_boosted_condition: None,
+            s2_cell_id: None,
+        };
+        assert!(config.submit(String::from("9862788"), &Request::Pokemon(Box::new(input))).is_err());
     }
 }
