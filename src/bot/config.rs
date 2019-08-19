@@ -74,13 +74,13 @@ impl BotConfig {
         let rad = if filter[5] == 1 {
             // $pkmn_rad = ValMinMax($filter[6], 0.1, MAX_DISTANCE);
             let rad = MAX_DISTANCE.min(f64::from(filter[6])).max(0.1);
-            debug = format!("Distanza personalizzata per Pokémon di {:.2} km", rad);
+            debug = format!("Distanza personalizzata per Pokémon inferiore a {:.2} km", rad);
             rad
         }
         else {
             // $pkmn_rad = ValMinMax($locs["p"][2], 0.1, MAX_DISTANCE);
             let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(&self.locs.p[2])?).max(0.1);
-            debug = format!("Distanza standard per Pokémon di {:.2} km", rad);
+            debug = format!("Distanza standard per Pokémon inferiore a {:.2} km", rad);
             rad
         };
 
@@ -90,6 +90,9 @@ impl BotConfig {
             info!("Pokémon discarded for distance: loc {:?} pos {:?} dist {} rad {}", loc, pos, dist, rad);
 
             return Err(());
+        }
+        else {
+            debug.push_str(&format!(" ({:.2} km)", dist));
         }
 
         let iv = match (input.individual_attack, input.individual_defense, input.individual_stamina) {
@@ -106,7 +109,7 @@ impl BotConfig {
                     return Err(());
                 }
                 else {
-                    debug.push_str(&format!("\nPokémon comune ma con IV superiori alla soglia del {:.0}%", MIN_IV_LIMIT));
+                    debug.push_str(&format!("\nPokémon comune ma con IV superiori alla soglia del {:.0}% ({:.0}%)", MIN_IV_LIMIT, i));
                 }
             }
             else {
@@ -136,7 +139,7 @@ impl BotConfig {
                 return Err(());
             }
             else {
-                debug.push_str(&format!("\nFiltro orario attivo ed {}", BotPkmn::describe(filter)));
+                debug.push_str(&format!("\nFiltro orario attivo e {}", BotPkmn::describe(filter)));
             }
         }
 
@@ -414,7 +417,7 @@ impl BotPkmn {
                 format!("LVL >= {}", filter[4])
             }
             else {
-                String::from("Nessun filtro attivo")
+                String::from("nessun filtro IV/LVL attivo")
             }
         }
     }
@@ -501,7 +504,7 @@ impl BotTime {
                 format!("LVL >= {}", self.fl[1])
             }
             else {
-                String::from("Nessun filtro attivo")
+                String::from("nessun filtro IV/LVL attivo")
             }
         }
     }
