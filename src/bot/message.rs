@@ -315,6 +315,7 @@ pub struct PokemonMessage {
     pub iv: Option<f32>,
     pub distance: f64,
     pub direction: String,
+    pub debug: Option<String>,
 }
 
 impl Message for PokemonMessage {
@@ -361,7 +362,7 @@ impl Message for PokemonMessage {
         };
 
         // if ($t_msg["cp"] != "") {
-        Ok(if let Some(iv) = self.iv {
+        let caption = if let Some(iv) = self.iv {
             // $v_iv = GetIV($t_msg["atk_iv"], $t_msg["def_iv"], $t_msg["sta_iv"]);
 
             // $t_corpo = $icon_pkmn . " " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]);
@@ -369,7 +370,7 @@ impl Message for PokemonMessage {
             // $t_corpo .= " (" . $v_iv . "%)" . MeteoIcon($t_msg["wb"]) . "\n";
             // $t_corpo .= "PL " . number_format($t_msg["cp"], 0, ",", ".") . " | Lv " . $t_msg["level"] . "\n";
             // $t_corpo .= $t_msg["distance"] . "km" . $dir_icon . " | " . date("H:i", $t_msg["expire_timestamp"]);
-            format!("{} {}{} ({:.0}%){}\n{}{:.1} km {} | {}",//debug
+            format!("{} {}{} ({:.0}%){}\n{}{:.1} km {} | {}",
                 icon,
                 LIST[&self.pokemon.pokemon_id].name.to_uppercase(),
                 self.pokemon.form.and_then(|id| FORMS.get(&id).map(|s| format!(" ({})", s))).unwrap_or_else(String::new),
@@ -388,7 +389,7 @@ impl Message for PokemonMessage {
             // $t_corpo = $icon_pkmn . " " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]);
             // $t_corpo .= ($t_msg["pokemon_id"] == 201 ? " (" . $unown_letter[$t_msg["form"]] . ")" : "") . MeteoIcon($t_msg["wb"]) . "\n";
             // $t_corpo .= $t_msg["distance"] . "km" . $dir_icon . " | " . date("H:i", $t_msg["expire_timestamp"]);
-            format!("{} {}{}{}\n{:.1} km {} | {}",//debug
+            format!("{} {}{}{}\n{:.1} km {} | {}",
                 icon,
                 LIST[&self.pokemon.pokemon_id].name.to_uppercase(),
                 self.pokemon.form.and_then(|id| FORMS.get(&id).map(|s| format!(" ({})", s))).unwrap_or_else(String::new),
@@ -397,6 +398,11 @@ impl Message for PokemonMessage {
                 dir_icon,
                 Local.timestamp(self.pokemon.disappear_time, 0).format("%T").to_string()
             )
+        };
+
+        Ok(match self.debug {
+            Some(ref s) => format!("{}\n\n{}", caption, s),
+            None => caption,
         })
     }
 
@@ -537,6 +543,7 @@ impl Message for PokemonMessage {
             iv,
             distance: 0f64,
             direction: String::new(),
+            debug: None,
         };
 
         Box::new(dummy.get_map()

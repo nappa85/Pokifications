@@ -27,6 +27,7 @@ type EmptyFuture = Box<dyn Future<Item=(), Error=()> + Send>;
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BotConfig {
+    pub debug: Option<bool>,
     pub locs: BotLocs,
     pub raid: BotRaid,
     pub pkmn: BotPkmn,
@@ -69,13 +70,18 @@ impl BotConfig {
         let loc = self.locs.get_pokemon_settings()?;
         let pos = (input.latitude, input.longitude);
 
+        let mut debug;
         let rad = if filter[5] == 1 {
             // $pkmn_rad = ValMinMax($filter[6], 0.1, MAX_DISTANCE);
-            MAX_DISTANCE.min(f64::from(filter[6])).max(0.1)
+            let rad = MAX_DISTANCE.min(f64::from(filter[6])).max(0.1);
+            debug = format!("Distanza personalizzata per Pokémon di {:.2} km", rad);
+            rad
         }
         else {
             // $pkmn_rad = ValMinMax($locs["p"][2], 0.1, MAX_DISTANCE);
-            MAX_DISTANCE.min(BotLocs::convert_to_f64(&self.locs.p[2])?).max(0.1)
+            let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(&self.locs.p[2])?).max(0.1);
+            debug = format!("Distanza standard per Pokémon di {:.2} km", rad);
+            rad
         };
 
         let dist = BotLocs::calc_dist(loc, pos)?;
@@ -99,6 +105,9 @@ impl BotConfig {
 
                     return Err(());
                 }
+                else {
+                    debug.push_str(&format!("\nPokémon comune ma con IV superiori alla soglia del {:.0}%", MIN_IV_LIMIT));
+                }
             }
             else {
                 #[cfg(test)]
@@ -115,6 +124,9 @@ impl BotConfig {
 
                 return Err(());
             }
+            else {
+                debug.push_str(&format!("\nFiltro orario non attivo ma eccezione per {}", self.time.describe()));
+            }
         }
         else {
             if (filter[1] >= 1 || filter[3] == 1) && !BotPkmn::filter(filter, iv, input.pokemon_level) {
@@ -123,6 +135,9 @@ impl BotConfig {
 
                 return Err(());
             }
+            else {
+                debug.push_str(&format!("\nFiltro orario attivo ed {}", BotPkmn::describe(filter)));
+            }
         }
 
         Ok(PokemonMessage {
@@ -130,6 +145,7 @@ impl BotConfig {
             iv,
             distance: BotLocs::calc_dist(&self.locs.h, pos)?,
             direction: BotLocs::get_direction(&self.locs.h, pos)?,
+            debug: if self.debug == Some(true) { Some(debug) } else { None },
         })
     }
 
@@ -386,6 +402,24 @@ impl BotPkmn {
      * 7: or/and
      */
     #[allow(clippy::trivially_copy_pass_by_ref)]
+    fn describe(filter: &[u8; 8]) -> String {
+        if filter[1] >= 1 && filter[3] == 1 { // IV e PL attivi
+            format!("IV >= {} {} LVL >= {}", filter[2], if filter[7] == 1 { "O" } else { "E" }, filter[4])
+        }
+        else {
+            if filter[1] >= 1 {
+                format!("IV >= {}", filter[2])
+            }
+            else if filter[3] == 1 {
+                format!("LVL >= {}", filter[4])
+            }
+            else {
+                String::from("Nessun filtro attivo")
+            }
+        }
+    }
+
+    #[allow(clippy::trivially_copy_pass_by_ref)]
     fn filter(filter: &[u8; 8], iv: Option<f32>, lvl: Option<u8>) -> bool {
         if filter[1] >= 1 && filter[3] == 1 { // IV e PL attivi
             if filter[7] == 1 {
@@ -453,6 +487,23 @@ impl BotTime {
             "0" | "6" => self.w2.contains(&hour),
             _ => self.w1.contains(&hour),
         })
+    }
+
+    fn describe(&self) -> String {
+        if self.fi[0] == 1 && self.fl[0] == 1 {
+            format!("IV >= {} {} LVL >= {}", self.fi[1], if self.fc == 1 { "O" } else { "E" }, self.fl[1])
+        }
+        else {
+            if self.fi[0] == 1 {
+                format!("IV >= {}", self.fi[1])
+            }
+            else if self.fl[0] == 1 {
+                format!("LVL >= {}", self.fl[1])
+            }
+            else {
+                String::from("Nessun filtro attivo")
+            }
+        }
     }
 
     fn bypass(&self, iv: Option<f32>, lvl: Option<u8>) -> bool {
