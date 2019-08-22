@@ -91,6 +91,11 @@ impl BotConfigs {
     pub fn submit(now: DateTime<Local>, inputs: Vec<Request>) -> impl Future<Item=(), Error=()> {
         BOT_CONFIGS.future_read(move |lock| {
             for input in inputs.into_iter() {
+                if let Request::Reload(user_ids) = input {
+                    spawn(BotConfigs::reload(user_ids).then(|_| Err(())));
+                    continue;
+                }
+
                 let mut futures = Vec::new();
                 lock.iter().for_each(|(chat_id, config)| {
                     if let Ok(future) = config.submit(chat_id.clone(), &input) {
@@ -113,10 +118,6 @@ impl BotConfigs {
 
     fn prepare(now: DateTime<Local>, input: Request) -> impl Future<Item=Image, Error=()> {
         match input {
-            Request::Reload(user_ids) => {
-                spawn(BotConfigs::reload(user_ids).then(|_| Err(())));
-                Box::new(future::err(()))
-            },
             Request::Pokemon(i) => PokemonMessage::prepare(now, i),
             Request::Raid(i) => RaidMessage::prepare(now, i),
             Request::Invasion(i) => InvasionMessage::prepare(now, i),
