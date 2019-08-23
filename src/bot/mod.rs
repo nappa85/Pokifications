@@ -6,7 +6,6 @@ use parking_lot::RwLock;
 
 use future_parking_lot::rwlock::{FutureReadable, FutureWriteable};
 
-use tokio::prelude::{Future, future};
 use tokio::timer::Delay;
 use tokio::spawn;
 
@@ -37,11 +36,10 @@ impl BotConfigs {
         res
     }
 
-    pub fn reload(user_ids: Vec<String>) -> impl Future<Item=(), Error=()> {
-        BOT_CONFIGS.future_write(|mut lock| {
-            info!("reloading configs for users {:?}", user_ids);
-            Self::load(&mut lock, Some(user_ids))
-        })
+    pub async fn reload(user_ids: Vec<String>) -> Result<(), ()> {
+        let mut lock = BOT_CONFIGS.future_write().await;
+        info!("reloading configs for users {:?}", user_ids);
+        Self::load(&mut lock, Some(user_ids))
     }
 
     fn load(configs: &mut HashMap<String, config::BotConfig>, user_ids: Option<Vec<String>>) -> Result<(), ()> {
@@ -79,49 +77,54 @@ impl BotConfigs {
                 configs.insert(user_id.clone(), config);
 
                 let scadenza: u64 = row.take("scadenza").ok_or_else(|| error!("MySQL city.scadenza encoding error"))?;
-                spawn(Delay::new(Instant::now() + Duration::from_secs(scadenza - now))
-                    .map_err(|e| error!("timer error: {}", e))
-                    .and_then(move |_| BotConfigs::reload(vec![user_id])));
+                spawn(async move {
+                    Delay::new(Instant::now() + Duration::from_secs(scadenza - now)).await;
+                    //.map_err(|e| error!("timer error: {}", e))
+                    BotConfigs::reload(vec![user_id]).await.ok();
+                });
             }
         }
 
         Ok(())
     }
 
-    pub fn submit(now: DateTime<Local>, inputs: Vec<Request>) -> impl Future<Item=(), Error=()> {
-        BOT_CONFIGS.future_read(move |lock| {
-            for input in inputs.into_iter() {
-                if let Request::Reload(user_ids) = input {
-                    spawn(BotConfigs::reload(user_ids).then(|_| Err(())));
-                    continue;
-                }
+    pub async fn submit(now: DateTime<Local>, inputs: Vec<Request>) {
+        for input in inputs.into_iter() {
+            if let Request::Reload(user_ids) = input {
+                spawn(async {
+                    BotConfigs::reload(user_ids).await.ok();
+                });
+                continue;
+            }
 
-                let mut futures = Vec::new();
+            let mut futures = Vec::new();
+            {
+                let lock = BOT_CONFIGS.future_read().await;
                 lock.iter().for_each(|(chat_id, config)| {
-                    if let Ok(future) = config.submit(chat_id.clone(), &input) {
+                    if let Ok(future) = config.submit(chat_id, &input) {
                         futures.push(future);
                     }
                 });
-                if !futures.is_empty() {
-                    spawn(Self::prepare(now, input)
-                        .and_then(move |file_id| {
-                            for future in futures.into_iter() {
-                                spawn(future(file_id.clone()));
-                            }
-                            Ok(())
-                        }));
-                }
             }
-            Ok(())
-        })
+
+            if !futures.is_empty() {
+                spawn(async move {
+                    if let Ok(file_id) = Self::prepare(now, input).await {
+                        for future in futures.into_iter() {
+                            future(file_id.clone());
+                        }
+                    }
+                });
+            }
+        }
     }
 
-    fn prepare(now: DateTime<Local>, input: Request) -> impl Future<Item=Image, Error=()> {
+    async fn prepare(now: DateTime<Local>, input: Request) -> Result<Image, ()> {
         match input {
-            Request::Pokemon(i) => PokemonMessage::prepare(now, i),
-            Request::Raid(i) => RaidMessage::prepare(now, i),
-            Request::Invasion(i) => InvasionMessage::prepare(now, i),
-            _ => Box::new(future::err(())),
+            Request::Pokemon(i) => message::prepare(PokemonMessage::get_dummy(i), now).await,
+            Request::Raid(i) => message::prepare(RaidMessage::get_dummy(i), now).await,
+            Request::Invasion(i) => message::prepare(InvasionMessage::get_dummy(i), now).await,
+            _ => Err(()),
         }
     }
 }

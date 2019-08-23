@@ -5,12 +5,18 @@ use std::path::Path;
 use std::time::Duration;
 
 // use tokio::timer::Delay;
-use tokio::prelude::{Future, Stream, future::{self, IntoFuture, Either, loop_fn, Loop}};
+use tokio::future::FutureExt;
 
-use reqwest::r#async::{ClientBuilder, Client, multipart::{Form, Part}};
+use futures_util::try_stream::TryStreamExt;
+
+use hyper::{Body, Client, Request};
+use hyper_tls::HttpsConnector;
 
 use chrono::{Local, DateTime};
 use chrono::offset::TimeZone;
+
+use rand::{thread_rng, Rng};
+use rand::distributions::Alphanumeric;
 
 use serde_json::value::Value;
 
@@ -29,88 +35,205 @@ pub enum Image {
     Bytes(Vec<u8>),
 }
 
+pub async fn send_message<M: Message>(message: &M, chat_id: &str, image: Image, map_type: &str) -> Result<(), ()> {
+    let url = format!("https://api.telegram.org/bot{}/sendPhoto", CONFIG.telegram.bot_token);
+
+    let boundary: String = thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(30)
+        .collect();
+
+    let req = Request::builder()
+        .method("POST")
+        .header("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
+        .uri(&url)
+        .body(message.get_form(&boundary, chat_id, image, map_type)?)
+        .map_err(|e| error!("error building Telegram request: {}", e))?;
+
+    let https = HttpsConnector::new(4).unwrap();
+    let future = Client::builder().build::<_, hyper::Body>(https).request(req);
+    let res = match CONFIG.telegram.timeout {
+        Some(timeout) => future.timeout(Duration::from_secs(timeout)).await.map_err(|e| error!("timeout calling Telegram: {}", e))?,
+        None => future.await,
+    }.map_err(|e| error!("error calling Telegram: {}", e))?;
+
+    if !res.status().is_success() {
+        let debug = format!("error response from Telegram: {:?}", res);
+
+        let chunks = res.into_body().try_concat().await.map_err(|e| error!("error while reading {}: {}", debug, e))?;
+
+        let body = String::from_utf8(chunks.to_vec()).map_err(|e| error!("error while encoding {}: {}", debug, e))?;
+        error!("{}\nchat_id: {}\n{}", debug, chat_id, body);
+        let json: Value = serde_json::from_str(&body).map_err(|e| error!("error while decoding {}: {}", debug, e))?;
+
+        // blocked, disable bot
+        if json["description"] == "Forbidden: bot was blocked by the user" {
+            let mut conn = MYSQL.get_conn().map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+            conn.query(format!("UPDATE utenti_config_bot SET enabled = 0 WHERE user_id = {}", chat_id)).map_err(|e| error!("MySQL query error: {}", e))?;
+            // apply
+            return BotConfigs::reload(vec![chat_id.to_owned()]).await;
+        }
+        else {
+            return Err(());
+        }
+    }
+
+    let mut conn = MYSQL.get_conn().map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    conn.query(format!("UPDATE utenti_config_bot SET sent = sent + 1 WHERE user_id = {}", chat_id)).map_err(|e| error!("MySQL query error: {}", e))?;
+    Ok(())
+}
+
+async fn get_map<M: Message>(message: &M) -> Result<image::DynamicImage, ()> {
+    // $lat = number_format(round($ilat, 3), 3);
+    // $lon = number_format(round($ilon, 3), 3);
+    // $map_path = "../../data/bot/img_maps/" . $lat . "_" . $lon . ".png";
+    let map_path_str = format!("{}img_maps/{:.3}_{:.3}.png", CONFIG.images.bot, message.get_latitude(), message.get_longitude());
+    let map_path = Path::new(&map_path_str);
+
+    if map_path.exists() {
+        return image::open(&map_path).map_err(|e| error!("error opening map image {}: {}", map_path_str, e));
+    }
+
+    let m_link = format!("https://maps.googleapis.com/maps/api/staticmap?center={:.3},{:.3}&zoom=14&size=280x101&maptype=roadmap&markers={:.3},{:.3}&key={}", message.get_latitude(), message.get_longitude(), message.get_latitude(), message.get_longitude(), CONFIG.google.maps_key)
+        .parse()
+        .map_err(|e| error!("Error building Google URI: {}", e))?;
+    let https = HttpsConnector::new(4).unwrap();
+    let future = Client::builder().build::<_, hyper::Body>(https).get(m_link);
+    let res = match CONFIG.google.timeout {
+            Some(timeout) => future.timeout(Duration::from_secs(timeout)).await.map_err(|e| error!("timeout calling google maps: {}", e))?,
+            None => future.await,
+        }.map_err(|e| error!("error calling google maps: {}", e))?;
+
+    let chunks = res.into_body().try_concat().await.map_err(|e| error!("error reading google maps response: {}", e))?;
+
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .open(&map_path_str)
+        .map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
+    let buf = chunks.to_vec();
+    file.write_all(&buf).map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
+    
+    image::load_from_memory_with_format(&buf, image::ImageFormat::PNG)
+        .map_err(|e| error!("error opening map image {}: {}", map_path_str, e))
+}
+
+pub async fn prepare<M: Message>(message: M, now: DateTime<Local>) -> Result<Image, ()> {
+    let map = get_map(&message).await?;
+    let bytes = message.get_image(map)?;
+
+    if let Some(ref chat_id) = CONFIG.telegram.cache_chat {
+        let boundary: String = thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(30)
+            .collect();
+
+        let url = format!("https://api.telegram.org/bot{}/sendPhoto", CONFIG.telegram.bot_token);
+
+        let mut retries = 0;
+        loop {
+
+            let mut data = Vec::new();
+            write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n{}\r\n", boundary, chat_id)
+                .map_err(|e| error!("error writing chat_id multipart: {}", e))?;
+            write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n{}\n{} retries\r\n", boundary, now.format("%F %T").to_string(), retries)
+                .map_err(|e| error!("error writing caption multipart: {}", e))?;
+            write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"image.png\"\r\nContent-Type: image/png\r\n\r\n", boundary)
+                .map_err(|e| error!("error writing photo multipart: {}", e))?;
+
+            data.append(&mut bytes.clone());
+
+            write!(&mut data, "\r\n--{}--\r\n", boundary)
+                .map_err(|e| error!("error closing multipart: {}", e))?;
+
+            let req = Request::builder()
+                .method("POST")
+                .header("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
+                .uri(&url)
+                .body(data.into())
+                .map_err(|e| error!("error building Telegram request: {}", e))?;
+
+            let https = HttpsConnector::new(4).unwrap();
+            let future = Client::builder().build::<_, hyper::Body>(https).request(req);
+            let res = match CONFIG.telegram.timeout {
+                Some(timeout) => future.timeout(Duration::from_secs(timeout)).await.map_err(|e| error!("timeout calling Telegram: {}", e))?,
+                None => future.await,
+            }.map_err(|e| error!("error calling Telegram: {}", e))?;
+
+            let status = res.status().as_u16();
+            if status == 429u16 || status == 504u16 {
+                retries += 1;
+                continue;
+            }
+            else {
+                let success = res.status().is_success();
+                let debug = format!("response from Telegram for caching image: {:?}", res);
+
+                let chunks = res.into_body().try_concat().await.map_err(|e| error!("error while reading {}: {}", debug, e))?;
+
+                let body = String::from_utf8(chunks.to_vec()).map_err(|e| error!("error while encoding {}: {}", debug, e))?;
+                if success {
+                    let json: Value = serde_json::from_str(&body).map_err(|e| error!("error while decoding {}: {}", debug, e))?;
+
+                    if let Some(sizes) = json["result"]["photo"].as_array() {
+                        // scan various formats to select the best one
+                        let mut best_index = 0;
+                        for i in 1..sizes.len() {
+                            if sizes[best_index]["file_size"].as_u64() < sizes[i]["file_size"].as_u64() {
+                                best_index = i;
+                            }
+                        }
+
+                        return Ok(Image::FileId(sizes[best_index]["file_id"].as_str().map(|s| s.to_owned()).ok_or_else(|| ())?));
+                    }
+                    else {
+                        error!("error while reading {}: photos isn't an array\n{}", debug, body);
+                        return Err(());
+                    }
+                }
+                else {
+                    error!("error while reading {}\n{}", debug, body);
+                    return Err(());
+                }
+            }
+        }
+    }
+    else {
+        Ok(Image::Bytes(bytes))
+    }
+}
+
 pub trait Message {
     type Input;
 
-    fn send(&self, chat_id: String, image: Image, map_type: String) -> Box<dyn Future<Item=(), Error=()> + Send> {
-        let form = match self.get_form(chat_id.clone(), image, &map_type) {
-            Ok(form) => form,
-            Err(_) => return Box::new(future::err(())),
-        };
+    fn get_form(&self, boundary: &str, chat_id: &str, mut image: Image, map_type: &str) -> Result<Body, ()> {
+        let mut data = Vec::new();
+        write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n{}\r\n", boundary, chat_id)
+            .map_err(|e| error!("error writing chat_id multipart: {}", e))?;
+        write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n{}\r\n", boundary, self.get_caption()?)
+            .map_err(|e| error!("error writing caption multipart: {}", e))?;
+        write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"reply_markup\"\r\n\r\n{}\r\n", boundary, self.message_button(&map_type)?)
+            .map_err(|e| error!("error writing reply_markup multipart: {}", e))?;
+        write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"disable_web_page_preview\"\r\n\r\ntrue\r\n", boundary)
+            .map_err(|e| error!("error writing disable_web_page_preview multipart: {}", e))?;
 
-        let url = format!("https://api.telegram.org/bot{}/sendPhoto", CONFIG.telegram.bot_token);
-        let client = match CONFIG.telegram.timeout {
-            Some(timeout) => {
-                match ClientBuilder::new().timeout(Duration::from_secs(timeout)).build() {
-                    Ok(client) => client,
-                    Err(e) => {
-                        error!("error building Telegram client: {}", e);
-                        return Box::new(future::err(()));
-                    },
-                }
+        match image {
+            Image::FileId(file_id) => {
+                write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"photo\"\r\n\r\n{}\r\n", boundary, file_id)
+                    .map_err(|e| error!("error writing photo multipart: {}", e))?;
             },
-            None => Client::new(),
-        };
+            Image::Bytes(ref mut bytes) => {
+                write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"image.png\"\r\nContent-Type: image/png\r\n\r\n", boundary)
+                    .map_err(|e| error!("error writing photo multipart: {}", e))?;
 
-        Box::new(client.post(&url)
-            .multipart(form)
-            .send()
-            .map_err(|e| error!("error calling Telegram: {}", e))
-            .and_then(move |res| {
-                if res.status().is_success() {
-                    Either::A(future::ok(chat_id))
-                }
-                else {
-                    let debug1 = format!("error response from Telegram: {:?}", res);
-                    let debug2 = debug1.clone();
-                    Either::B(res.into_body()
-                        .concat2()
-                        .map_err(move |e| error!("error while reading {}: {}", debug1, e))
-                        .and_then(move |chunks| {
-                            let body = String::from_utf8(chunks.to_vec()).map_err(|e| error!("error while encoding {}: {}", debug2, e))?;
-                            error!("{}\nchat_id: {}\n{}", debug2, chat_id, body);
-                            let json: Value = serde_json::from_str(&body).map_err(|e| error!("error while decoding {}: {}", debug2, e))?;
-
-                            // blocked, disable bot
-                            if json["description"] == "Forbidden: bot was blocked by the user" {
-                                let mut conn = MYSQL.get_conn().map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-                                conn.query(format!("UPDATE utenti_config_bot SET enabled = 0 WHERE user_id = {}", chat_id)).map_err(|e| error!("MySQL query error: {}", e))?;
-                                Ok(chat_id)
-                            }
-                            else {
-                                Err(())
-                            }
-                        })
-                        .and_then(|chat_id| {
-                            // apply
-                            BotConfigs::reload(vec![chat_id]).then(|_| Err(()))
-                        }))
-                }
-            })
-            .and_then(|chat_id| {
-                let mut conn = MYSQL.get_conn().map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-                conn.query(format!("UPDATE utenti_config_bot SET sent = sent + 1 WHERE user_id = {}", chat_id)).map_err(|e| error!("MySQL query error: {}", e))?;
-                Ok(())
-            }))
-    }
-
-    fn get_form(&self, chat_id: String, image: Image, map_type: &str) -> Result<Form, ()> {
-        let form = Form::new()
-            .text("chat_id", chat_id)
-            .text("caption", self.get_caption()?)
-            .text("reply_markup", self.message_button(&map_type)?)
-            .text("disable_web_page_preview", "true");
-        
-        Ok(match image {
-            Image::FileId(file_id) => form.text("photo", file_id),
-            Image::Bytes(bytes) => {
-                form.part("photo", Part::bytes(bytes)
-                        .file_name("image.png")
-                        .mime_str("image/png")
-                        .map_err(|e| error!("error attaching image: {}", e))?
-                    )
+                data.append(bytes);
             },
-        })
+        }
+
+        write!(&mut data, "\r\n--{}--\r\n", boundary)
+            .map_err(|e| error!("error closing multipart: {}", e))?;
+
+        Ok(data.into())
     }
 
     fn open_font(path: String) -> Result<rusttype::Font<'static>, ()> {
@@ -118,56 +241,6 @@ pub trait Message {
         let mut font_data = Vec::new();
         file.read_to_end(&mut font_data).map_err(|e| error!("error reading font {}: {}", path, e))?;
         rusttype::Font::from_bytes(font_data).map_err(|e| error!("error decoding font {}: {}", path, e))
-    }
-
-    fn get_map(&self) -> Box<dyn Future<Item=image::DynamicImage, Error=()> + Send> {
-        // $lat = number_format(round($ilat, 3), 3);
-        // $lon = number_format(round($ilon, 3), 3);
-        // $map_path = "../../data/bot/img_maps/" . $lat . "_" . $lon . ".png";
-        let map_path_str = format!("{}img_maps/{:.3}_{:.3}.png", CONFIG.images.bot, self.get_latitude(), self.get_longitude());
-        let map_path = Path::new(&map_path_str);
-
-        if map_path.exists() {
-            Box::new(image::open(&map_path).map_err(|e| error!("error opening map image {}: {}", map_path_str, e)).into_future())
-        }
-        else {
-            let m_link = format!("https://maps.googleapis.com/maps/api/staticmap?center={:.3},{:.3}&zoom=14&size=280x101&maptype=roadmap&markers={:.3},{:.3}&key={}", self.get_latitude(), self.get_longitude(), self.get_latitude(), self.get_longitude(), CONFIG.google.maps_key);
-            let map_path_str2 = map_path_str.clone();
-
-            let client = match CONFIG.google.timeout {
-                Some(timeout) => {
-                    match ClientBuilder::new().timeout(Duration::from_secs(timeout)).build() {
-                        Ok(client) => client,
-                        Err(e) => {
-                            error!("error building Google client: {}", e);
-                            return Box::new(future::err(()));
-                        },
-                    }
-                },
-                None => Client::new(),
-            };
-            Box::new(client.get(&m_link)
-                .send()
-                .map_err(|e| error!("error calling google maps: {}", e))
-                .and_then(|res| {
-                    res.into_body()
-                        .concat2()
-                        .map_err(|e| error!("error reading google maps response: {}", e))
-                        .and_then(move |chunks| {
-                            let mut file = OpenOptions::new()
-                                .write(true)
-                                .create(true)
-                                .open(&map_path_str)
-                                .map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
-                            let buf = chunks.to_vec();
-                            file.write_all(&buf).map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
-                            Ok(())
-                        })
-                        .then(move |_| {
-                            image::open(&map_path_str2).map_err(|e| error!("error opening map image {}: {}", map_path_str2, e))
-                        })
-                }))
-        }
     }
 
     fn get_text_width(font: &rusttype::Font, scale: rusttype::Scale, text: &str) -> i32 {
@@ -212,93 +285,7 @@ pub trait Message {
             }).to_string())
     }
 
-    fn prepare(now: DateTime<Local>, input: Self::Input) -> Box<dyn Future<Item=Image, Error=()> + Send> {
-        Box::new(Self::_prepare(input)
-            .and_then(move |bytes| {
-                if let Some(ref chat_id) = CONFIG.telegram.cache_chat {
-                    let client = match CONFIG.telegram.timeout {
-                        Some(timeout) => {
-                            match ClientBuilder::new().timeout(Duration::from_secs(timeout)).build() {
-                                Ok(client) => client,
-                                Err(e) => {
-                                    error!("error building cache client: {}", e);
-                                    return Either::A(future::err(()));
-                                },
-                            }
-                        },
-                        None => Client::new(),
-                    };
-
-                    Either::B(loop_fn((client, chat_id.clone(), bytes, 0), move |(client, chat_id, bytes, retries)| {
-                        let part = match Part::bytes(bytes.clone()).file_name("image.png").mime_str("image/png") {
-                            Ok(part) => part,
-                            Err(e) => {
-                                error!("error attaching image: {}", e);
-                                return Either::A(future::err(()));
-                            },
-                        };
-
-                        let url = format!("https://api.telegram.org/bot{}/sendPhoto", CONFIG.telegram.bot_token);
-                        Either::B(client.post(&url)
-                            .multipart(Form::new()
-                                .text("chat_id", chat_id.clone())
-                                .text("caption", format!("{}\n{} retries", now.format("%F %T").to_string(), retries))
-                                .part("photo", part))
-                            .send()
-                            .map_err(|e| error!("error calling Telegram for caching image: {}", e))
-                            .and_then(move |res| {
-                                let status = res.status().as_u16();
-                                if status == 429u16 || status == 504u16 {
-                                    // Either::A(Delay::new(Instant::now() + Duration::from_secs(30))
-                                    //     .map_err(|e| error!("delay error: {}", e))
-                                    //     .map(move |_| Loop::Continue((client, chat_id, bytes, retries + 1))))
-                                    Either::A(future::ok(Loop::Continue((client, chat_id, bytes, retries + 1))))
-                                }
-                                else {
-                                    let success = res.status().is_success();
-                                    let debug1 = format!("response from Telegram for caching image: {:?}", res);
-                                    let debug2 = debug1.clone();
-                                    Either::B(res.into_body()
-                                        .concat2()
-                                        .map_err(move |e| error!("error while reading {}: {}", debug1, e))
-                                        .and_then(move |chunks| {
-                                            let body = String::from_utf8(chunks.to_vec()).map_err(|e| error!("error while encoding {}: {}", debug2, e))?;
-                                            if success {
-                                                let json: Value = serde_json::from_str(&body).map_err(|e| error!("error while decoding {}: {}", debug2, e))?;
-
-                                                if let Some(sizes) = json["result"]["photo"].as_array() {
-                                                    // scan various formats to select the best one
-                                                    let mut best_index = 0;
-                                                    for i in 1..sizes.len() {
-                                                        if sizes[best_index]["file_size"].as_u64() < sizes[i]["file_size"].as_u64() {
-                                                            best_index = i;
-                                                        }
-                                                    }
-
-                                                    Ok(Loop::Break(Image::FileId(sizes[best_index]["file_id"].as_str().map(|s| s.to_owned()).ok_or_else(|| ())?)))
-                                                }
-                                                else {
-                                                    error!("error while reading {}: photos isn't an array\n{}", debug2, body);
-                                                    Err(())
-                                                }
-                                            }
-                                            else {
-                                                error!("error while reading {}\n{}", debug2, body);
-                                                Err(())
-                                            }
-                                        }))
-                                }
-                            }))
-                    }))
-                }
-                else {
-                    Either::A(future::ok(Image::Bytes(bytes)))
-                }
-            }))
-
-    }
-
-    fn _prepare(input: Self::Input) -> Box<dyn Future<Item=Vec<u8>, Error=()> + Send>;
+    fn get_dummy(input: Self::Input) -> Self;
 
     fn get_latitude(&self) -> f64;
 
@@ -532,22 +519,19 @@ impl Message for PokemonMessage {
         Ok(out)
     }
 
-    fn _prepare(input: Self::Input) -> Box<dyn Future<Item=Vec<u8>, Error=()> + Send> {
+    fn get_dummy(input: Self::Input) -> PokemonMessage {
         let iv = match (input.individual_attack, input.individual_defense, input.individual_stamina) {
             (Some(atk), Some(def), Some(sta)) => Some((f32::from(atk + def + sta) / 45f32) * 100f32),
             _ => None,
         };
 
-        let dummy = PokemonMessage {
+        PokemonMessage {
             pokemon: input,
             iv,
             distance: 0f64,
             direction: String::new(),
             debug: None,
-        };
-
-        Box::new(dummy.get_map()
-            .and_then(move |map| dummy.get_image(map)))
+        }
     }
 }
 
@@ -738,14 +722,11 @@ impl Message for RaidMessage {
         Ok(out)
     }
 
-    fn _prepare(input: Self::Input) -> Box<dyn Future<Item=Vec<u8>, Error=()> + Send> {
-        let dummy = RaidMessage {
+    fn get_dummy(input: Self::Input) -> Self {
+        RaidMessage {
             raid: input,
             distance: 0f64,
-        };
-
-        Box::new(dummy.get_map()
-            .and_then(move |map| dummy.get_image(map)))
+        }
     }
 }
 
@@ -839,12 +820,9 @@ impl Message for InvasionMessage {
         Ok(out)
     }
 
-    fn _prepare(input: Self::Input) -> Box<dyn Future<Item=Vec<u8>, Error=()> + Send> {
-        let dummy = InvasionMessage {
+    fn get_dummy(input: Self::Input) -> InvasionMessage {
+        InvasionMessage {
             invasion: input,
-        };
-
-        Box::new(dummy.get_map()
-            .and_then(move |map| dummy.get_image(map)))
+        }
     }
 }

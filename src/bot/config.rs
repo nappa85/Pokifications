@@ -3,11 +3,11 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
-use tokio::prelude::Future;
-
 use serde_json::Value as JsonValue;
 
 use chrono::Local;
+
+use tokio::spawn;
 
 use log::error;
 
@@ -17,12 +17,10 @@ use log::info;
 use crate::lists::COMMON;
 use crate::entities::{Pokemon, Pokestop, Raid, Request};
 
-use super::message::{Image, Message, PokemonMessage, RaidMessage, InvasionMessage};
+use super::message::{self, Image, PokemonMessage, RaidMessage, InvasionMessage};
 
 const MAX_DISTANCE: f64 = 15f64;
 const MIN_IV_LIMIT: f32 = 36f32;
-
-type EmptyFuture = Box<dyn Future<Item=(), Error=()> + Send>;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -37,7 +35,7 @@ pub struct BotConfig {
 }
 
 impl BotConfig {
-    pub fn submit(&self, chat_id: String, input: &Request) -> Result<Box<dyn FnOnce(Image) -> EmptyFuture + Send>, ()> {
+    pub fn submit(&self, chat_id: &str, input: &Request) -> Result<Box<dyn FnOnce(Image) + Send>, ()> {
         if !self.time.is_active()? && self.time.fi[0] == 0 && self.time.fl[0] == 0 {
             #[cfg(test)]
             info!("Webhook discarded for time configs");
@@ -54,10 +52,15 @@ impl BotConfig {
         }
     }
 
-    fn submit_pokemon(&self, chat_id: String, input: &Box<Pokemon>) -> Result<Box<dyn FnOnce(Image) -> EmptyFuture + Send>, ()> {
+    fn submit_pokemon(&self, chat_id: &str, input: &Box<Pokemon>) -> Result<Box<dyn FnOnce(Image) + Send>, ()> {
         let message = self._submit_pokemon(input)?;
+        let chat_id = chat_id.to_owned();
         let map_type = self.more.l.clone();
-        Ok(Box::new(move |file_id| message.send(chat_id, file_id, map_type)))
+        Ok(Box::new(move |file_id| {
+            spawn(async move {
+                message::send_message(&message, &chat_id, file_id, &map_type).await.ok();
+            });
+        }))
     }
 
     fn _submit_pokemon(&self, input: &Box<Pokemon>) -> Result<PokemonMessage, ()> {
@@ -152,10 +155,15 @@ impl BotConfig {
         })
     }
 
-    fn submit_raid(&self, chat_id: String, input: &Raid) -> Result<Box<dyn FnOnce(Image) -> EmptyFuture + Send>, ()> {
+    fn submit_raid(&self, chat_id: &str, input: &Raid) -> Result<Box<dyn FnOnce(Image) + Send>, ()> {
         let message = self._submit_raid(input)?;
+        let chat_id = chat_id.to_owned();
         let map_type = self.more.l.clone();
-        Ok(Box::new(move |file_id| message.send(chat_id, file_id, map_type)))
+        Ok(Box::new(move |file_id| {
+            spawn(async move {
+                message::send_message(&message, &chat_id, file_id, &map_type).await.ok();
+            });
+        }))
     }
  
     fn _submit_raid(&self, input: &Raid) -> Result<RaidMessage, ()> {
@@ -213,10 +221,15 @@ impl BotConfig {
         })
     }
 
-    fn submit_invasion(&self, chat_id: String, input: &Pokestop) -> Result<Box<dyn FnOnce(Image) -> EmptyFuture + Send>, ()> {
+    fn submit_invasion(&self, chat_id: &str, input: &Pokestop) -> Result<Box<dyn FnOnce(Image) + Send>, ()> {
         let message = self._submit_invasion(input)?;
+        let chat_id = chat_id.to_owned();
         let map_type = self.more.l.clone();
-        Ok(Box::new(move |file_id| message.send(chat_id, file_id, map_type)))
+        Ok(Box::new(move |file_id| {
+            spawn(async move {
+                message::send_message(&message, &chat_id, file_id, &map_type).await.ok();
+            });
+        }))
     }
 
     fn _submit_invasion(&self, input: &Pokestop) -> Result<InvasionMessage, ()> {
