@@ -5,7 +5,7 @@ use serde::Deserialize;
 
 use serde_json::Value as JsonValue;
 
-use chrono::Local;
+use chrono::{Local, DateTime};
 
 use tokio::spawn;
 
@@ -35,7 +35,7 @@ pub struct BotConfig {
 }
 
 impl BotConfig {
-    pub fn submit(&self, chat_id: &str, input: &Request) -> Result<Box<dyn FnOnce(Image) + Send>, ()> {
+    pub fn submit(&self, now: &DateTime<Local>, chat_id: &str, input: &Request) -> Result<Box<dyn FnOnce(Image) + Send>, ()> {
         if !self.time.is_active()? && self.time.fi[0] == 0 && self.time.fl[0] == 0 {
             #[cfg(test)]
             info!("Webhook discarded for time configs");
@@ -44,7 +44,7 @@ impl BotConfig {
         }
         else {
             match input {
-                Request::Pokemon(p) => self.submit_pokemon(chat_id, p),
+                Request::Pokemon(p) => self.submit_pokemon(now, chat_id, p),
                 Request::Raid(r) => self.submit_raid(chat_id, r),
                 Request::Invasion(i) => self.submit_invasion(chat_id, i),
                 _ => Err(()),
@@ -52,8 +52,8 @@ impl BotConfig {
         }
     }
 
-    fn submit_pokemon(&self, chat_id: &str, input: &Box<Pokemon>) -> Result<Box<dyn FnOnce(Image) + Send>, ()> {
-        let message = self._submit_pokemon(input)?;
+    fn submit_pokemon(&self, now: &DateTime<Local>, chat_id: &str, input: &Box<Pokemon>) -> Result<Box<dyn FnOnce(Image) + Send>, ()> {
+        let message = self._submit_pokemon(now, input)?;
         let chat_id = chat_id.to_owned();
         let map_type = self.more.l.clone();
         Ok(Box::new(move |file_id| {
@@ -63,7 +63,7 @@ impl BotConfig {
         }))
     }
 
-    fn _submit_pokemon(&self, input: &Box<Pokemon>) -> Result<PokemonMessage, ()> {
+    fn _submit_pokemon(&self, now: &DateTime<Local>, input: &Box<Pokemon>) -> Result<PokemonMessage, ()> {
         let pokemon_id = input.pokemon_id.to_string();
         let filter = self.pkmn.l.get(&pokemon_id).ok_or_else(|| ())?;
         if filter[0] == 0 {
@@ -73,17 +73,17 @@ impl BotConfig {
         let loc = self.locs.get_pokemon_settings()?;
         let pos = (input.latitude, input.longitude);
 
-        let mut debug;
+        let mut debug = format!("Scansione avvenuta alle {}", now.format("%T").to_string());
         let rad = if filter[5] == 1 {
             // $pkmn_rad = ValMinMax($filter[6], 0.1, MAX_DISTANCE);
             let rad = MAX_DISTANCE.min(f64::from(filter[6])).max(0.1);
-            debug = format!("Distanza personalizzata per Pokémon inferiore a {:.2} km", rad);
+            debug.push_str(&format!("Distanza personalizzata per Pokémon inferiore a {:.2} km", rad));
             rad
         }
         else {
             // $pkmn_rad = ValMinMax($locs["p"][2], 0.1, MAX_DISTANCE);
             let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(&self.locs.p[2])?).max(0.1);
-            debug = format!("Distanza standard per Pokémon inferiore a {:.2} km", rad);
+            debug.push_str(&format!("Distanza standard per Pokémon inferiore a {:.2} km", rad));
             rad
         };
 
@@ -151,7 +151,7 @@ impl BotConfig {
             iv,
             distance: BotLocs::calc_dist(&self.locs.h, pos)?,
             direction: BotLocs::get_direction(&self.locs.h, pos)?,
-            debug: if self.debug == Some(true) { Some(debug) } else { None },
+            debug: Some(debug),//if self.debug == Some(true) { Some(debug) } else { None },//debug
         })
     }
 

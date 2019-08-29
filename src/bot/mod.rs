@@ -2,9 +2,7 @@ use std::sync::Arc;
 use std::collections::HashMap;
 use std::time::{Instant, Duration};
 
-use parking_lot::RwLock;
-
-use future_parking_lot::rwlock::{FutureReadable, FutureWriteable};
+use future_parking_lot::rwlock::{RwLock, FutureReadable, FutureWriteable};
 
 use tokio::timer::Delay;
 use tokio::spawn;
@@ -101,7 +99,7 @@ impl BotConfigs {
             {
                 let lock = BOT_CONFIGS.future_read().await;
                 lock.iter().for_each(|(chat_id, config)| {
-                    if let Ok(future) = config.submit(chat_id, &input) {
+                    if let Ok(future) = config.submit(&now, chat_id, &input) {
                         futures.push(future);
                     }
                 });
