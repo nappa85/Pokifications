@@ -203,6 +203,21 @@ pub async fn prepare<M: Message>(message: M, now: DateTime<Local>) -> Result<Ima
     }
 }
 
+fn truncate_str(s: &str, limit: usize, placeholder: char) -> String {
+    if s.is_empty() {
+        return placeholder.to_string();
+    }
+
+    let mut chars: Vec<char> = s.chars().take(limit + 1).collect();
+    if chars.len() > limit {
+        chars.truncate(limit - 1);
+        chars.push('.');
+        chars.push('.');
+    }
+
+    chars.into_iter().collect()
+}
+
 pub trait Message {
     type Input;
 
@@ -702,15 +717,7 @@ impl Message for RaidMessage {
         image::imageops::overlay(&mut background, &pokemon, 5, 5);
 
         // imagettftext($mBg, 12, 0, 63, 47, 0x00000000, $f_cal2, (strlen($v_name) > 26 ? substr($v_name, 0, 25) . ".." : ($v_name == "" ? "-" : $v_name)));
-        let mut gym_name = self.raid.gym_name.clone();
-        if gym_name.len() > 30 {
-            gym_name.truncate(29);
-            gym_name.push_str("..");
-        }
-        if gym_name.is_empty() {
-            gym_name.push('-');
-        }
-        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 35, scale12, &f_cal2, &gym_name);
+        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 35, scale12, &f_cal2, &truncate_str(&self.raid.gym_name, 30, '-'));
     
         // imagecopymerge($mBg, $mMap, 0, ($v_pkmnid == 0 ? 83 : 136), 0, 0, 280, 101, 100);
         image::imageops::overlay(&mut background, &map, 0, if self.raid.pokemon_id.and_then(|i| if i > 0 { Some(i) } else { None }).is_none() { 83 } else { 136 });
@@ -796,15 +803,7 @@ impl Message for InvasionMessage {
             }
         }
 
-        let mut pokestop_name = self.invasion.name.clone();
-        if pokestop_name.len() > 25 {
-            pokestop_name.truncate(24);
-            pokestop_name.push_str("..");
-        }
-        if pokestop_name.is_empty() {
-            pokestop_name.push('-');
-        }
-        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale13, &f_cal2, &pokestop_name);
+        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale13, &f_cal2, &truncate_str(&self.invasion.name, 25, '-'));
 
         if let Some(timestamp) = self.invasion.incident_expire_timestamp {
             let v_exit = Local.timestamp(timestamp, 0);
