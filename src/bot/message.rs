@@ -603,7 +603,7 @@ impl Message for RaidMessage {
 
     fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
         let now = Local::now();
-        let img_path_str = format!("{}img_sent/raid_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.raid.gym_id, self.raid.start);
+        let img_path_str = format!("{}img_sent/raid_{}_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.raid.gym_id, self.raid.start, self.raid.pokemon_id.map(|i| i.to_string()).unwrap_or_else(String::new));
         let img_path = Path::new(&img_path_str);
 
         if img_path.exists() {
@@ -764,7 +764,7 @@ impl Message for InvasionMessage {
 
     fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
         let now = Local::now();
-        let img_path_str = format!("{}img_sent/invasion_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.invasion.pokestop_id, self.invasion.grunt_type.map(|id| format!("{}", id)).unwrap_or_else(String::new));
+        let img_path_str = format!("{}img_sent/invasion_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.invasion.pokestop_id, self.invasion.grunt_type.map(|id| id.to_string()).unwrap_or_else(String::new));
         let img_path = Path::new(&img_path_str);
 
         if img_path.exists() {

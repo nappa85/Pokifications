@@ -73,7 +73,7 @@ impl BotConfig {
         let loc = self.locs.get_pokemon_settings()?;
         let pos = (input.latitude, input.longitude);
 
-        let mut debug = format!("Scansione avvenuta alle {}", now.format("%T").to_string());
+        let mut debug = format!("Scansione avvenuta alle {}\n", now.format("%T").to_string());
         let rad = if filter[5] == 1 {
             // $pkmn_rad = ValMinMax($filter[6], 0.1, MAX_DISTANCE);
             let rad = MAX_DISTANCE.min(f64::from(filter[6])).max(0.1);
