@@ -45,8 +45,8 @@ impl BotConfig {
         else {
             match input {
                 Request::Pokemon(p) => self.submit_pokemon(now, chat_id, p),
-                Request::Raid(r) => self.submit_raid(chat_id, r),
-                Request::Invasion(i) => self.submit_invasion(chat_id, i),
+                Request::Raid(r) => self.submit_raid(now, chat_id, r),
+                Request::Invasion(i) => self.submit_invasion(now, chat_id, i),
                 _ => Err(()),
             }
         }
@@ -155,8 +155,8 @@ impl BotConfig {
         })
     }
 
-    fn submit_raid(&self, chat_id: &str, input: &Raid) -> Result<Box<dyn FnOnce(Image) + Send>, ()> {
-        let message = self._submit_raid(input)?;
+    fn submit_raid(&self, now: &DateTime<Local>, chat_id: &str, input: &Raid) -> Result<Box<dyn FnOnce(Image) + Send>, ()> {
+        let message = self._submit_raid(now, input)?;
         let chat_id = chat_id.to_owned();
         let map_type = self.more.l.clone();
         Ok(Box::new(move |file_id| {
@@ -166,7 +166,7 @@ impl BotConfig {
         }))
     }
  
-    fn _submit_raid(&self, input: &Raid) -> Result<RaidMessage, ()> {
+    fn _submit_raid(&self, now: &DateTime<Local>, input: &Raid) -> Result<RaidMessage, ()> {
         let pokemon_id = input.pokemon_id.map(|i| i.to_string());
         let loc = self.locs.get_raid_settings()?;
         let pos = (input.latitude, input.longitude);
@@ -186,6 +186,7 @@ impl BotConfig {
         // $raid_rad = ValMinMax($locs["r"][2], 0.1, MAX_DISTANCE);
         let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(&self.locs.r[2])?).max(0.1);
 
+        let mut debug = format!("Scansione avvenuta alle {}\n", now.format("%T").to_string());
         let dist = BotLocs::calc_dist(loc, pos)?;
         if dist > rad {
             #[cfg(test)]
@@ -193,36 +194,51 @@ impl BotConfig {
 
             return Err(());
         }
+        else {
+            debug.push_str(&format!("Distanza per Raid inferiore a {:.2} km ({:.2} km)", rad, dist));
+        }
 
         if !self.time.is_active()? {
             #[cfg(test)]
             info!("Raid discarded for time config");
+
             return Err(());
         }
 
         match input.pokemon_id {
-            Some(pkmn_id) if pkmn_id > 0 => if !self.raid.p.contains(&pkmn_id) {
-                #[cfg(test)]
-                info!("Raid discarded for disabled raidboss: raidboss {} config {:?}", pkmn_id, self.raid.p);
+            Some(pkmn_id) if pkmn_id > 0 => {
+                if !self.raid.p.contains(&pkmn_id) {
+                    #[cfg(test)]
+                    info!("Raid discarded for disabled raidboss: raidboss {} config {:?}", pkmn_id, self.raid.p);
 
-                return Err(());
+                    return Err(());
+                }
+                else {
+                    debug.push_str(&"\nPokémon presente nella lista raidboss abilitati");
+                }
             },
-            _ => if !self.raid.l.contains(&input.level) {
-                #[cfg(test)]
-                info!("Raid discarded for disabled egg level: level {} config {:?}", input.level, self.raid.l);
+            _ => {
+                if !self.raid.l.contains(&input.level) {
+                    #[cfg(test)]
+                    info!("Raid discarded for disabled egg level: level {} config {:?}", input.level, self.raid.l);
 
-                return Err(());
+                    return Err(());
+                }
+                else {
+                    debug.push_str(&"\nLivello uovo abilitato");
+                }
             },
         }
 
         Ok(RaidMessage {
             raid: input.clone(),
             distance: BotLocs::calc_dist(&self.locs.h, pos)?,
+            debug: Some(debug),//if self.debug == Some(true) { Some(debug) } else { None },//debug
         })
     }
 
-    fn submit_invasion(&self, chat_id: &str, input: &Pokestop) -> Result<Box<dyn FnOnce(Image) + Send>, ()> {
-        let message = self._submit_invasion(input)?;
+    fn submit_invasion(&self, now: &DateTime<Local>, chat_id: &str, input: &Pokestop) -> Result<Box<dyn FnOnce(Image) + Send>, ()> {
+        let message = self._submit_invasion(now, input)?;
         let chat_id = chat_id.to_owned();
         let map_type = self.more.l.clone();
         Ok(Box::new(move |file_id| {
@@ -232,7 +248,7 @@ impl BotConfig {
         }))
     }
 
-    fn _submit_invasion(&self, input: &Pokestop) -> Result<InvasionMessage, ()> {
+    fn _submit_invasion(&self, now: &DateTime<Local>, input: &Pokestop) -> Result<InvasionMessage, ()> {
         let invs = self.invs.as_ref().ok_or_else(|| ())?;
         if invs.n == 0 {
             return Err(());
@@ -243,17 +259,30 @@ impl BotConfig {
 
         let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(&loc[2])?).max(0.1);
 
+        let mut debug = format!("Scansione avvenuta alle {}\n", now.format("%T").to_string());
         let dist = BotLocs::calc_dist(loc, pos)?;
         if dist > rad {
             return Err(());
         }
+        else {
+            debug.push_str(&format!("Distanza per Invasioni inferiore a {:.2} km ({:.2} km)", rad, dist));
+        }
 
-        if invs.f == 1 && !invs.l.contains(input.grunt_type.as_ref().ok_or_else(|| ())?) {
-            return Err(());
+        if invs.f == 1 {
+            if !invs.l.contains(input.grunt_type.as_ref().ok_or_else(|| ())?) {
+                return Err(());
+            }
+            else {
+                debug.push_str("\nScagnozzo presente nella lista degli scagnozzi abilitati");
+            }
+        }
+        else {
+            debug.push_str("\nNessun filtro scagnozzi attivo");
         }
 
         Ok(InvasionMessage {
             invasion: input.clone(),
+            debug: Some(debug),//if self.debug == Some(true) { Some(debug) } else { None },//debug
         })
     }
 }

@@ -554,6 +554,7 @@ impl Message for PokemonMessage {
 pub struct RaidMessage {
     pub raid: Raid,
     pub distance: f64,
+    pub debug: Option<String>,
 }
 
 impl Message for RaidMessage {
@@ -585,7 +586,7 @@ impl Message for RaidMessage {
                 .map_err(|e| error!("error parsing raid icon: {}", e))?
         };
 
-        Ok(if let Some(pokemon_id) = self.raid.pokemon_id.and_then(|id| if id > 0 { Some(id) } else { None }) {
+        let caption = if let Some(pokemon_id) = self.raid.pokemon_id.and_then(|id| if id > 0 { Some(id) } else { None }) {
             // $t_corpo = $icon_raid . " "; // Battaglia
             // $t_corpo .= "RAID " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]) . " iniziato\n";
             // $t_corpo .= "\xf0\x9f\x93\x8d " . (strlen($gym_name) > 36 ? substr($gym_name, 0, 35) . ".." : $gym_name) . "\n";
@@ -613,6 +614,11 @@ impl Message for RaidMessage {
                 String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92]).map_err(|e| error!("error parsing clock icon: {}", e))?,
                 Local.timestamp(self.raid.start, 0).format("%T").to_string()
             )
+        };
+
+        Ok(match self.debug {
+            Some(ref s) => format!("{}\n\n{}", caption, s),
+            None => caption,
         })
     }
 
@@ -733,6 +739,7 @@ impl Message for RaidMessage {
         RaidMessage {
             raid: input,
             distance: 0f64,
+            debug: None,
         }
     }
 }
@@ -740,6 +747,7 @@ impl Message for RaidMessage {
 #[derive(Debug)]
 pub struct InvasionMessage {
     pub invasion: Pokestop,
+    pub debug: Option<String>,
 }
 
 impl Message for InvasionMessage {
@@ -755,14 +763,19 @@ impl Message for InvasionMessage {
 
     fn get_caption(&self) -> Result<String, ()> {
         if let Some(timestamp) = self.invasion.incident_expire_timestamp {
-            Ok(format!("{} {}\n{} {}\n{} {}",
+            let caption = format!("{} {}\n{} {}\n{} {}",
                 String::from_utf8(vec![0xC2, 0xAE]).map_err(|e| error!("error parsing R icon: {}", e))?,
                 self.invasion.grunt_type.and_then(|id| GRUNTS.get(&id).map(|grunt| grunt.name.as_str())).unwrap_or_else(|| ""),
                 String::from_utf8(vec![0xf0, 0x9f, 0x93, 0x8d]).map_err(|e| error!("error parsing POI icon: {}", e))?,
                 self.invasion.name,
                 String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92]).map_err(|e| error!("error parsing clock icon: {}", e))?,
                 Local.timestamp(timestamp, 0).format("%T").to_string()
-            ))
+            );
+
+            Ok(match self.debug {
+                Some(ref s) => format!("{}\n\n{}", caption, s),
+                None => caption,
+            })
         }
         else {
             Err(())
@@ -822,6 +835,7 @@ impl Message for InvasionMessage {
     fn get_dummy(input: Self::Input) -> InvasionMessage {
         InvasionMessage {
             invasion: input,
+            debug: None,
         }
     }
 }
