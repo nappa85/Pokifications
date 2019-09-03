@@ -20,7 +20,7 @@ use rand::distributions::Alphanumeric;
 
 use serde_json::value::Value;
 
-use log::error;
+use log::{error, trace};
 
 use super::BotConfigs;
 
@@ -132,7 +132,6 @@ pub async fn prepare<M: Message>(message: M, now: DateTime<Local>) -> Result<Ima
 
         let mut retries: u8 = 0;
         loop {
-
             let mut data = Vec::new();
             write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n{}\r\n", boundary, chat_id)
                 .map_err(|e| error!("error writing chat_id multipart: {}", e))?;
@@ -428,6 +427,7 @@ impl Message for PokemonMessage {
         let scale12 = rusttype::Scale::uniform(17f32);
         let scale13 = rusttype::Scale::uniform(18f32);
         let scale18 = rusttype::Scale::uniform(23f32);
+        trace!("open_font");
 
         // $mBg = null;
         let mut background = image::open(format!("{}{}", CONFIG.images.sender, match self.iv {
@@ -437,6 +437,7 @@ impl Message for PokemonMessage {
             Some(i) if i >= 100f32 => "images/msg-bgs/msg-poke-big-top.png",
             _ => "images/msg-bgs/msg-poke-sm.png",
         })).map_err(|e| error!("error opening pokemon background image: {:?}", e))?;
+        trace!("background");
 
         let pokemon = match self.pokemon.form {
             Some(form) if form > 0 => {
@@ -463,13 +464,16 @@ impl Message for PokemonMessage {
                 image::open(&image).map_err(|e| error!("error opening pokemon image {}: {:?}", image, e))?
             },
         };
+        trace!("pokemon");
 
         image::imageops::overlay(&mut background, &pokemon, 5, 5);
+        trace!("pokemon overlay");
 
         match self.pokemon.gender {
             Gender::Male | Gender::Female => {
                 let icon = image::open(format!("{}img/{}.png", CONFIG.images.assets, if self.pokemon.gender == Gender::Female { "female" } else { "male" })).map_err(|e| error!("error opening gender image: {:?}", e))?;
                 image::imageops::overlay(&mut background, &icon, 32, 32);
+                trace!("gender");
             }
             _ => {},
         }
@@ -477,18 +481,24 @@ impl Message for PokemonMessage {
         // imagettftext($mBg, 18, 0, 63, 25, 0x00000000, $f_cal2, strtoupper($p_name));
         let name = LIST[&self.pokemon.pokemon_id].name.to_uppercase();
         imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale18, &f_cal2, &name);
+        trace!("name");
+
         if let Some(id) = self.pokemon.form {
             if let Some(form_name) = FORMS.get(&id) {
                 let dm = Self::get_text_width(&f_cal2, scale18, &name);
                 imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 73 + dm as u32, 7, scale11, &f_cal2, &format!("({})", form_name));
+                trace!("form");
             }
         }
+
         // imagettftext($mBg, 12, 0, 82, 46, 0x00000000, $f_cal2, $v_exit);
         let v_exit = Local.timestamp(self.pokemon.disappear_time, 0);
         imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 82, 34, scale12, &f_cal2, &v_exit.format("%T").to_string());
+        trace!("time");
 
         //     imagecopymerge($mBg, $mMap, 0, ($v_ivs ? 136 : 58), 0, 0, 280, 101, 100);
         image::imageops::overlay(&mut background, &map, 0, if self.iv.is_some() { 136 } else { 58 });
+        trace!("map");
 
         // //////////////////////////////////////////////
         // // IV, PL e MOSSE
@@ -537,7 +547,9 @@ impl Message for PokemonMessage {
             imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 140 - (dm / 2) as u32, 111, scale12, &f_cal1, &text);
         }
 
+        trace!("pre-save");
         background.save(&img_path).map_err(|e| error!("error saving pokemon image {}: {}", img_path_str, e))?;
+        trace!("post-save");
 
         let mut out = Vec::new();
         background.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting pokemon image {}: {}", img_path_str, e))?;
