@@ -24,7 +24,7 @@ use log::error;
 
 use super::BotConfigs;
 
-use crate::entities::{Pokemon, Raid, Pokestop};
+use crate::entities::{Pokemon, Raid, Pokestop, Gender};
 use crate::lists::{LIST, MOVES, FORMS, GRUNTS};
 use crate::config::CONFIG;
 use crate::db::MYSQL;
@@ -50,7 +50,7 @@ pub async fn send_message<M: Message>(message: &M, chat_id: &str, image: Image, 
         .body(message.get_form(&boundary, chat_id, image, map_type)?)
         .map_err(|e| error!("error building Telegram request: {}", e))?;
 
-    let https = HttpsConnector::new(4).unwrap();
+    let https = HttpsConnector::new().unwrap();
     let future = Client::builder().build::<_, hyper::Body>(https).request(req);
     let res = match CONFIG.telegram.timeout {
         Some(timeout) => future.timeout(Duration::from_secs(timeout)).await.map_err(|e| error!("timeout calling Telegram: {}", e))?,
@@ -97,7 +97,7 @@ async fn get_map<M: Message>(message: &M) -> Result<image::DynamicImage, ()> {
     let m_link = format!("https://maps.googleapis.com/maps/api/staticmap?center={:.3},{:.3}&zoom=14&size=280x101&maptype=roadmap&markers={:.3},{:.3}&key={}", message.get_latitude(), message.get_longitude(), message.get_latitude(), message.get_longitude(), CONFIG.google.maps_key)
         .parse()
         .map_err(|e| error!("Error building Google URI: {}", e))?;
-    let https = HttpsConnector::new(4).unwrap();
+    let https = HttpsConnector::new().unwrap();
     let future = Client::builder().build::<_, hyper::Body>(https).get(m_link);
     let res = match CONFIG.google.timeout {
             Some(timeout) => future.timeout(Duration::from_secs(timeout)).await.map_err(|e| error!("timeout calling google maps: {}", e))?,
@@ -130,7 +130,7 @@ pub async fn prepare<M: Message>(message: M, now: DateTime<Local>) -> Result<Ima
 
         let url = format!("https://api.telegram.org/bot{}/sendPhoto", CONFIG.telegram.bot_token);
 
-        let mut retries = 0;
+        let mut retries: u8 = 0;
         loop {
 
             let mut data = Vec::new();
@@ -153,7 +153,7 @@ pub async fn prepare<M: Message>(message: M, now: DateTime<Local>) -> Result<Ima
                 .body(data.into())
                 .map_err(|e| error!("error building Telegram request: {}", e))?;
 
-            let https = HttpsConnector::new(4).unwrap();
+            let https = HttpsConnector::new().unwrap();
             let future = Client::builder().build::<_, hyper::Body>(https).request(req);
             let res = match CONFIG.telegram.timeout {
                 Some(timeout) => future.timeout(Duration::from_secs(timeout)).await.map_err(|e| error!("timeout calling Telegram: {}", e))?,
@@ -372,9 +372,10 @@ impl Message for PokemonMessage {
             // $t_corpo .= " (" . $v_iv . "%)" . MeteoIcon($t_msg["wb"]) . "\n";
             // $t_corpo .= "PL " . number_format($t_msg["cp"], 0, ",", ".") . " | Lv " . $t_msg["level"] . "\n";
             // $t_corpo .= $t_msg["distance"] . "km" . $dir_icon . " | " . date("H:i", $t_msg["expire_timestamp"]);
-            format!("{} {}{} ({:.0}%){}\n{}{:.1} km {} | {}",
+            format!("{} {}{}{} ({:.0}%){}\n{}{:.1} km {} | {}",
                 icon,
                 LIST[&self.pokemon.pokemon_id].name.to_uppercase(),
+                self.pokemon.gender.get_glyph(),
                 self.pokemon.form.and_then(|id| FORMS.get(&id).map(|s| format!(" ({})", s))).unwrap_or_else(String::new),
                 iv.round(),
                 self.pokemon.weather.and_then(|id| Self::meteo_icon(id).ok()).unwrap_or_else(String::new),
@@ -391,9 +392,10 @@ impl Message for PokemonMessage {
             // $t_corpo = $icon_pkmn . " " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]);
             // $t_corpo .= ($t_msg["pokemon_id"] == 201 ? " (" . $unown_letter[$t_msg["form"]] . ")" : "") . MeteoIcon($t_msg["wb"]) . "\n";
             // $t_corpo .= $t_msg["distance"] . "km" . $dir_icon . " | " . date("H:i", $t_msg["expire_timestamp"]);
-            format!("{} {}{}{}\n{:.1} km {} | {}",
+            format!("{} {}{}{}{}\n{:.1} km {} | {}",
                 icon,
                 LIST[&self.pokemon.pokemon_id].name.to_uppercase(),
+                self.pokemon.gender.get_glyph(),
                 self.pokemon.form.and_then(|id| FORMS.get(&id).map(|s| format!(" ({})", s))).unwrap_or_else(String::new),
                 self.pokemon.weather.and_then(|id| Self::meteo_icon(id).ok()).unwrap_or_else(String::new),
                 self.distance,
@@ -463,6 +465,14 @@ impl Message for PokemonMessage {
         };
 
         image::imageops::overlay(&mut background, &pokemon, 5, 5);
+
+        match self.pokemon.gender {
+            Gender::Male | Gender::Female => {
+                let icon = image::open(format!("{}img/{}.png", CONFIG.images.assets, if self.pokemon.gender == Gender::Female { "female" } else { "male" })).map_err(|e| error!("error opening gender image: {:?}", e))?;
+                image::imageops::overlay(&mut background, &icon, 32, 32);
+            }
+            _ => {},
+        }
 
         // imagettftext($mBg, 18, 0, 63, 25, 0x00000000, $f_cal2, strtoupper($p_name));
         let name = LIST[&self.pokemon.pokemon_id].name.to_uppercase();

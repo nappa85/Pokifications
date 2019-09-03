@@ -103,12 +103,22 @@ pub struct Pokemon {
     // verified: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub enum Gender {
     Unset,
     Male,
     Female,
     Genderless, 
+}
+
+impl Gender {
+    pub fn get_glyph(&self) -> String {
+        match self {
+            Gender::Male => unsafe { String::from_utf8_unchecked(vec![0xe2, 0x99, 0x82]) },
+            Gender::Female => unsafe { String::from_utf8_unchecked(vec![0xe2, 0x99, 0x80]) },
+            _ => String::new(),
+        }
+    }
 }
 
 impl ToString for Gender {

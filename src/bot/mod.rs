@@ -4,7 +4,7 @@ use std::time::{Instant, Duration};
 
 use future_parking_lot::rwlock::{RwLock, FutureReadable, FutureWriteable};
 
-use tokio::timer::Delay;
+use tokio::timer::delay;
 use tokio::spawn;
 
 use chrono::{Local, DateTime};
@@ -76,7 +76,7 @@ impl BotConfigs {
 
                 let scadenza: u64 = row.take("scadenza").ok_or_else(|| error!("MySQL city.scadenza encoding error"))?;
                 spawn(async move {
-                    Delay::new(Instant::now() + Duration::from_secs(scadenza - now)).await;
+                    delay(Instant::now() + Duration::from_secs(scadenza - now)).await;
                     //.map_err(|e| error!("timer error: {}", e))
                     BotConfigs::reload(vec![user_id]).await.ok();
                 });
