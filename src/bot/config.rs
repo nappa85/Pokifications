@@ -486,10 +486,16 @@ impl BotPkmn {
                         return false;
                     }
                 }
+                else {
+                    return false;
+                }
                 if let Some(i) = lvl {
                     if i < filter[4] {
                         return false;
                     }
+                }
+                else {
+                    return false;
                 }
                 true
             }
@@ -585,6 +591,9 @@ impl BotTime {
                         return false;
                     }
                 }
+                else {
+                    return false;
+                }
                 if let Some(i) = lvl {
                     if i < self.fl[1] {
                         #[cfg(test)]
@@ -592,6 +601,9 @@ impl BotTime {
 
                         return false;
                     }
+                }
+                else {
+                    return false;
                 }
 
                 #[cfg(test)]
