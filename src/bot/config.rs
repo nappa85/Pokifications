@@ -103,46 +103,56 @@ impl BotConfig {
             _ => None,
         };
 
-        if COMMON.contains(&input.pokemon_id) {
-            if let Some(i) = iv {
-                if i < MIN_IV_LIMIT {
+        if BotPkmn::check_badge(filter, input) {
+            if self.time.is_active()? {
+                debug.push_str("\nEccezione per medaglia attiva");
+            }
+            else {
+                return Err(());
+            }
+        }
+        else {
+            if COMMON.contains(&input.pokemon_id) {
+                if let Some(i) = iv {
+                    if i < MIN_IV_LIMIT {
+                        #[cfg(test)]
+                        info!("Pokémon discarded because common and with low IV");
+
+                        return Err(());
+                    }
+                    else {
+                        debug.push_str(&format!("\nPokémon comune ma con IV superiori alla soglia del {:.0}% ({:.0}%)", MIN_IV_LIMIT, i));
+                    }
+                }
+                else {
                     #[cfg(test)]
-                    info!("Pokémon discarded because common and with low IV");
+                    info!("Pokémon discarded because common and without IV");
+
+                    return Err(());
+                }
+            }
+
+            if !self.time.is_active()? {
+                if !self.time.bypass(iv, input.pokemon_level) {
+                    #[cfg(test)]
+                    info!("Pokémon discarded for time config: pokemon_id {} iv {:?} level {:?}", pokemon_id, iv, input.pokemon_level);
 
                     return Err(());
                 }
                 else {
-                    debug.push_str(&format!("\nPokémon comune ma con IV superiori alla soglia del {:.0}% ({:.0}%)", MIN_IV_LIMIT, i));
+                    debug.push_str(&format!("\nFiltro orario non attivo ma eccezione per {}", self.time.describe()));
                 }
             }
             else {
-                #[cfg(test)]
-                info!("Pokémon discarded because common and without IV");
+                if (filter[1] >= 1 || filter[3] == 1) && !BotPkmn::filter(filter, iv, input.pokemon_level) {
+                    #[cfg(test)]
+                    info!("Pokémon discarded for IV-Level config: pokemon_id {} iv {:?} level {:?}", pokemon_id, iv, input.pokemon_level);
 
-                return Err(());
-            }
-        }
-
-        if !self.time.is_active()? {
-            if !self.time.bypass(iv, input.pokemon_level) {
-                #[cfg(test)]
-                info!("Pokémon discarded for time config: pokemon_id {} iv {:?} level {:?}", pokemon_id, iv, input.pokemon_level);
-
-                return Err(());
-            }
-            else {
-                debug.push_str(&format!("\nFiltro orario non attivo ma eccezione per {}", self.time.describe()));
-            }
-        }
-        else {
-            if (filter[1] >= 1 || filter[3] == 1) && !BotPkmn::filter(filter, iv, input.pokemon_level) {
-                #[cfg(test)]
-                info!("Pokémon discarded for IV-Level config: pokemon_id {} iv {:?} level {:?}", pokemon_id, iv, input.pokemon_level);
-
-                return Err(());
-            }
-            else {
-                debug.push_str(&format!("\nFiltro orario attivo e {}", BotPkmn::describe(filter)));
+                    return Err(());
+                }
+                else {
+                    debug.push_str(&format!("\nFiltro orario attivo e {}", BotPkmn::describe(filter)));
+                }
             }
         }
 
@@ -431,7 +441,7 @@ pub struct BotRaid {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BotPkmn {
-    pub l: HashMap<String, [u8; 8]>,
+    pub l: HashMap<String, Vec<u8>>,
 }
 
 impl BotPkmn {
@@ -445,9 +455,9 @@ impl BotPkmn {
      * 5: rad
      * 6: custom_rad
      * 7: or/and
+     * 8: OPTIONAL badge
      */
-    #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn describe(filter: &[u8; 8]) -> String {
+    fn describe(filter: &[u8]) -> String {
         if filter[1] >= 1 && filter[3] == 1 { // IV e PL attivi
             format!("IV >= {} {} LVL >= {}", filter[2], if filter[7] == 1 { "O" } else { "E" }, filter[4])
         }
@@ -464,8 +474,7 @@ impl BotPkmn {
         }
     }
 
-    #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn filter(filter: &[u8; 8], iv: Option<f32>, lvl: Option<u8>) -> bool {
+    fn filter(filter: &[u8], iv: Option<f32>, lvl: Option<u8>) -> bool {
         if filter[1] >= 1 && filter[3] == 1 { // IV e PL attivi
             if filter[7] == 1 {
                 if let Some(i) = iv {
@@ -515,6 +524,31 @@ impl BotPkmn {
                     }
                 }
             }
+            false
+        }
+    }
+
+    fn check_badge(filter: &[u8], input: &Box<Pokemon>) -> bool {
+        if filter.get(8) == Some(&1) {
+            match input.pokemon_id {
+                // rattata
+                19 => {
+                    match (input.height, input.weight) {
+                        (Some(h), Some(w)) => (h/0.3f64 + w/3.5f64) < 1.5f64,
+                        _ => false,
+                    }
+                },
+                // magikarp
+                129 => {
+                    match (input.height, input.weight) {
+                        (Some(h), Some(w)) => (h/0.9f64 + w/10f64) > 2.5f64,
+                        _ => false,
+                    }
+                },
+                _ => false,
+            }
+        }
+        else {
             false
         }
     }
