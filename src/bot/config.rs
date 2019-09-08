@@ -103,56 +103,51 @@ impl BotConfig {
             _ => None,
         };
 
-        if BotPkmn::check_badge(filter, input) {
-            if self.time.is_active()? {
-                debug.push_str("\nEccezione per medaglia attiva");
+        let badge = BotPkmn::check_badge(filter, input);
+
+        if !badge && COMMON.contains(&input.pokemon_id) {
+            if let Some(i) = iv {
+                if i < MIN_IV_LIMIT {
+                    #[cfg(test)]
+                    info!("Pokémon discarded because common and with low IV");
+
+                    return Err(());
+                }
+                else {
+                    debug.push_str(&format!("\nPokémon comune ma con IV superiori alla soglia del {:.0}% ({:.0}%)", MIN_IV_LIMIT, i));
+                }
             }
             else {
+                #[cfg(test)]
+                info!("Pokémon discarded because common and without IV");
+
                 return Err(());
             }
         }
-        else {
-            if COMMON.contains(&input.pokemon_id) {
-                if let Some(i) = iv {
-                    if i < MIN_IV_LIMIT {
-                        #[cfg(test)]
-                        info!("Pokémon discarded because common and with low IV");
 
-                        return Err(());
-                    }
-                    else {
-                        debug.push_str(&format!("\nPokémon comune ma con IV superiori alla soglia del {:.0}% ({:.0}%)", MIN_IV_LIMIT, i));
-                    }
-                }
-                else {
-                    #[cfg(test)]
-                    info!("Pokémon discarded because common and without IV");
+        if !self.time.is_active()? {
+            if !self.time.bypass(iv, input.pokemon_level) {
+                #[cfg(test)]
+                info!("Pokémon discarded for time config: pokemon_id {} iv {:?} level {:?}", pokemon_id, iv, input.pokemon_level);
 
-                    return Err(());
-                }
-            }
-
-            if !self.time.is_active()? {
-                if !self.time.bypass(iv, input.pokemon_level) {
-                    #[cfg(test)]
-                    info!("Pokémon discarded for time config: pokemon_id {} iv {:?} level {:?}", pokemon_id, iv, input.pokemon_level);
-
-                    return Err(());
-                }
-                else {
-                    debug.push_str(&format!("\nFiltro orario non attivo ma eccezione per {}", self.time.describe()));
-                }
+                return Err(());
             }
             else {
-                if (filter[1] >= 1 || filter[3] == 1) && !BotPkmn::filter(filter, iv, input.pokemon_level) {
-                    #[cfg(test)]
-                    info!("Pokémon discarded for IV-Level config: pokemon_id {} iv {:?} level {:?}", pokemon_id, iv, input.pokemon_level);
+                debug.push_str(&format!("\nFiltro orario non attivo ma eccezione per {}", self.time.describe()));
+            }
+        }
+        else {
+            if badge {
+                debug.push_str("\nEccezione per medaglia");
+            }
+            else if (filter[1] >= 1 || filter[3] == 1) && !BotPkmn::filter(filter, iv, input.pokemon_level) {
+                #[cfg(test)]
+                info!("Pokémon discarded for IV-Level config: pokemon_id {} iv {:?} level {:?}", pokemon_id, iv, input.pokemon_level);
 
-                    return Err(());
-                }
-                else {
-                    debug.push_str(&format!("\nFiltro orario attivo e {}", BotPkmn::describe(filter)));
-                }
+                return Err(());
+            }
+            else {
+                debug.push_str(&format!("\nFiltro orario attivo e {}", BotPkmn::describe(filter)));
             }
         }
 
