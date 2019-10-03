@@ -35,9 +35,12 @@ impl BotConfigs {
     }
 
     pub async fn reload(user_ids: Vec<String>) -> Result<(), ()> {
+        delay(Instant::now() + Duration::from_secs(1)).await;
         let mut lock = BOT_CONFIGS.future_write().await;
-        info!("reloading configs for users {:?}", user_ids);
-        Self::load(&mut lock, Some(user_ids))
+        let debug = format!("{:?}", user_ids);
+        let res = Self::load(&mut lock, Some(user_ids));
+        info!("reloaded configs for users {}", debug);
+        res
     }
 
     fn load(configs: &mut HashMap<String, config::BotConfig>, user_ids: Option<Vec<String>>) -> Result<(), ()> {
