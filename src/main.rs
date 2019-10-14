@@ -1,7 +1,7 @@
 #![deny(warnings)]
 #![deny(missing_docs)]
 
-//! # pokefications
+//! # pokifications
 //!
 //! RocketMap webhook clients
 //!
@@ -20,14 +20,30 @@ use futures_util::TryStreamExt;
 
 use tokio::spawn;
 use tokio::runtime::{Runtime, Builder};
+use tokio::fs::File;
+use tokio::prelude::*;
 
 use chrono::{DateTime, Local};
 
 use log::{info, error};
 
+async fn log_webhook(bytes: &[u8]) -> Result<(), ()> {
+    let filename = format!("{}log/{}.log", config::CONFIG.images.bot, Local::now().format("%Y%m%d%H%M%S%f").to_string());
+    let mut file = File::create(&filename).await.map_err(|e| error!("logfile {} create error: {}", filename, e))?;
+    file.write_all(bytes).await.map_err(|e| error!("logfile {} write error: {}", filename, e))?;
+    Ok(())
+}
+
 async fn parse(now: DateTime<Local>, req: Request<Body>) -> Result<(), ()> {
     let chunks = req.into_body().try_concat().await.map_err(|e| error!("concat error: {}", e))?;
-    let body = String::from_utf8(chunks.to_vec()).map_err(|e| error!("encoding error: {}", e))?;
+    let bytes = chunks.to_vec();
+    let bytes2 = bytes.clone();
+
+    spawn(async move {
+        log_webhook(&bytes2).await.ok();
+    });
+
+    let body = String::from_utf8(bytes).map_err(|e| error!("encoding error: {}", e))?;
     let configs = serde_json::from_str(&body).map_err(|e| error!("deserialize error: {}\n{}", e, body))?;
     bot::BotConfigs::submit(now, configs).await;
     Ok(())

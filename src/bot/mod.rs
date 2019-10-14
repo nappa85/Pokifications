@@ -9,6 +9,8 @@ use tokio::spawn;
 
 use chrono::{Local, DateTime};
 
+use serde_json::json;
+
 use lazy_static::lazy_static;
 
 use log::{info, error};
@@ -37,9 +39,10 @@ impl BotConfigs {
     pub async fn reload(user_ids: Vec<String>) -> Result<(), ()> {
         delay(Instant::now() + Duration::from_secs(1)).await;
         let mut lock = BOT_CONFIGS.future_write().await;
-        let debug = format!("{:?}", user_ids);
-        let res = Self::load(&mut lock, Some(user_ids));
-        info!("reloaded configs for users {}", debug);
+        let res = Self::load(&mut lock, Some(user_ids.clone()));
+        for user_id in user_ids {
+            info!("reloaded configs for user {}: {}", user_id, json!(lock.get(&user_id)).to_string());
+        }
         res
     }
 
