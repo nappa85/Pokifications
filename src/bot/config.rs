@@ -66,7 +66,7 @@ impl BotConfig {
     fn _submit_pokemon(&self, now: &DateTime<Local>, input: &Box<Pokemon>) -> Result<PokemonMessage, ()> {
         let pokemon_id = input.pokemon_id.to_string();
         let filter = self.pkmn.l.get(&pokemon_id).ok_or_else(|| ())?;
-        if filter[0] == 0 {
+        if filter.get(0) == Some(&0) {
             return Err(());
         }
 
@@ -74,9 +74,9 @@ impl BotConfig {
         let pos = (input.latitude, input.longitude);
 
         let mut debug = format!("Scansione avvenuta alle {}\n", now.format("%T").to_string());
-        let rad = if filter[5] == 1 {
+        let rad = if filter.get(5) == Some(&1) {
             // $pkmn_rad = ValMinMax($filter[6], 0.1, MAX_DISTANCE);
-            let rad = MAX_DISTANCE.min(f64::from(filter[6])).max(0.1);
+            let rad = MAX_DISTANCE.min(f64::from(*(filter.get(6).ok_or_else(|| ())?))).max(0.1);
             debug.push_str(&format!("Distanza personalizzata per Pokémon inferiore a {:.2} km", rad));
             rad
         }
@@ -140,7 +140,7 @@ impl BotConfig {
             if badge {
                 debug.push_str("\nEccezione per medaglia");
             }
-            else if (filter[1] >= 1 || filter[3] == 1) && !BotPkmn::filter(filter, iv, input.pokemon_level) {
+            else if (filter.get(1) >= Some(&1) || filter.get(3) == Some(&1)) && !BotPkmn::filter(filter, iv, input.pokemon_level) {
                 #[cfg(test)]
                 info!("Pokémon discarded for IV-Level config: pokemon_id {} iv {:?} level {:?}", pokemon_id, iv, input.pokemon_level);
 
@@ -156,7 +156,7 @@ impl BotConfig {
             iv,
             distance: BotLocs::calc_dist(&self.locs.h, pos)?,
             direction: BotLocs::get_direction(&self.locs.h, pos)?,
-            debug: Some(debug),//if self.debug == Some(true) { Some(debug) } else { None },//debug
+            debug: if self.debug == Some(true) { Some(debug) } else { None },
         })
     }
 
@@ -238,7 +238,7 @@ impl BotConfig {
         Ok(RaidMessage {
             raid: input.clone(),
             distance: BotLocs::calc_dist(&self.locs.h, pos)?,
-            debug: Some(debug),//if self.debug == Some(true) { Some(debug) } else { None },//debug
+            debug: if self.debug == Some(true) { Some(debug) } else { None },
         })
     }
 
@@ -287,7 +287,7 @@ impl BotConfig {
 
         Ok(InvasionMessage {
             invasion: input.clone(),
-            debug: Some(debug),//if self.debug == Some(true) { Some(debug) } else { None },//debug
+            debug: if self.debug == Some(true) { Some(debug) } else { None },
         })
     }
 }
@@ -453,15 +453,18 @@ impl BotPkmn {
      * 8: OPTIONAL badge
      */
     fn describe(filter: &[u8]) -> String {
-        if filter[1] >= 1 && filter[3] == 1 { // IV e PL attivi
-            format!("IV >= {} {} LVL >= {}", filter[2], if filter[7] == 1 { "O" } else { "E" }, filter[4])
+        if filter.get(1) >= Some(&1) && filter.get(3) == Some(&1) { // IV e PL attivi
+            format!("IV >= {} {} LVL >= {}",
+                filter.get(2).unwrap_or_else(|| &0),
+                if filter.get(7) == Some(&1) { "O" } else { "E" },
+                filter.get(4).unwrap_or_else(|| &0))
         }
         else {
-            if filter[1] >= 1 {
-                format!("IV >= {}", filter[2])
+            if filter.get(1) >= Some(&1) {
+                format!("IV >= {}", filter.get(2).unwrap_or_else(|| &0))
             }
-            else if filter[3] == 1 {
-                format!("LVL >= {}", filter[4])
+            else if filter.get(3) == Some(&1) {
+                format!("LVL >= {}", filter.get(4).unwrap_or_else(|| &0))
             }
             else {
                 String::from("nessun filtro IV/LVL attivo")
@@ -470,31 +473,27 @@ impl BotPkmn {
     }
 
     fn filter(filter: &[u8], iv: Option<f32>, lvl: Option<u8>) -> bool {
-        if filter[1] >= 1 && filter[3] == 1 { // IV e PL attivi
-            if filter[7] == 1 {
-                if let Some(i) = iv {
-                    if i >= f32::from(filter[2]) {
-                        return true;
-                    }
+        if filter.get(1) >= Some(&1) && filter.get(3) == Some(&1) { // IV e PL attivi
+            if filter.get(7) == Some(&1) {
+                if iv >= filter.get(2).map(|i| f32::from(*i)) {
+                    return true;
                 }
-                if let Some(i) = lvl {
-                    if i >= filter[4] {
-                        return true;
-                    }
+                if lvl.as_ref() >= filter.get(4) {
+                    return true;
                 }
                 false
             }
             else {
-                if let Some(i) = iv {
-                    if i < f32::from(filter[2]) {
+                if iv.is_some() {
+                    if iv < filter.get(2).map(|i| f32::from(*i)) {
                         return false;
                     }
                 }
                 else {
                     return false;
                 }
-                if let Some(i) = lvl {
-                    if i < filter[4] {
+                if lvl.is_some() {
+                    if lvl.as_ref() < filter.get(4) {
                         return false;
                     }
                 }
@@ -505,16 +504,16 @@ impl BotPkmn {
             }
         }
         else {
-            if filter[1] >= 1 {
-                if let Some(i) = iv {
-                    if i >= f32::from(filter[2]) {
+            if filter.get(1) >= Some(&1) {
+                if iv.is_some() {
+                    if iv >= filter.get(2).map(|i| f32::from(*i)) {
                         return true;
                     }
                 }
             }
-            if filter[3] == 1 {
-                if let Some(i) = lvl {
-                    if i >= filter[4] {
+            if filter.get(3) == Some(&1) {
+                if lvl.is_some() {
+                    if lvl.as_ref() >= filter.get(4) {
                         return true;
                     }
                 }
