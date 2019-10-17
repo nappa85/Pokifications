@@ -14,7 +14,7 @@ use log::error;
 #[cfg(test)]
 use log::info;
 
-use crate::lists::COMMON;
+// use crate::lists::COMMON;
 use crate::entities::{Pokemon, Pokestop, Raid, Request};
 
 use super::message::{self, Image, PokemonMessage, RaidMessage, InvasionMessage};
