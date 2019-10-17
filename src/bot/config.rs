@@ -172,7 +172,7 @@ impl BotConfig {
     }
  
     fn _submit_raid(&self, now: &DateTime<Local>, input: &Raid) -> Result<RaidMessage, ()> {
-        let pokemon_id = input.pokemon_id.map(|i| i.to_string());
+        let pokemon_id = input.pokemon_id.and_then(|id| if id > 0 { Some(id.to_string()) } else { None });
         let loc = self.locs.get_raid_settings()?;
         let pos = (input.latitude, input.longitude);
         if self.raid.s == 0 && pokemon_id.is_some() {
