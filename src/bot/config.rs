@@ -20,7 +20,7 @@ use crate::entities::{Pokemon, Pokestop, Raid, Request};
 use super::message::{self, Image, PokemonMessage, RaidMessage, InvasionMessage};
 
 const MAX_DISTANCE: f64 = 15f64;
-const MIN_IV_LIMIT: f32 = 36f32;
+// const MIN_IV_LIMIT: f32 = 36f32;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -105,25 +105,25 @@ impl BotConfig {
 
         let badge = BotPkmn::check_badge(filter, input);
 
-        if !badge && COMMON.contains(&input.pokemon_id) {
-            if let Some(i) = iv {
-                if i < MIN_IV_LIMIT {
-                    #[cfg(test)]
-                    info!("Pokémon discarded because common and with low IV");
+        // if !badge && COMMON.contains(&input.pokemon_id) {
+        //     if let Some(i) = iv {
+        //         if i < MIN_IV_LIMIT {
+        //             #[cfg(test)]
+        //             info!("Pokémon discarded because common and with low IV");
 
-                    return Err(());
-                }
-                else {
-                    debug.push_str(&format!("\nPokémon comune ma con IV superiori alla soglia del {:.0}% ({:.0}%)", MIN_IV_LIMIT, i));
-                }
-            }
-            else {
-                #[cfg(test)]
-                info!("Pokémon discarded because common and without IV");
+        //             return Err(());
+        //         }
+        //         else {
+        //             debug.push_str(&format!("\nPokémon comune ma con IV superiori alla soglia del {:.0}% ({:.0}%)", MIN_IV_LIMIT, i));
+        //         }
+        //     }
+        //     else {
+        //         #[cfg(test)]
+        //         info!("Pokémon discarded because common and without IV");
 
-                return Err(());
-            }
-        }
+        //         return Err(());
+        //     }
+        // }
 
         if !self.time.is_active()? {
             if !self.time.bypass(iv, input.pokemon_level) {
