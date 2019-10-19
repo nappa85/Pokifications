@@ -15,7 +15,7 @@ use log::error;
 use log::info;
 
 // use crate::lists::COMMON;
-use crate::entities::{Pokemon, Pokestop, Raid, Request};
+use crate::entities::{Pokemon, Pokestop, Raid, Request, Gender};
 
 use super::message::{self, Image, PokemonMessage, RaidMessage, InvasionMessage};
 
@@ -149,6 +149,13 @@ impl BotConfig {
             else {
                 debug.push_str(&format!("\nFiltro orario attivo e {}", BotPkmn::describe(filter)));
             }
+        }
+
+        if !BotPkmn::advanced_filters(filter, input) {
+            #[cfg(test)]
+            info!("Pokémon discarded for Advanced Filters config");
+
+            return Err(());
         }
 
         Ok(PokemonMessage {
@@ -450,7 +457,14 @@ impl BotPkmn {
      * 5: rad
      * 6: custom_rad
      * 7: or/and
-     * 8: OPTIONAL badge
+     * 8: badge
+     * 9: gender (1: Male, 2: Female)
+     * 10: atk filter (1: <, 2: =, 3: >)
+     * 11: atk value
+     * 12: def filter (1: <, 2: =, 3: >)
+     * 13: def value
+     * 14: sta filter (1: <, 2: =, 3: >)
+     * 15: sta value
      */
     fn describe(filter: &[u8]) -> String {
         if filter.get(1) >= Some(&1) && filter.get(3) == Some(&1) { // IV e PL attivi
@@ -545,6 +559,40 @@ impl BotPkmn {
         else {
             false
         }
+    }
+
+    /*
+     * 9: gender (1: Male, 2: Female)
+     * 10: atk filter (1: <, 2: =, 3: >)
+     * 11: atk value
+     * 12: def filter (1: <, 2: =, 3: >)
+     * 13: def value
+     * 14: sta filter (1: <, 2: =, 3: >)
+     * 15: sta value
+     */
+    fn advanced_filters(filter: &[u8], input: &Box<Pokemon>) -> bool {
+        match filter.get(9) {
+            Some(&1) => if input.gender != Gender::Male {
+                return false;
+            },
+            Some(&2) => if input.gender != Gender::Female {
+                return false;
+            },
+            _ => {},
+        }
+
+        fn filter_iv(filter: Option<&u8>, filter_value: Option<&u8>, value: Option<&u8>) -> bool {
+            match filter {
+                Some(&1) => value < filter_value,
+                Some(&2) => value == filter_value,
+                Some(&3) => value > filter_value,
+                _ => true,
+            }
+        }
+
+        filter_iv(filter.get(10), filter.get(11), input.individual_attack.as_ref()) &&
+            filter_iv(filter.get(12), filter.get(13), input.individual_defense.as_ref()) &&
+            filter_iv(filter.get(14), filter.get(15), input.individual_stamina.as_ref())
     }
 }
 
