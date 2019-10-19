@@ -729,7 +729,12 @@ pub struct BotInvs {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BotMore {
+    #[serde(default = "default_more_l")]
     pub l: String,
+}
+
+fn default_more_l() -> String {
+    String::from("g")
 }
 
 #[cfg(test)]

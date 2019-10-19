@@ -72,15 +72,15 @@ impl BotConfigs {
 
             let enabled: u8 = row.take("enabled").ok_or_else(|| error!("MySQL utenti_config_bot.enabled encoding error"))?;
             let user_id: String = row.take("user_id").ok_or_else(|| error!("MySQL utenti_config_bot.user_id encoding error"))?;
-            let config: String = row.take("config").ok_or_else(|| error!("MySQL utenti_config_bot.config encoding error"))?;
-            let beta: u8 = row.take("beta").ok_or_else(|| error!("MySQL utenti_config_bot.beta encoding error"))?;
-            let status: u8 = row.take("status").ok_or_else(|| error!("MySQL utenti.status encoding error"))?;
+            let config: String = row.take("config").ok_or_else(|| error!("MySQL utenti_config_bot.config encoding error for user_id {}", user_id))?;
+            let beta: u8 = row.take("beta").ok_or_else(|| error!("MySQL utenti_config_bot.beta encoding error for user_id {}", user_id))?;
+            let status: u8 = row.take("status").ok_or_else(|| error!("MySQL utenti.status encoding error for user_id {}", user_id))?;
 
             if enabled > 0 && beta > 0 && status > 0 {
-                let config: config::BotConfig = serde_json::from_str(&config).map_err(|e| error!("MySQL utenti_config_bot.config decoding error: {}", e))?;
+                let config: config::BotConfig = serde_json::from_str(&config).map_err(|e| error!("MySQL utenti_config_bot.config decoding error for user_id {}: {}", user_id, e))?;
                 configs.insert(user_id.clone(), config);
 
-                let scadenza: u64 = row.take("scadenza").ok_or_else(|| error!("MySQL city.scadenza encoding error"))?;
+                let scadenza: u64 = row.take("scadenza").ok_or_else(|| error!("MySQL city.scadenza encoding error for user_id {}", user_id))?;
                 spawn(async move {
                     delay(Instant::now() + Duration::from_secs(scadenza - now)).await;
                     //.map_err(|e| error!("timer error: {}", e))
