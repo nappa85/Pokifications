@@ -665,7 +665,7 @@ impl Message for RaidMessage {
         let (mut background, pokemon) = match self.raid.pokemon_id {
             Some(pkmn_id) if pkmn_id > 0 => {
                 // $mBg = imagecreatefrompng("images/msg-bgs/msg-raid-big-t" . $v_team . ".png");
-                let mut background = image::open(format!("{}images/msg-bgs/msg-raid-big-t{}.png", CONFIG.images.sender, self.raid.team_id.get_id())).map_err(|e| error!("error opening raid background image: {:?}", e))?;
+                let mut background = image::open(format!("{}images/msg-bgs/msg-raid-big-t{}{}.png", CONFIG.images.sender, self.raid.team_id.get_id(), if self.raid.ex_raid_eligible { "-ex" } else { "" })).map_err(|e| error!("error opening raid background image: {:?}", e))?;
 
                 // $mPoke = imagecreatefrompng("../../assets/img/pkmns/shuffle/" . $v_pkmnid . ".png");
                 let pokemon = match self.raid.form {
