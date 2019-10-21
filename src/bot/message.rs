@@ -617,7 +617,7 @@ impl Message for RaidMessage {
                 icon,
                 LIST[&pokemon_id].name.to_uppercase(),
                 self.raid.form.and_then(|id| FORMS.get(&id).map(|s| format!(" ({})", s))).unwrap_or_else(String::new),
-                String::from_utf8(vec![0xf0, 0x9f, 0x93, 0x8d]).map_err(|e| error!("error parsing POI icon: {}", e))?,
+                String::from_utf8(if self.raid.ex_raid_eligible { vec![0xE2, 0x9B, 0xB3] } else { vec![0xf0, 0x9f, 0x93, 0x8d] }).map_err(|e| error!("error parsing POI icon: {}", e))?,
                 self.raid.gym_name,
                 String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92]).map_err(|e| error!("error parsing clock icon: {}", e))?,
                 Local.timestamp(self.raid.end, 0).format("%T").to_string()
@@ -631,7 +631,7 @@ impl Message for RaidMessage {
             format!("{} RAID liv. {}\n{} {}\n{} Schiude: {}",//debug
                 String::from_utf8(vec![0xf0, 0x9f, 0xa5, 0x9a]).map_err(|e| error!("error parsing egg icon: {}", e))?,
                 self.raid.level,
-                String::from_utf8(vec![0xf0, 0x9f, 0x93, 0x8d]).map_err(|e| error!("error parsing POI icon: {}", e))?,
+                String::from_utf8(if self.raid.ex_raid_eligible { vec![0xE2, 0x9B, 0xB3] } else { vec![0xf0, 0x9f, 0x93, 0x8d] }).map_err(|e| error!("error parsing POI icon: {}", e))?,
                 self.raid.gym_name,
                 String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92]).map_err(|e| error!("error parsing clock icon: {}", e))?,
                 Local.timestamp(self.raid.start, 0).format("%T").to_string()
