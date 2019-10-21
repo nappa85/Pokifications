@@ -182,17 +182,19 @@ impl BotConfig {
         let pokemon_id = input.pokemon_id.and_then(|id| if id > 0 { Some(id.to_string()) } else { None });
         let loc = self.locs.get_raid_settings()?;
         let pos = (input.latitude, input.longitude);
-        if self.raid.s == 0 && pokemon_id.is_some() {
-            #[cfg(test)]
-            info!("Raid discarded for disabled raids");
+        if self.raid.x != Some(1) || !input.ex_raid_eligible {
+            if self.raid.s == 0 && pokemon_id.is_some() {
+                #[cfg(test)]
+                info!("Raid discarded for disabled raids");
 
-            return Err(());
-        }
-        if self.raid.u == 0 && pokemon_id.is_none() {
-            #[cfg(test)]
-            info!("Raid discarded for disabled eggs");
+                return Err(());
+            }
+            if self.raid.u == 0 && pokemon_id.is_none() {
+                #[cfg(test)]
+                info!("Raid discarded for disabled eggs");
 
-            return Err(());
+                return Err(());
+            }
         }
 
         // $raid_rad = ValMinMax($locs["r"][2], 0.1, MAX_DISTANCE);
@@ -438,6 +440,7 @@ pub struct BotRaid {
     pub s: u8,
     pub l: Vec<u8>,
     pub p: Vec<u16>,
+    pub x: Option<u8>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
