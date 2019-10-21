@@ -219,29 +219,34 @@ impl BotConfig {
             return Err(());
         }
 
-        match input.pokemon_id {
-            Some(pkmn_id) if pkmn_id > 0 => {
-                if !self.raid.p.contains(&pkmn_id) {
-                    #[cfg(test)]
-                    info!("Raid discarded for disabled raidboss: raidboss {} config {:?}", pkmn_id, self.raid.p);
+        if self.raid.x == Some(1) && input.ex_raid_eligible {
+            debug.push_str(&"\nBypass Palestre EX abilitato");
+        }
+        else {
+            match input.pokemon_id {
+                Some(pkmn_id) if pkmn_id > 0 => {
+                    if !self.raid.p.contains(&pkmn_id) {
+                        #[cfg(test)]
+                        info!("Raid discarded for disabled raidboss: raidboss {} config {:?}", pkmn_id, self.raid.p);
 
-                    return Err(());
-                }
-                else {
-                    debug.push_str(&"\nPokémon presente nella lista raidboss abilitati");
-                }
-            },
-            _ => {
-                if !self.raid.l.contains(&input.level) {
-                    #[cfg(test)]
-                    info!("Raid discarded for disabled egg level: level {} config {:?}", input.level, self.raid.l);
+                        return Err(());
+                    }
+                    else {
+                        debug.push_str(&"\nPokémon presente nella lista raidboss abilitati");
+                    }
+                },
+                _ => {
+                    if !self.raid.l.contains(&input.level) {
+                        #[cfg(test)]
+                        info!("Raid discarded for disabled egg level: level {} config {:?}", input.level, self.raid.l);
 
-                    return Err(());
-                }
-                else {
-                    debug.push_str(&"\nLivello uovo abilitato");
-                }
-            },
+                        return Err(());
+                    }
+                    else {
+                        debug.push_str(&"\nLivello uovo abilitato");
+                    }
+                },
+            }
         }
 
         Ok(RaidMessage {
