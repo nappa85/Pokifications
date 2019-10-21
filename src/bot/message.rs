@@ -728,7 +728,7 @@ impl Message for RaidMessage {
                 (background, pokemon)
             },
             _ => {
-                let mut background = image::open(format!("{}images/msg-bgs/msg-raid-sm-t{}.png", CONFIG.images.sender, self.raid.team_id.get_id())).map_err(|e| error!("error opening raid background image: {:?}", e))?;
+                let mut background = image::open(format!("{}images/msg-bgs/msg-raid-sm-t{}{}.png", CONFIG.images.sender, self.raid.team_id.get_id(), if self.raid.ex_raid_eligible { "-ex" } else { "" })).map_err(|e| error!("error opening raid background image: {:?}", e))?;
                 let pokemon = image::open(format!("{}images/raid_{}.png", CONFIG.images.sender, self.raid.level)).map_err(|e| error!("error opening pokemon image: {:?}", e))?;
 
                 // imagettftext($mBg, 12, 0, 82, 71, 0x00000000, $f_cal2, $v_battle);
