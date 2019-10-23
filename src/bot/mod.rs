@@ -99,7 +99,7 @@ impl BotConfigs {
         Ok(())
     }
 
-    async fn add_watches(watches: Vec<Watch>) {
+    async fn add_watches(watch: Watch) {
         let mut lock = WATCHES.future_write().await;
         let now = Local::now().timestamp();
 
@@ -114,8 +114,9 @@ impl BotConfigs {
             lock.remove(*index);
         }
 
-        for watch in watches {
+        if watch.expire > now {
             if !lock.contains(&watch) {
+                info!("Adding Meteo-watch {:?}", watch);
                 lock.push(watch);
             }
         }
@@ -144,7 +145,7 @@ impl BotConfigs {
                         lock.get(&chat_id).map(|c| c.more.l.clone())
                     };
 
-                    info!("Meteo watch trigger for {}", chat_id);
+                    info!("Meteo-watch trigger for {}", chat_id);
                     if let Some(l) = map_type {
                         if let Ok(file_id) = message.prepare().await {
                             message::send_message(&message, &chat_id, file_id, l.as_str()).await.ok();

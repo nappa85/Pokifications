@@ -31,7 +31,7 @@ pub enum Request {
     #[serde(rename = "reload")]
     Reload(Vec<String>),
     #[serde(rename = "watch")]
-    Watch(Vec<Watch>),
+    Watch(Watch),
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -416,19 +416,11 @@ pub struct Weather {
 }
 
 /// Meteo watch request
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct Watch {
     pub user_id: String,
     pub point: Point<f64>,
     pub expire: i64,
-}
-
-impl PartialEq for Watch {
-    fn eq(&self, other: &Self) -> bool {
-        self.user_id == other.user_id &&
-            self.point == other.point &&
-            self.expire == other.expire
-    }
 }
 
 #[cfg(test)]
