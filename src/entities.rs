@@ -2,6 +2,8 @@ use serde::{Deserialize, Deserializer};
 
 use serde_json::value::Value;
 
+use geo::{LineString, Point};
+
 #[derive(Clone, Debug, Deserialize)]
 // #[serde(deny_unknown_fields)]
 #[serde(tag = "type", content = "message")]
@@ -28,6 +30,8 @@ pub enum Request {
     Weather(Weather),
     #[serde(rename = "reload")]
     Reload(Vec<String>),
+    #[serde(rename = "watch")]
+    Watch(Vec<Watch>),
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -397,7 +401,7 @@ pub struct Weather {
     pub latitude: f64,
     pub cloud_level: u8,
     pub severity: u8,
-    pub polygon: Vec<[f64; 2]>,
+    pub polygon: LineString<f64>,
     pub special_effect_level: u8,
     pub longitude: f64,
     pub id: u64,
@@ -409,6 +413,22 @@ pub struct Weather {
     pub updated: u8,
     pub gameplay_condition: u8,
     pub wind_level: u8
+}
+
+/// Meteo watch request
+#[derive(Clone, Debug, Deserialize)]
+pub struct Watch {
+    pub user_id: String,
+    pub point: Point<f64>,
+    pub expire: i64,
+}
+
+impl PartialEq for Watch {
+    fn eq(&self, other: &Self) -> bool {
+        self.user_id == other.user_id &&
+            self.point == other.point &&
+            self.expire == other.expire
+    }
 }
 
 #[cfg(test)]

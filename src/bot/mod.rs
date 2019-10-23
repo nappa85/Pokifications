@@ -9,6 +9,8 @@ use tokio::spawn;
 
 use chrono::{Local, DateTime};
 
+use geo::algorithm::contains::Contains;
+
 use serde_json::json;
 
 use lazy_static::lazy_static;
@@ -18,13 +20,14 @@ use log::{info, error};
 mod config;
 mod message;
 
-use message::{Image, Message, PokemonMessage, RaidMessage, InvasionMessage};
+use message::{Image, Message, PokemonMessage, RaidMessage, InvasionMessage, WeatherMessage};
 
-use crate::entities::Request;
+use crate::entities::{Request, Weather, Watch};
 use crate::db::MYSQL;
 
 lazy_static! {
     static ref BOT_CONFIGS: Arc<RwLock<HashMap<String, config::BotConfig>>> = Arc::new(RwLock::new(BotConfigs::init()));
+    static ref WATCHES: Arc<RwLock<Vec<Watch>>> = Arc::new(RwLock::new(BotConfigs::watches()));
 }
 
 pub struct BotConfigs;
@@ -34,6 +37,10 @@ impl BotConfigs {
         let mut res = HashMap::new();
         Self::load(&mut res, None).expect("Unable to init BotConfigs");
         res
+    }
+
+    fn watches() -> Vec<Watch> {
+        Vec::new()//TODO load from DB
     }
 
     pub async fn reload(user_ids: Vec<String>) -> Result<(), ()> {
@@ -92,13 +99,85 @@ impl BotConfigs {
         Ok(())
     }
 
+    async fn add_watches(watches: Vec<Watch>) {
+        let mut lock = WATCHES.future_write().await;
+        let now = Local::now().timestamp();
+
+        // remove expired watches
+        let mut remove = Vec::new();
+        for (index, watch) in lock.iter().enumerate() {
+            if watch.expire < now {
+                remove.push(index);
+            }
+        }
+        for index in remove.iter().rev() {
+            lock.remove(*index);
+        }
+
+        for watch in watches {
+            if !lock.contains(&watch) {
+                lock.push(watch);
+            }
+        }
+    }
+
+    async fn submit_weather(weather: Weather) {
+        let lock = WATCHES.future_read().await;
+        let now = Local::now().timestamp();
+
+        for watch in lock.iter() {
+            if watch.expire < now {
+                continue;
+            }
+
+            if weather.polygon.contains(&watch.point) {
+                let chat_id = watch.user_id.clone();
+                let message = WeatherMessage {
+                    weather: weather.clone(),
+                    position: Some(watch.point.x_y()),
+                    debug: None,
+                };
+
+                spawn(async move {
+                    let map_type = {
+                        let lock = BOT_CONFIGS.future_read().await;
+                        lock.get(&chat_id).map(|c| c.more.l.clone())
+                    };
+
+                    info!("Meteo watch trigger for {}", chat_id);
+                    if let Some(l) = map_type {
+                        if let Ok(file_id) = message.prepare().await {
+                            message::send_message(&message, &chat_id, file_id, l.as_str()).await.ok();
+                        }
+                    }
+                });
+            }
+        }
+    }
+
     pub async fn submit(now: DateTime<Local>, inputs: Vec<Request>) {
         for input in inputs.into_iter() {
-            if let Request::Reload(user_ids) = input {
-                spawn(async {
-                    BotConfigs::reload(user_ids).await.ok();
-                });
-                continue;
+            // non config-related requests
+            match input {
+                Request::Reload(user_ids) => {
+                    spawn(async {
+                        BotConfigs::reload(user_ids).await.ok();
+                    });
+                    continue;
+                },
+                Request::Watch(watches) => {
+                    spawn(async {
+                        BotConfigs::add_watches(watches).await;
+                    });
+                    continue;
+                },
+                Request::Weather(weather) => {
+                    spawn(async {
+                        BotConfigs::submit_weather(weather).await;
+                    });
+                    continue;
+                },
+                _ => {},
             }
 
             let mut futures = Vec::new();

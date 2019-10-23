@@ -18,13 +18,13 @@ use chrono::offset::TimeZone;
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
 
-use serde_json::value::Value;
+use serde_json::{json, value::Value};
 
 use log::{error, trace};
 
 use super::BotConfigs;
 
-use crate::entities::{Pokemon, Raid, Pokestop, Gender};
+use crate::entities::{Pokemon, Raid, Pokestop, Gender, Weather};
 use crate::lists::{LIST, MOVES, FORMS, GRUNTS};
 use crate::config::CONFIG;
 use crate::db::MYSQL;
@@ -226,7 +226,7 @@ pub trait Message {
             .map_err(|e| error!("error writing chat_id multipart: {}", e))?;
         write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n{}\r\n", boundary, self.get_caption()?)
             .map_err(|e| error!("error writing caption multipart: {}", e))?;
-        write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"reply_markup\"\r\n\r\n{}\r\n", boundary, self.message_button(&map_type)?)
+        write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"reply_markup\"\r\n\r\n{}\r\n", boundary, self.message_button(chat_id, map_type)?)
             .map_err(|e| error!("error writing reply_markup multipart: {}", e))?;
         write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"disable_web_page_preview\"\r\n\r\ntrue\r\n", boundary)
             .map_err(|e| error!("error writing disable_web_page_preview multipart: {}", e))?;
@@ -276,7 +276,7 @@ pub trait Message {
         }).map_err(|e| error!("error converting meteo icon: {}", e))?))
     }
 
-    fn message_button(&self, mtype: &str) -> Result<String, ()> {
+    fn message_button(&self, _chat_id: &str, mtype: &str) -> Result<String, ()> {
         let lat = self.get_latitude();
         let lon = self.get_longitude();
 
@@ -570,6 +570,41 @@ impl Message for PokemonMessage {
             debug: None,
         }
     }
+
+    fn message_button(&self, chat_id: &str, mtype: &str) -> Result<String, ()> {
+        let lat = self.get_latitude();
+        let lon = self.get_longitude();
+
+        let maplink = match mtype {
+            "g" => format!("https://maps.google.it/maps/?q={},{}", lat, lon),
+            "g2" => format!("https://www.google.it/maps/place/{},{}", lat, lon),
+            "g3" => format!("https://www.google.com/maps/search/?api=1&query={},{}", lat, lon),
+            "gd" => format!("https://www.google.com/maps/dir/?api=1&destination={},{}", lat, lon),
+            "a" => format!("http://maps.apple.com/?ll={},{}", lat, lon),
+            "w" => format!("https://waze.com/ul?ll={},{}", lat, lon),
+            _ => format!("https://maps.google.it/maps/?q={},{}", lat, lon),
+        };
+        let title = format!("{} Mappa", String::from_utf8(vec![0xf0, 0x9f, 0x8c, 0x8e]).map_err(|e| error!("error encoding map icon: {}", e))?);
+
+        let mut keyboard = serde_json::json!({
+                "inline_keyboard": [[{
+                    "text": title,
+                    "url": maplink
+                }]]
+            });
+if chat_id == "25900594" || chat_id == "112086777" || chat_id == "9862788" || chat_id == "82417031" {//DEBUG
+        match (self.pokemon.individual_attack, self.pokemon.individual_defense, self.pokemon.individual_stamina, keyboard["inline_keyboard"].as_array_mut()) {
+            (Some(_), Some(_), Some(_), Some(a)) => {
+                a.push(json!([{
+                    "text": format!("{} Avvisami se cambia il Meteo", String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?),
+                    "callback_data": format!("watch|{}|{}|{}", lat, lon, self.pokemon.disappear_time)
+                }]));
+            },
+            _ => {},
+        }
+}//DEBUG
+        Ok(keyboard.to_string())
+    }
 }
 
 #[derive(Debug)]
@@ -857,6 +892,58 @@ impl Message for InvasionMessage {
     fn get_dummy(input: Self::Input) -> InvasionMessage {
         InvasionMessage {
             invasion: input,
+            debug: None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct WeatherMessage {
+    pub weather: Weather,
+    pub position: Option<(f64, f64)>,
+    pub debug: Option<String>,
+}
+
+impl WeatherMessage {
+    /// alternative to message:prepare that doesn't consume the message
+    pub async fn prepare(&self) -> Result<Image, ()> {
+        let map = get_map(self).await?;
+        let bytes = self.get_image(map)?;
+        Ok(Image::Bytes(bytes))
+    }
+}
+
+impl Message for WeatherMessage {
+    type Input = Weather;
+
+    fn get_latitude(&self) -> f64 {
+        match self.position {
+            Some((lat, _)) => lat,
+            None => self.weather.latitude,
+        }
+    }
+
+    fn get_longitude(&self) -> f64 {
+        match self.position {
+            Some((_, lon)) => lon,
+            None => self.weather.longitude,
+        }
+    }
+
+    fn get_caption(&self) -> Result<String, ()> {
+        Ok(format!("{} Meteo cambiato nella cella", String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?))
+    }
+
+    fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
+        let mut out = Vec::new();
+        map.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting weather map image: {}", e))?;
+        Ok(out)
+    }
+
+    fn get_dummy(input: Self::Input) -> Self {
+        WeatherMessage {
+            weather: input,
+            position: None,
             debug: None,
         }
     }
