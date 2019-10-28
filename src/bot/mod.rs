@@ -48,7 +48,7 @@ impl BotConfigs {
         let mut lock = BOT_CONFIGS.future_write().await;
         let res = Self::load(&mut lock, Some(user_ids.clone()));
         for user_id in user_ids {
-            info!("reloaded configs for user {}: {}", user_id, json!(lock.get(&user_id)).to_string());
+            info!("reloaded configs for user {}", user_id);
         }
         res
     }

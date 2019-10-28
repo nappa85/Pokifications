@@ -12,7 +12,7 @@ use tokio::spawn;
 use log::error;
 
 #[cfg(test)]
-use log::info;
+use log::{info, debug};
 
 // use crate::lists::COMMON;
 use crate::entities::{Pokemon, Pokestop, Raid, Request, Gender};
@@ -47,7 +47,10 @@ impl BotConfig {
                 Request::Pokemon(p) => self.submit_pokemon(now, chat_id, p),
                 Request::Raid(r) => self.submit_raid(now, chat_id, r),
                 Request::Invasion(i) => self.submit_invasion(now, chat_id, i),
-                _ => Err(()),
+                _ => {
+                    debug!("Unmanaged webhook: {:?}", input);
+                    Err(())
+                },
             }
         }
     }
