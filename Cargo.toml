@@ -25,3 +25,4 @@ image = { version = "=0.22.2", default-features = false, features = ["png_codec"
 rusttype = "=0.8.1" # forced by imageproc
 rand = "0.7"
 geo = { version = "0.12", features = ["use-serde"] }
+geo-raycasting = "0.1"

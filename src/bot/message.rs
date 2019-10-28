@@ -12,7 +12,7 @@ use futures_util::try_stream::TryStreamExt;
 use hyper::{Body, Client, Request};
 use hyper_tls::HttpsConnector;
 
-use chrono::{Local, DateTime};
+use chrono::{Local, DateTime, Timelike};
 use chrono::offset::TimeZone;
 
 use rand::{thread_rng, Rng};
@@ -371,10 +371,11 @@ impl Message for PokemonMessage {
             // $t_corpo .= " (" . $v_iv . "%)" . MeteoIcon($t_msg["wb"]) . "\n";
             // $t_corpo .= "PL " . number_format($t_msg["cp"], 0, ",", ".") . " | Lv " . $t_msg["level"] . "\n";
             // $t_corpo .= $t_msg["distance"] . "km" . $dir_icon . " | " . date("H:i", $t_msg["expire_timestamp"]);
+            let gender = self.pokemon.gender.get_glyph();
             format!("{} {}{}{} ({:.0}%){}\n{}{:.1} km {} | {}",
                 icon,
                 LIST[&self.pokemon.pokemon_id].name.to_uppercase(),
-                self.pokemon.gender.get_glyph(),
+                gender,
                 self.pokemon.form.and_then(|id| FORMS.get(&id).map(|s| format!(" ({})", s))).unwrap_or_else(String::new),
                 iv.round(),
                 self.pokemon.weather.and_then(|id| Self::meteo_icon(id).ok()).unwrap_or_else(String::new),
@@ -385,22 +386,23 @@ impl Message for PokemonMessage {
                 self.distance,
                 dir_icon,
                 Local.timestamp(self.pokemon.disappear_time, 0).format("%T").to_string()
-            )
+            ).replace(&gender.repeat(2), &gender)//fix nidoran double gender
         }
         else {
             // $t_corpo = $icon_pkmn . " " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]);
             // $t_corpo .= ($t_msg["pokemon_id"] == 201 ? " (" . $unown_letter[$t_msg["form"]] . ")" : "") . MeteoIcon($t_msg["wb"]) . "\n";
             // $t_corpo .= $t_msg["distance"] . "km" . $dir_icon . " | " . date("H:i", $t_msg["expire_timestamp"]);
+            let gender = self.pokemon.gender.get_glyph();
             format!("{} {}{}{}{}\n{:.1} km {} | {}",
                 icon,
                 LIST[&self.pokemon.pokemon_id].name.to_uppercase(),
-                self.pokemon.gender.get_glyph(),
+                gender,
                 self.pokemon.form.and_then(|id| FORMS.get(&id).map(|s| format!(" ({})", s))).unwrap_or_else(String::new),
                 self.pokemon.weather.and_then(|id| Self::meteo_icon(id).ok()).unwrap_or_else(String::new),
                 self.distance,
                 dir_icon,
                 Local.timestamp(self.pokemon.disappear_time, 0).format("%T").to_string()
-            )
+            ).replace(&gender.repeat(2), &gender)//fix nidoran double gender
         };
 
         Ok(match self.debug {
@@ -593,14 +595,17 @@ impl Message for PokemonMessage {
                 }]]
             });
 if chat_id == "25900594" || chat_id == "112086777" || chat_id == "9862788" || chat_id == "82417031" {//DEBUG
-        match (self.pokemon.individual_attack, self.pokemon.individual_defense, self.pokemon.individual_stamina, keyboard["inline_keyboard"].as_array_mut()) {
-            (Some(_), Some(_), Some(_), Some(a)) => {
-                a.push(json!([{
-                    "text": format!("{} Avvisami se cambia il Meteo", String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?),
-                    "callback_data": format!("watch|{}|{}|{}", lat, lon, self.pokemon.disappear_time)
-                }]));
-            },
-            _ => {},
+        // watch button available only on crossing-hour spawns
+        if Local::now().hour() != Local.timestamp(self.pokemon.disappear_time, 0).hour() {
+            match (self.pokemon.individual_attack, self.pokemon.individual_defense, self.pokemon.individual_stamina, keyboard["inline_keyboard"].as_array_mut()) {
+                (Some(_), Some(_), Some(_), Some(a)) => {
+                    a.push(json!([{
+                        "text": format!("{} Avvisami se cambia il Meteo", String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?),
+                        "callback_data": format!("watch|{}|{}|{}", lat, lon, self.pokemon.disappear_time)
+                    }]));
+                },
+                _ => {},
+            }
         }
 }//DEBUG
         Ok(keyboard.to_string())
@@ -899,7 +904,8 @@ impl Message for InvasionMessage {
 
 #[derive(Debug)]
 pub struct WeatherMessage {
-    pub weather: Weather,
+    pub old_weather: Weather,
+    pub new_weather: Weather,
     pub position: Option<(f64, f64)>,
     pub debug: Option<String>,
 }
@@ -919,19 +925,23 @@ impl Message for WeatherMessage {
     fn get_latitude(&self) -> f64 {
         match self.position {
             Some((lat, _)) => lat,
-            None => self.weather.latitude,
+            None => self.new_weather.latitude,
         }
     }
 
     fn get_longitude(&self) -> f64 {
         match self.position {
             Some((_, lon)) => lon,
-            None => self.weather.longitude,
+            None => self.new_weather.longitude,
         }
     }
 
     fn get_caption(&self) -> Result<String, ()> {
-        Ok(format!("{} Meteo cambiato nella cella", String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?))
+        Ok(format!("{} Meteo cambiato nella cella\n{}\nvecchio: {:#?}\nnuovo: {:#?}",
+            String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?,
+            self.old_weather.diff(&self.new_weather),
+            self.old_weather,
+            self.new_weather))
     }
 
     fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
@@ -942,7 +952,8 @@ impl Message for WeatherMessage {
 
     fn get_dummy(input: Self::Input) -> Self {
         WeatherMessage {
-            weather: input,
+            old_weather: input.clone(),
+            new_weather: input,
             position: None,
             debug: None,
         }

@@ -1,3 +1,5 @@
+use std::cell::UnsafeCell;
+
 use serde::{Deserialize, Deserializer};
 
 use serde_json::value::Value;
@@ -415,12 +417,105 @@ pub struct Weather {
     pub wind_level: u8
 }
 
+impl Weather {
+    pub fn diff(&self, other: &Weather) -> String {
+        let mut diff = String::new();
+        // if self.latitude != other.latitude {
+        //     diff.push_str(&format!("latitude changed from {} to {}", self.latitude, other.latitude));
+        // }
+        if self.cloud_level != other.cloud_level {
+            diff.push_str(&format!("cloud_level changed from {} to {}", self.cloud_level, other.cloud_level));
+        }
+        if self.severity != other.severity {
+            diff.push_str(&format!("severity changed from {} to {}", self.severity, other.severity));
+        }
+        // if self.polygon != other.polygon {
+        //     diff.push_str(&format!("polygon changed from {:?} to {:?}", self.polygon, other.polygon));
+        // }
+        if self.special_effect_level != other.special_effect_level {
+            diff.push_str(&format!("special_effect_level changed from {} to {}", self.special_effect_level, other.special_effect_level));
+        }
+        // if self.longitude != other.longitude {
+        //     diff.push_str(&format!("longitude changed from {} to {}", self.longitude, other.longitude));
+        // }
+        // if self.id != other.id {
+        //     diff.push_str(&format!("id changed from {} to {}", self.id, other.id));
+        // }
+        if self.rain_level != other.rain_level {
+            diff.push_str(&format!("rain_level changed from {} to {}", self.rain_level, other.rain_level));
+        }
+        if self.fog_level != other.fog_level {
+            diff.push_str(&format!("fog_level changed from {} to {}", self.fog_level, other.fog_level));
+        }
+        // if self.wind_direction != other.wind_direction {
+        //     diff.push_str(&format!("wind_direction changed from {} to {}", self.wind_direction, other.wind_direction));
+        // }
+        if self.snow_level != other.snow_level {
+            diff.push_str(&format!("snow_level changed from {} to {}", self.snow_level, other.snow_level));
+        }
+        if self.warn_weather != other.warn_weather {
+            diff.push_str(&format!("warn_weather changed from {} to {}", self.warn_weather, other.warn_weather));
+        }
+        if self.updated != other.updated {
+            diff.push_str(&format!("updated changed from {} to {}", self.updated, other.updated));
+        }
+        if self.gameplay_condition != other.gameplay_condition {
+            diff.push_str(&format!("gameplay_condition changed from {} to {}", self.gameplay_condition, other.gameplay_condition));
+        }
+        if self.wind_level != other.wind_level {
+            diff.push_str(&format!("cloud_level changed from {} to {}", self.wind_level, other.wind_level));
+        }
+        diff
+    }
+}
+
+impl PartialEq for Weather {
+    fn eq(&self, other: &Weather) -> bool {
+        self.cloud_level == other.cloud_level &&
+            self.severity == other.severity &&
+            // self.polygon == other.polygon &&
+            self.special_effect_level == other.special_effect_level &&
+            self.rain_level == other.rain_level &&
+            self.fog_level == other.fog_level &&
+            // self.wind_direction == other.wind_direction &&
+            self.snow_level == other.snow_level &&
+            self.warn_weather == other.warn_weather &&
+            self.updated == other.updated &&
+            self.gameplay_condition == other.gameplay_condition &&
+            self.wind_level == other.wind_level
+    }
+}
+
 /// Meteo watch request
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize)]
 pub struct Watch {
     pub user_id: String,
     pub point: Point<f64>,
     pub expire: i64,
+    #[serde(skip_deserializing)]
+    #[serde(default)]
+    pub reference_weather: UnsafeCell<Option<Weather>>,
+}
+
+unsafe impl Sync for Watch {}
+
+impl PartialEq for Watch {
+    fn eq(&self, other: &Watch) -> bool {
+        self.user_id == other.user_id &&
+            self.point == other.point &&
+            self.expire == other.expire
+    }
+}
+
+impl Clone for Watch {
+    fn clone(&self) -> Self {
+        Watch {
+            user_id: self.user_id.clone(),
+            point: self.point,
+            expire: self.expire,
+            reference_weather: UnsafeCell::new(None),
+        }
+    }
 }
 
 #[cfg(test)]
