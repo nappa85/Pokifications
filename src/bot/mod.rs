@@ -11,11 +11,9 @@ use chrono::{Local, DateTime};
 
 use geo_raycasting::RayCasting;
 
-use serde_json::json;
-
 use lazy_static::lazy_static;
 
-use log::{info, error};
+use log::{info, error, debug};
 
 mod config;
 mod message;
@@ -193,7 +191,8 @@ impl BotConfigs {
                     });
                     continue;
                 },
-                _ => {},
+                Request::Pokemon(_) | Request::Raid(_) | Request::Invasion(_) => {},
+                _ => debug!("Unmanaged webhook: {:?}", input),
             }
 
             let mut futures = Vec::new();
