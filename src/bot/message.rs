@@ -24,7 +24,7 @@ use log::{error, trace};
 
 use super::BotConfigs;
 
-use crate::entities::{Pokemon, Raid, Pokestop, Gender, Weather};
+use crate::entities::{Pokemon, Raid, Pokestop, Gender, Weather, Quest};
 use crate::lists::{LIST, MOVES, FORMS, GRUNTS};
 use crate::config::CONFIG;
 use crate::db::MYSQL;
@@ -558,7 +558,7 @@ impl Message for PokemonMessage {
         Ok(out)
     }
 
-    fn get_dummy(input: Self::Input) -> PokemonMessage {
+    fn get_dummy(input: Self::Input) -> Self {
         let iv = match (input.individual_attack, input.individual_defense, input.individual_stamina) {
             (Some(atk), Some(def), Some(sta)) => Some((f32::from(atk + def + sta) / 45f32) * 100f32),
             _ => None,
@@ -807,6 +807,39 @@ impl Message for RaidMessage {
 }
 
 #[derive(Debug)]
+pub struct QuestMessage {
+    pub quest: Quest,
+    pub debug: Option<String>,
+}
+
+impl Message for QuestMessage {
+    type Input = Quest;
+
+    fn get_latitude(&self) -> f64 {
+        self.quest.latitude
+    }
+
+    fn get_longitude(&self) -> f64 {
+        self.quest.longitude
+    }
+
+    fn get_caption(&self) -> Result<String, ()> {
+        Err(())
+    }
+
+    fn get_image(&self, _map: image::DynamicImage) -> Result<Vec<u8>, ()> {
+        Err(())
+    }
+
+    fn get_dummy(input: Self::Input) -> Self {
+        QuestMessage {
+            quest: input,
+            debug: None,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct InvasionMessage {
     pub invasion: Pokestop,
     pub debug: Option<String>,
@@ -894,7 +927,7 @@ impl Message for InvasionMessage {
         Ok(out)
     }
 
-    fn get_dummy(input: Self::Input) -> InvasionMessage {
+    fn get_dummy(input: Self::Input) -> Self {
         InvasionMessage {
             invasion: input,
             debug: None,

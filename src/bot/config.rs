@@ -7,6 +7,10 @@ use serde_json::Value as JsonValue;
 
 use chrono::{Local, DateTime};
 
+use geo::{Polygon, Point};
+
+use geo_raycasting::RayCasting;
+
 use tokio::spawn;
 
 use log::error;
@@ -15,9 +19,9 @@ use log::error;
 use log::info;
 
 // use crate::lists::COMMON;
-use crate::entities::{Pokemon, Pokestop, Raid, Request, Gender};
+use crate::entities::{Pokemon, Pokestop, Raid, Request, Gender, Quest};
 
-use super::message::{self, Image, PokemonMessage, RaidMessage, InvasionMessage};
+use super::message::{self, Image, PokemonMessage, RaidMessage, InvasionMessage, QuestMessage};
 
 const MAX_DISTANCE: f64 = 15f64;
 // const MIN_IV_LIMIT: f32 = 36f32;
@@ -30,11 +34,60 @@ pub struct BotConfig {
     pub raid: BotRaid,
     pub pkmn: BotPkmn,
     pub time: BotTime,
+    pub qest: Option<BotQest>,
     pub invs: Option<BotInvs>,
     pub more: BotMore,
 }
 
 impl BotConfig {
+    pub fn within(&self, poly: Vec<[f64; 2]>) -> bool {
+        let polygon = Polygon::new(poly.into(), vec![]);
+
+        match (BotLocs::convert_to_f64(&self.locs.h[0]), BotLocs::convert_to_f64(&self.locs.h[1])) {
+            (Ok(x), Ok(y)) => {
+                let p: Point<f64> = (x, y).into();
+                if !polygon.within(&p) {
+                    return false;
+                }
+            },
+            _ => {},
+        }
+
+        match (BotLocs::convert_to_f64(&self.locs.p[0]), BotLocs::convert_to_f64(&self.locs.p[1])) {
+            (Ok(x), Ok(y)) => {
+                let p: Point<f64> = (x, y).into();
+                if !polygon.within(&p) {
+                    return false;
+                }
+            },
+            _ => {},
+        }
+
+        match (BotLocs::convert_to_f64(&self.locs.r[0]), BotLocs::convert_to_f64(&self.locs.r[1])) {
+            (Ok(x), Ok(y)) => {
+                let p: Point<f64> = (x, y).into();
+                if !polygon.within(&p) {
+                    return false;
+                }
+            },
+            _ => {},
+        }
+
+        if let Some(pos) = self.locs.i.as_ref() {
+            match (BotLocs::convert_to_f64(&pos[0]), BotLocs::convert_to_f64(&pos[1])) {
+                (Ok(x), Ok(y)) => {
+                    let p: Point<f64> = (x, y).into();
+                    if !polygon.within(&p) {
+                        return false;
+                    }
+                },
+                _ => {},
+            }
+        }
+
+        true
+    }
+
     pub fn submit(&self, now: &DateTime<Local>, chat_id: &str, input: &Request) -> Result<Box<dyn FnOnce(Image) + Send>, ()> {
         if !self.time.is_active()? && self.time.fi[0] == 0 && self.time.fl[0] == 0 {
             #[cfg(test)]
@@ -46,6 +99,7 @@ impl BotConfig {
             match input {
                 Request::Pokemon(p) => self.submit_pokemon(now, chat_id, p),
                 Request::Raid(r) => self.submit_raid(now, chat_id, r),
+                Request::Quest(q) => self.submit_quest(now, chat_id, q),
                 Request::Invasion(i) => self.submit_invasion(now, chat_id, i),
                 _ => Err(()),
             }
@@ -254,6 +308,84 @@ impl BotConfig {
             distance: BotLocs::calc_dist(&self.locs.h, pos)?,
             debug: if self.debug == Some(true) { Some(debug) } else { None },
         })
+    }
+
+    fn submit_quest(&self, now: &DateTime<Local>, chat_id: &str, input: &Quest) -> Result<Box<dyn FnOnce(Image) + Send>, ()> {
+        let message = self._submit_quest(now, input).map(|debug| {
+            QuestMessage {
+                quest: input.clone(),
+                debug: if self.debug == Some(true) { Some(debug) } else { None },
+            }
+        })?;
+        let chat_id = chat_id.to_owned();
+        let map_type = self.more.l.clone();
+        Ok(Box::new(move |file_id| {
+            spawn(async move {
+                message::send_message(&message, &chat_id, file_id, &map_type).await.ok();
+            });
+        }))
+    }
+
+    fn _submit_quest(&self, now: &DateTime<Local>, input: &Quest) -> Result<String, ()> {
+        let qest = self.qest.as_ref().ok_or_else(|| ())?;
+        if qest.n == 0 {
+            return Err(());
+        }
+
+        let loc = self.locs.get_invs_settings()?;
+        let pos = (input.latitude, input.longitude);
+
+        let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(&loc[2])?).max(0.1);
+
+        let mut debug = format!("Scansione avvenuta alle {}\n", now.format("%T").to_string());
+        let dist = BotLocs::calc_dist(loc, pos)?;
+        if dist > rad {
+            return Err(());
+        }
+        else {
+            debug.push_str(&format!("Distanza per Pokéstop inferiore a {:.2} km ({:.2} km)", rad, dist));
+        }
+
+        for s in &qest.l {
+            let parts: Vec<&str> = s.split('-').collect();
+            match parts.len() {
+                3 => {
+                    if input.template == parts[1] && input.target.to_string().as_str() == parts[2] {
+                        return Ok(debug);
+                    }
+                },
+                2 => {
+                    // lures, invasions, etc...
+                    // not managed by the bot
+                },
+                _ => {
+                    let group: Vec<&str> = parts[0].split('/').collect();
+                    match group[0] {
+                        "pkmns" => {
+                            // [{"type":7,"info":{"gender_id":0,"shiny":false,"costume_id":0,"pokemon_id":215,"form_id":0}}]
+                            if input.rewards[0]["type"].as_u64() == Some(7) && input.rewards[0]["info"]["pokemon_id"].as_u64().map(|i| i.to_string()).as_ref().map(|s| s.as_str()) == Some(group[2]) {
+                                return Ok(debug);
+                            }
+                        },
+                        "items" => {
+                            if parts[1] == "0" {
+                                if input.rewards[0]["type"].as_u64() == Some(3) {
+                                    return Ok(debug);
+                                }
+                            }
+                            else {
+                                if input.rewards[0]["type"].as_u64() == Some(2) && input.rewards[0]["info"]["item_id"].as_u64().map(|i| i.to_string()).as_ref().map(|s| s.as_str()) == Some(group[1]) {
+                                    return Ok(debug);
+                                }
+                            }
+                        },
+                        _ => {},
+                    }
+                }
+            }
+        }
+
+        Err(())
     }
 
     fn submit_invasion(&self, now: &DateTime<Local>, chat_id: &str, input: &Pokestop) -> Result<Box<dyn FnOnce(Image) + Send>, ()> {
@@ -724,6 +856,13 @@ impl BotTime {
             false
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BotQest {
+    pub n: u8,
+    pub l: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
