@@ -105,7 +105,7 @@ impl BotConfigs {
 
         if enabled > 0 && beta > 0 && status > 0 {
             let config: config::BotConfig = serde_json::from_str(&config).map_err(|e| error!("MySQL utenti_config_bot.config decoding error for user_id {}: {}", user_id, e))?;
-            if config.within(poly) {
+            if config.validate(poly) {
                 configs.insert(user_id.clone(), config);
 
                 let scadenza: u64 = row.take("scadenza").ok_or_else(|| error!("MySQL city.scadenza encoding error for user_id {}", user_id))?;
