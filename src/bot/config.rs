@@ -40,7 +40,7 @@ pub struct BotConfig {
 }
 
 impl BotConfig {
-    pub fn within(&self, poly: Vec<[f64; 2]>) -> bool {
+    pub fn validate(&self, poly: Vec<[f64; 2]>) -> bool {
         let polygon = Polygon::new(poly.into(), vec![]);
 
         match (BotLocs::convert_to_f64(&self.locs.h[0]), BotLocs::convert_to_f64(&self.locs.h[1])) {
@@ -629,10 +629,10 @@ impl BotPkmn {
     fn filter(filter: &[u8], iv: Option<f32>, lvl: Option<u8>) -> bool {
         if filter.get(1) >= Some(&1) && filter.get(3) == Some(&1) { // IV e PL attivi
             if filter.get(7) == Some(&1) {
-                if iv >= filter.get(2).map(|i| f32::from(*i)) {
+                if iv >= filter.get(2).map(|i| f32::from(*i)).or_else(|| 0_f32) {
                     return true;
                 }
-                if lvl.as_ref() >= filter.get(4) {
+                if lvl.as_ref() >= filter.get(4).or_else(|| 0_f32) {
                     return true;
                 }
                 false
