@@ -55,6 +55,8 @@ pub struct Google {
 #[derive(Deserialize)]
 pub struct Telegram {
     pub bot_token: String,
+    pub alert_bot_token: Option<String>,
+    pub alert_chat: Option<String>,
     pub timeout: Option<u64>,
     pub cache_chat: Option<String>,
 }

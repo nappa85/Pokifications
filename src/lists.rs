@@ -1,5 +1,9 @@
 use std::collections::HashMap;
 
+use geo::Polygon;
+
+use future_parking_lot::rwlock::RwLock;
+
 use lazy_static::lazy_static;
 
 use crate::db::MYSQL;
@@ -23,6 +27,10 @@ lazy_static! {
     pub static ref GRUNTS: HashMap<u8, GruntType> = load_grunts();
 }
 
+lazy_static! {
+    pub static ref CITIES: HashMap<u16, City> = load_cities();
+}
+
 pub struct Pokemon {
     pub id: u16,
     pub name: String,
@@ -38,6 +46,23 @@ pub struct GruntType {
     pub name: String,
     pub sex: Option<String>,
     pub element: Option<String>,
+}
+
+pub struct City {
+    pub id: u16,
+    pub name: String,
+    pub coordinates: Polygon<f64>,
+    pub scadenza: i64,
+    pub stats: RwLock<CityStats>,
+}
+
+#[derive(Default)]
+pub struct CityStats {
+    pub last_raid: Option<i64>,
+    pub last_pokemon: Option<i64>,
+    pub last_iv: Option<i64>,
+    pub last_quest: Option<i64>,
+    pub last_invasion: Option<i64>,
 }
 
 fn load_pokemons() -> HashMap<u16, Pokemon> {
@@ -98,6 +123,39 @@ fn load_grunts() -> HashMap<u8, GruntType> {
             name: row.take("name").expect("MySQL grunt_types.name error"),
             sex: row.take("sex").expect("MySQL grunt_types.type error"),
             element: row.take("type").expect("MySQL grunt_types.rarity error"),
+        });
+    }
+    ret
+}
+
+fn load_cities() -> HashMap<u16, City> {
+    let mut conn = MYSQL.get_conn().expect("MySQL retrieve connection error");
+    let res = conn.query("SELECT id, name, coordinates, scadenza FROM city WHERE enabled = 1").expect("MySQL query error");
+
+    let mut ret = HashMap::new();
+    for r in res {
+        let mut row = r.expect("MySQL row error");
+
+        let id = row.take("id").expect("MySQL city.id error");
+        let coords: String = row.take("coordinates").expect("MySQL city.coordinates encoding error");
+        let mut poly: Vec<[f64; 2]> = Vec::new();
+        for (i, c) in coords.replace("(", "").replace(")", "").split(",").enumerate() {
+            let f: f64 = c.trim().parse().expect("Coordinate parse error");
+            if i % 2 == 0 {
+                poly.push([f, 0_f64]);
+            }
+            else {
+                let len = poly.len();
+                poly[len - 1][1] = f;
+            }
+        }
+
+        ret.insert(id, City {
+            id,
+            name: row.take("name").expect("MySQL city.name error"),
+            coordinates: Polygon::new(poly.into(), vec![]),
+            scadenza: row.take("scadenza").expect("MySQL city.scadenza error"),
+            stats: RwLock::new(CityStats::default())
         });
     }
     ret

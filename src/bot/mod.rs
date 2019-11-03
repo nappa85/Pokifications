@@ -11,6 +11,8 @@ use chrono::{Local, DateTime};
 
 use mysql::{Row, Error};
 
+use geo::Point;
+
 use geo_raycasting::RayCasting;
 
 use lazy_static::lazy_static;
@@ -23,6 +25,7 @@ mod message;
 use message::{Image, Message, PokemonMessage, RaidMessage, InvasionMessage, WeatherMessage};
 
 use crate::entities::{Request, Weather, Watch};
+use crate::lists::CITIES;
 use crate::db::MYSQL;
 
 lazy_static! {
@@ -60,7 +63,7 @@ impl BotConfigs {
             }
         }
 
-        let query = format!("SELECT b.enabled, b.user_id, b.config, b.beta, u.status, c.scadenza, c.coordinates FROM utenti_config_bot b
+        let query = format!("SELECT b.enabled, b.user_id, b.config, b.beta, u.status, c.scadenza, u.city_id FROM utenti_config_bot b
             INNER JOIN utenti u ON u.user_id = b.user_id
             INNER JOIN city c ON c.id = u.city_id AND c.scadenza > UNIX_TIMESTAMP()
             WHERE {}", user_ids.and_then(|v| if v.is_empty() {
@@ -89,23 +92,11 @@ impl BotConfigs {
         let config: String = row.take("config").ok_or_else(|| error!("MySQL utenti_config_bot.config encoding error for user_id {}", user_id))?;
         let beta: u8 = row.take("beta").ok_or_else(|| error!("MySQL utenti_config_bot.beta encoding error for user_id {}", user_id))?;
         let status: u8 = row.take("status").ok_or_else(|| error!("MySQL utenti.status encoding error for user_id {}", user_id))?;
-
-        let coords: String = row.take("coordinates").ok_or_else(|| error!("MySQL city.coordinates encoding error"))?;
-        let mut poly: Vec<[f64; 2]> = Vec::new();
-        for (i, c) in coords.replace("(", "").replace(")", "").split(",").enumerate() {
-            let f: f64 = c.trim().parse().map_err(|e| error!("Coordinate parse error \"{}\": {}", c, e))?;
-            if i % 2 == 0 {
-                poly.push([f, 0_f64]);
-            }
-            else {
-                let len = poly.len();
-                poly[len - 1][1] = f;
-            }
-        }
+        let city_id: u16 = row.take("city_id").ok_or_else(|| error!("MySQL utenti.city_id encoding error for user_id {}", user_id))?;
 
         if enabled > 0 && beta > 0 && status > 0 {
             let config: config::BotConfig = serde_json::from_str(&config).map_err(|e| error!("MySQL utenti_config_bot.config decoding error for user_id {}: {}", user_id, e))?;
-            if config.validate(poly) {
+            if config.validate(city_id) {
                 configs.insert(user_id.clone(), config);
 
                 let scadenza: u64 = row.take("scadenza").ok_or_else(|| error!("MySQL city.scadenza encoding error for user_id {}", user_id))?;
@@ -214,7 +205,9 @@ impl BotConfigs {
                     });
                     continue;
                 },
-                Request::Pokemon(_) | Request::Raid(_) | Request::Invasion(_) | Request::Quest(_) => {},
+                Request::Pokemon(_) | Request::Raid(_) | Request::Invasion(_) | Request::Quest(_) => {
+                    BotConfigs::update_city_stats(&input, now.timestamp());
+                },
                 _ => debug!("Unmanaged webhook: {:?}", input),
             }
 
@@ -246,6 +239,105 @@ impl BotConfigs {
             Request::Raid(i) => message::prepare(RaidMessage::get_dummy(i), now).await,
             Request::Invasion(i) => message::prepare(InvasionMessage::get_dummy(i), now).await,
             _ => Err(()),
+        }
+    }
+
+    fn update_city_stats(input: &Request, now: i64) {
+        match input {
+            Request::Pokemon(p) => {
+                let iv = match (p.individual_attack, p.individual_defense, p.individual_stamina) {
+                    (Some(_), Some(_), Some(_)) => true,
+                    _ => false,
+                };
+                let point: Point<f64> = (p.latitude, p.longitude).into();
+
+                spawn(async move {
+                    for (_, city) in CITIES.iter() {
+                        if city.coordinates.within(&point) {
+                            let update = {
+                                let lock = city.stats.future_read().await;
+                                (!iv && lock.last_pokemon != Some(now)) || (iv && lock.last_iv != Some(now))
+                            };
+
+                            if update {
+                                let mut lock = city.stats.future_write().await;
+                                if iv {
+                                    lock.last_iv = Some(now);
+                                }
+                                else {
+                                    lock.last_pokemon = Some(now);
+                                }
+                            }
+
+                            break;
+                        }
+                    }
+                });
+            },
+            Request::Raid(r) => {
+                let point: Point<f64> = (r.latitude, r.longitude).into();
+
+                spawn(async move {
+                    for (_, city) in CITIES.iter() {
+                        if city.coordinates.within(&point) {
+                            let update = {
+                                let lock = city.stats.future_read().await;
+                                lock.last_raid != Some(now)
+                            };
+
+                            if update {
+                                let mut lock = city.stats.future_write().await;
+                                lock.last_raid = Some(now);
+                            }
+
+                            break;
+                        }
+                    }
+                });
+            },
+            Request::Invasion(i) => {
+                let point: Point<f64> = (i.latitude, i.longitude).into();
+
+                spawn(async move {
+                    for (_, city) in CITIES.iter() {
+                        if city.coordinates.within(&point) {
+                            let update = {
+                                let lock = city.stats.future_read().await;
+                                lock.last_invasion != Some(now)
+                            };
+
+                            if update {
+                                let mut lock = city.stats.future_write().await;
+                                lock.last_invasion = Some(now);
+                            }
+
+                            break;
+                        }
+                    }
+                });
+            },
+            Request::Quest(q) => {
+                let point: Point<f64> = (q.latitude, q.longitude).into();
+
+                spawn(async move {
+                    for (_, city) in CITIES.iter() {
+                        if city.coordinates.within(&point) {
+                            let update = {
+                                let lock = city.stats.future_read().await;
+                                lock.last_quest != Some(now)
+                            };
+
+                            if update {
+                                let mut lock = city.stats.future_write().await;
+                                lock.last_quest = Some(now);
+                            }
+
+                            break;
+                        }
+                    }
+                });
+            },
+            _ => {},
         }
     }
 }

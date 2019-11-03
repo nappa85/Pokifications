@@ -7,7 +7,7 @@ use serde_json::Value as JsonValue;
 
 use chrono::{Local, DateTime};
 
-use geo::{Polygon, Point};
+use geo::Point;
 
 use geo_raycasting::RayCasting;
 
@@ -20,6 +20,8 @@ use log::info;
 
 // use crate::lists::COMMON;
 use crate::entities::{Pokemon, Pokestop, Raid, Request, Gender, Quest};
+
+use crate::lists::CITIES;
 
 use super::message::{self, Image, PokemonMessage, RaidMessage, InvasionMessage, QuestMessage};
 
@@ -40,8 +42,11 @@ pub struct BotConfig {
 }
 
 impl BotConfig {
-    pub fn validate(&self, poly: Vec<[f64; 2]>) -> bool {
-        let polygon = Polygon::new(poly.into(), vec![]);
+    pub fn validate(&self, city_id: u16) -> bool {
+        let polygon = match CITIES.get(&city_id) {
+            Some(c) => &c.coordinates,
+            None => return false,
+        };
 
         match (BotLocs::convert_to_f64(&self.locs.h[0]), BotLocs::convert_to_f64(&self.locs.h[1])) {
             (Ok(x), Ok(y)) => {

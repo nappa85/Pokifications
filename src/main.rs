@@ -12,6 +12,7 @@ mod db;
 mod config;
 mod bot;
 mod lists;
+mod alerts;
 
 use hyper::{Body, Request, Response, Server};
 use hyper::service::{make_service_fn, service_fn};
@@ -94,6 +95,8 @@ fn main() -> Result<(), ()> {
     };
 
     runtime.spawn(async move {
+        alerts::init();
+
         // bind and serve...
         Server::bind(&addr).serve(service).await.map_err(|e| {
             error!("server error: {}", e);
