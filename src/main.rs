@@ -12,6 +12,7 @@ mod db;
 mod config;
 mod bot;
 mod lists;
+mod telegram;
 mod alerts;
 
 use hyper::{Body, Request, Response, Server};

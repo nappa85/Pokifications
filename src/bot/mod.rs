@@ -9,28 +9,35 @@ use tokio::spawn;
 
 use chrono::{Local, DateTime};
 
-use mysql::{Row, Error};
-
 use geo::Point;
 
 use geo_raycasting::RayCasting;
 
 use lazy_static::lazy_static;
 
-use log::{info, error, debug};
+use log::{info, error, debug, warn};
 
 mod config;
 mod message;
 
-use message::{Image, Message, PokemonMessage, RaidMessage, InvasionMessage, WeatherMessage};
+use message::{Message, PokemonMessage, RaidMessage, InvasionMessage, WeatherMessage};
 
 use crate::entities::{Request, Weather, Watch};
 use crate::lists::CITIES;
+use crate::config::CONFIG;
 use crate::db::MYSQL;
+use crate::telegram::{Image, send_message};
 
 lazy_static! {
     static ref BOT_CONFIGS: Arc<RwLock<HashMap<String, config::BotConfig>>> = Arc::new(RwLock::new(BotConfigs::init()));
     static ref WATCHES: Arc<RwLock<Vec<Watch>>> = Arc::new(RwLock::new(BotConfigs::watches()));
+}
+
+enum LoadResult {
+    Ok,
+    Disabled,
+    Invalid,
+    Error,
 }
 
 pub struct BotConfigs;
@@ -49,14 +56,45 @@ impl BotConfigs {
     pub async fn reload(user_ids: Vec<String>) -> Result<(), ()> {
         delay(Instant::now() + Duration::from_secs(1)).await;
         let mut lock = BOT_CONFIGS.future_write().await;
-        let res = Self::load(&mut lock, Some(user_ids.clone()));
-        for user_id in user_ids {
-            info!("reloaded configs for user {}", user_id);
+        let res = Self::load(&mut lock, Some(user_ids.clone()))?;
+        for (user_id, result) in res {
+            let msg = match result {
+                LoadResult::Ok => {
+                    info!("Successfully reloaded configs for user {}", user_id);
+                    // $msg = "\xe2\x84\xb9\xef\xb8\x8f <b>Impostazioni modificate!</b>\n";
+                    // $msg .= "<code>      ───────</code>\n";
+                    // $msg .= "Le modifiche sono state applicate.";
+                    // if($e == 0){ $msg .= "\nRicorda di attivare la ricezione delle notifiche con: /start";}
+                    // SendTelegram($USER["user_id"], $msg);
+                    format!("{} <b>Impostazioni modificate!</b>\n<code>      ───────</code>\nLe modifiche sono state applicate.",
+                        String::from_utf8(vec![0xe2, 0x84, 0xb9, 0xef, 0xb8, 0x8f]).map_err(|e| error!("error converting info icon: {}", e))?)
+                },
+                LoadResult::Invalid => {
+                    warn!("User {} has invalid configs", user_id);
+                    format!("{} <b>Impostazioni non valide!</b>\n<code>      ───────</code>\nControlla che i tuoi cursori siano all'interno della tua città di appartenenza.\nSe hai bisogno di spostarti temporaneamente, invia la tua nuova posizione al bot per usarla come posizione temporanea.",
+                        String::from_utf8(vec![0xE2, 0x9A, 0xA0]).map_err(|e| error!("error converting warning icon: {}", e))?)
+                },
+                LoadResult::Disabled => {
+                    warn!("User {} has been disabled", user_id);
+                    format!("{} <b>Impostazioni modificate!</b>\n<code>      ───────</code>\nLe modifiche sono state applicate.\nRicorda di attivare la ricezione delle notifiche con: /start",
+                        String::from_utf8(vec![0xe2, 0x84, 0xb9, 0xef, 0xb8, 0x8f]).map_err(|e| error!("error converting info icon: {}", e))?)
+                },
+                LoadResult::Error => {
+                    error!("Error reloading configs for user {}", user_id);
+                    format!("{} <b>Errore!</b>\n<code>      ───────</code>\nC'è stato un errore applicando le tue nuova impostazioni, se il problema persiste contatta il tuo amministratore di zona.",
+                        String::from_utf8(vec![0xF0, 0x9F, 0x9B, 0x91]).map_err(|e| error!("error converting error icon: {}", e))?)
+                },
+            };
+            spawn(async move {
+                send_message(&CONFIG.telegram.bot_token, &user_id, &msg, Some("HTML"), None, None, None, None).await
+                    .map_err(|_| ())
+                    .ok();
+            });
         }
-        res
+        Ok(())
     }
 
-    fn load(configs: &mut HashMap<String, config::BotConfig>, user_ids: Option<Vec<String>>) -> Result<(), ()> {
+    fn load(configs: &mut HashMap<String, config::BotConfig>, user_ids: Option<Vec<String>>) -> Result<HashMap<String, LoadResult>, ()> {
         if let Some(ref user_ids) = user_ids {
             for user_id in user_ids {
                 configs.remove(user_id);
@@ -77,38 +115,48 @@ impl BotConfigs {
         let res = conn.query(query).map_err(|e| error!("MySQL query error: {}", e))?;
 
         let now: u64 = Local::now().timestamp() as u64;
+        let mut results = HashMap::new();
         for r in res {
-            Self::load_user(configs, r, now).ok();
+            let mut row = r.map_err(|e| error!("MySQL row error: {}", e))?;
+
+            let user_id: String = row.take("user_id").ok_or_else(|| error!("MySQL utenti_config_bot.user_id encoding error"))?;
+
+            let result = Self::load_user(configs,
+                row.take("enabled").ok_or_else(|| error!("MySQL utenti_config_bot.enabled encoding error"))?,
+                user_id.clone(),
+                row.take("config").ok_or_else(|| error!("MySQL utenti_config_bot.config encoding error for user_id {}", user_id))?,
+                row.take("beta").ok_or_else(|| error!("MySQL utenti_config_bot.beta encoding error for user_id {}", user_id))?,
+                row.take("status").ok_or_else(|| error!("MySQL utenti.status encoding error for user_id {}", user_id))?,
+                row.take("city_id").ok_or_else(|| error!("MySQL utenti.city_id encoding error for user_id {}", user_id))?,
+                row.take("scadenza").ok_or_else(|| error!("MySQL city.scadenza encoding error for user_id {}", user_id))?,
+                now).unwrap_or_else(|_| LoadResult::Error);
+            results.insert(user_id, result);
         }
 
-        Ok(())
+        Ok(results)
     }
 
-    fn load_user(configs: &mut HashMap<String, config::BotConfig>, r: Result<Row, Error>, now: u64) -> Result<(), ()> {
-        let mut row = r.map_err(|e| error!("MySQL row error: {}", e))?;
-
-        let enabled: u8 = row.take("enabled").ok_or_else(|| error!("MySQL utenti_config_bot.enabled encoding error"))?;
-        let user_id: String = row.take("user_id").ok_or_else(|| error!("MySQL utenti_config_bot.user_id encoding error"))?;
-        let config: String = row.take("config").ok_or_else(|| error!("MySQL utenti_config_bot.config encoding error for user_id {}", user_id))?;
-        let beta: u8 = row.take("beta").ok_or_else(|| error!("MySQL utenti_config_bot.beta encoding error for user_id {}", user_id))?;
-        let status: u8 = row.take("status").ok_or_else(|| error!("MySQL utenti.status encoding error for user_id {}", user_id))?;
-        let city_id: u16 = row.take("city_id").ok_or_else(|| error!("MySQL utenti.city_id encoding error for user_id {}", user_id))?;
-
+    fn load_user(configs: &mut HashMap<String, config::BotConfig>, enabled: u8, user_id: String, config: String, beta: u8, status: u8, city_id: u16, scadenza: u64, now: u64) -> Result<LoadResult, ()> {
         if enabled > 0 && beta > 0 && status > 0 {
             let config: config::BotConfig = serde_json::from_str(&config).map_err(|e| error!("MySQL utenti_config_bot.config decoding error for user_id {}: {}", user_id, e))?;
             if config.validate(city_id) {
                 configs.insert(user_id.clone(), config);
 
-                let scadenza: u64 = row.take("scadenza").ok_or_else(|| error!("MySQL city.scadenza encoding error for user_id {}", user_id))?;
                 spawn(async move {
                     delay(Instant::now() + Duration::from_secs(scadenza - now)).await;
                     //.map_err(|e| error!("timer error: {}", e))
                     BotConfigs::reload(vec![user_id]).await.ok();
                 });
+
+                Ok(LoadResult::Ok)
+            }
+            else {
+                Ok(LoadResult::Invalid)
             }
         }
-
-        Ok(())
+        else {
+            Ok(LoadResult::Disabled)
+        }
     }
 
     async fn add_watches(watch: Watch) {

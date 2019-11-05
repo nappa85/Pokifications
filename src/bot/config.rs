@@ -20,10 +20,10 @@ use log::info;
 
 // use crate::lists::COMMON;
 use crate::entities::{Pokemon, Pokestop, Raid, Request, Gender, Quest};
-
 use crate::lists::CITIES;
+use crate::telegram::Image;
 
-use super::message::{self, Image, PokemonMessage, RaidMessage, InvasionMessage, QuestMessage};
+use super::message::{self, PokemonMessage, RaidMessage, InvasionMessage, QuestMessage};
 
 const MAX_DISTANCE: f64 = 15f64;
 // const MIN_IV_LIMIT: f32 = 36f32;
@@ -48,15 +48,15 @@ impl BotConfig {
             None => return false,
         };
 
-        match (BotLocs::convert_to_f64(&self.locs.h[0]), BotLocs::convert_to_f64(&self.locs.h[1])) {
-            (Ok(x), Ok(y)) => {
-                let p: Point<f64> = (x, y).into();
-                if !polygon.within(&p) {
-                    return false;
-                }
-            },
-            _ => {},
-        }
+        // match (BotLocs::convert_to_f64(&self.locs.h[0]), BotLocs::convert_to_f64(&self.locs.h[1])) {
+        //     (Ok(x), Ok(y)) => {
+        //         let p: Point<f64> = (x, y).into();
+        //         if !polygon.within(&p) {
+        //             return false;
+        //         }
+        //     },
+        //     _ => {},
+        // }
 
         match (BotLocs::convert_to_f64(&self.locs.p[0]), BotLocs::convert_to_f64(&self.locs.p[1])) {
             (Ok(x), Ok(y)) => {
@@ -87,6 +87,67 @@ impl BotConfig {
                     }
                 },
                 _ => {},
+            }
+        }
+
+        let now = Local::now().timestamp();
+
+        if Self::convert_to_i64(&self.locs.t_p[2]).map(|i| i > now) == Ok(true) {
+            match (BotLocs::convert_to_f64(&self.locs.t_p[0]), BotLocs::convert_to_f64(&self.locs.t_p[1])) {
+                (Ok(x), Ok(y)) => {
+                    let p: Point<f64> = (x, y).into();
+                    let mut not_found = true;
+                    for (_, city) in CITIES.iter() {
+                        if city.coordinates.within(&p) {
+                            not_found = false;
+                            break;
+                        }
+                    }
+                    if not_found {
+                        return false;
+                    }
+                },
+                _ => {},
+            }
+        }
+
+        if Self::convert_to_i64(&self.locs.t_r[2]).map(|i| i > now) == Ok(true) {
+            match (BotLocs::convert_to_f64(&self.locs.t_r[0]), BotLocs::convert_to_f64(&self.locs.t_r[1])) {
+                (Ok(x), Ok(y)) => {
+                    let p: Point<f64> = (x, y).into();
+                    let mut not_found = true;
+                    for (_, city) in CITIES.iter() {
+                        if city.coordinates.within(&p) {
+                            not_found = false;
+                            break;
+                        }
+                    }
+                    if not_found {
+                        return false;
+                    }
+                },
+                _ => {},
+            }
+        }
+
+        if let Some(pos) = self.locs.t_i.as_ref() {
+            if Self::convert_to_i64(&pos[2]).map(|i| i > now) == Ok(true) {
+                match (BotLocs::convert_to_f64(&pos[0]), BotLocs::convert_to_f64(&pos[1])) {
+                    (Ok(x), Ok(y)) => {
+                        let p: Point<f64> = (x, y).into();
+                        let mut not_found = true;
+                        for (_, city) in CITIES.iter() {
+                            if city.coordinates.within(&p) {
+                                not_found = false;
+                                break;
+                            }
+                        }
+                        if not_found {
+                            return false;
+                        }
+                    },
+                    _ => {},
+                }
             }
         }
 

@@ -9,14 +9,11 @@ use tokio::future::FutureExt;
 
 use futures_util::try_stream::TryStreamExt;
 
-use hyper::{Body, Client, Request};
+use hyper::Client;
 use hyper_tls::HttpsConnector;
 
 use chrono::{Local, DateTime, Timelike};
 use chrono::offset::TimeZone;
-
-use rand::{thread_rng, Rng};
-use rand::distributions::Alphanumeric;
 
 use serde_json::{json, value::Value};
 
@@ -28,59 +25,31 @@ use crate::entities::{Pokemon, Raid, Pokestop, Gender, Weather, Quest};
 use crate::lists::{LIST, MOVES, FORMS, GRUNTS};
 use crate::config::CONFIG;
 use crate::db::MYSQL;
-
-#[derive(Clone, Debug)]
-pub enum Image {
-    FileId(String),
-    Bytes(Vec<u8>),
-}
+use crate::telegram::{send_photo, CallResult, Image};
 
 pub async fn send_message<M: Message>(message: &M, chat_id: &str, image: Image, map_type: &str) -> Result<(), ()> {
-    let url = format!("https://api.telegram.org/bot{}/sendPhoto", CONFIG.telegram.bot_token);
-
-    let boundary: String = thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(30)
-        .collect();
-
-    let req = Request::builder()
-        .method("POST")
-        .header("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
-        .uri(&url)
-        .body(message.get_form(&boundary, chat_id, image, map_type)?)
-        .map_err(|e| error!("error building Telegram request: {}", e))?;
-
-    let https = HttpsConnector::new().unwrap();
-    let future = Client::builder().build::<_, hyper::Body>(https).request(req);
-    let res = match CONFIG.telegram.timeout {
-        Some(timeout) => future.timeout(Duration::from_secs(timeout)).await.map_err(|e| error!("timeout calling Telegram: {}", e))?,
-        None => future.await,
-    }.map_err(|e| error!("error calling Telegram: {}", e))?;
-
-    if !res.status().is_success() {
-        let debug = format!("error response from Telegram: {:?}", res);
-
-        let chunks = res.into_body().try_concat().await.map_err(|e| error!("error while reading {}: {}", debug, e))?;
-
-        let body = String::from_utf8(chunks.to_vec()).map_err(|e| error!("error while encoding {}: {}", debug, e))?;
-        error!("{}\nchat_id: {}\n{}", debug, chat_id, body);
-        let json: Value = serde_json::from_str(&body).map_err(|e| error!("error while decoding {}: {}", debug, e))?;
-
-        // blocked, disable bot
-        if json["description"] == "Forbidden: bot was blocked by the user" {
+    match send_photo(&CONFIG.telegram.bot_token, chat_id, image, Some(&message.get_caption()?), None, None, None, Some(message.message_button(chat_id, map_type)?)).await {
+        Ok(_) => {
             let mut conn = MYSQL.get_conn().map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-            conn.query(format!("UPDATE utenti_config_bot SET enabled = 0 WHERE user_id = {}", chat_id)).map_err(|e| error!("MySQL query error: {}", e))?;
-            // apply
-            return BotConfigs::reload(vec![chat_id.to_owned()]).await;
-        }
-        else {
-            return Err(());
-        }
-    }
+            conn.query(format!("UPDATE utenti_config_bot SET sent = sent + 1 WHERE user_id = {}", chat_id)).map_err(|e| error!("MySQL query error: {}", e))?;
+            Ok(())
+        },
+        Err(CallResult::Body((_, body))) => {
+            let json: Value = serde_json::from_str(&body).map_err(|e| error!("error while decoding {}: {}", body, e))?;
 
-    let mut conn = MYSQL.get_conn().map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-    conn.query(format!("UPDATE utenti_config_bot SET sent = sent + 1 WHERE user_id = {}", chat_id)).map_err(|e| error!("MySQL query error: {}", e))?;
-    Ok(())
+            // blocked, disable bot
+            if json["description"] == "Forbidden: bot was blocked by the user" {
+                let mut conn = MYSQL.get_conn().map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+                conn.query(format!("UPDATE utenti_config_bot SET enabled = 0 WHERE user_id = {}", chat_id)).map_err(|e| error!("MySQL query error: {}", e))?;
+                // apply
+                BotConfigs::reload(vec![chat_id.to_owned()]).await
+            }
+            else {
+                Err(())
+            }
+        },
+        _ => Err(()),
+    }
 }
 
 async fn get_map<M: Message>(message: &M) -> Result<image::DynamicImage, ()> {
@@ -123,56 +92,12 @@ pub async fn prepare<M: Message>(message: M, now: DateTime<Local>) -> Result<Ima
     let bytes = message.get_image(map)?;
 
     if let Some(ref chat_id) = CONFIG.telegram.cache_chat {
-        let boundary: String = thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(30)
-            .collect();
-
-        let url = format!("https://api.telegram.org/bot{}/sendPhoto", CONFIG.telegram.bot_token);
-
         let mut retries: u8 = 0;
         loop {
-            let mut data = Vec::new();
-            write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n{}\r\n", boundary, chat_id)
-                .map_err(|e| error!("error writing chat_id multipart: {}", e))?;
-            write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n{}\n{} retries\r\n", boundary, now.format("%F %T").to_string(), retries)
-                .map_err(|e| error!("error writing caption multipart: {}", e))?;
-            write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"image.png\"\r\nContent-Type: image/png\r\n\r\n", boundary)
-                .map_err(|e| error!("error writing photo multipart: {}", e))?;
-
-            data.append(&mut bytes.clone());
-
-            write!(&mut data, "\r\n--{}--\r\n", boundary)
-                .map_err(|e| error!("error closing multipart: {}", e))?;
-
-            let req = Request::builder()
-                .method("POST")
-                .header("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
-                .uri(&url)
-                .body(data.into())
-                .map_err(|e| error!("error building Telegram request: {}", e))?;
-
-            let https = HttpsConnector::new().unwrap();
-            let future = Client::builder().build::<_, hyper::Body>(https).request(req);
-            let res = match CONFIG.telegram.timeout {
-                Some(timeout) => future.timeout(Duration::from_secs(timeout)).await.map_err(|e| error!("timeout calling Telegram: {}", e))?,
-                None => future.await,
-            }.map_err(|e| error!("error calling Telegram: {}", e))?;
-
-            let status = res.status().as_u16();
-            if status == 429u16 || status == 504u16 {
-                retries += 1;
-                continue;
-            }
-            else {
-                let success = res.status().is_success();
-                let debug = format!("response from Telegram for caching image: {:?}", res);
-
-                let chunks = res.into_body().try_concat().await.map_err(|e| error!("error while reading {}: {}", debug, e))?;
-
-                let body = String::from_utf8(chunks.to_vec()).map_err(|e| error!("error while encoding {}: {}", debug, e))?;
-                if success {
-                    let json: Value = serde_json::from_str(&body).map_err(|e| error!("error while decoding {}: {}", debug, e))?;
+            let temp = format!("{}\n{} retries", now.format("%F %T").to_string(), retries);
+            match send_photo(&CONFIG.telegram.bot_token, chat_id, Image::Bytes(bytes.clone()), Some(&temp), None, None, None, None).await {
+                Ok(body) => {
+                    let json: Value = serde_json::from_str(&body).map_err(|e| error!("error while decoding Telegram response: {}\n{}", e, body))?;
 
                     if let Some(sizes) = json["result"]["photo"].as_array() {
                         // scan various formats to select the best one
@@ -186,14 +111,23 @@ pub async fn prepare<M: Message>(message: M, now: DateTime<Local>) -> Result<Ima
                         return Ok(Image::FileId(sizes[best_index]["file_id"].as_str().map(|s| s.to_owned()).ok_or_else(|| ())?));
                     }
                     else {
-                        error!("error while reading {}: photos isn't an array\n{}", debug, body);
+                        error!("error while reading Telegram response: photos isn't an array\n{}", body);
                         return Err(());
                     }
-                }
-                else {
-                    error!("error while reading {}\n{}", debug, body);
+                },
+                Err(CallResult::Body((status, body))) => {
+                    if status == 429u16 || status == 504u16 {
+                        retries += 1;
+                        continue;
+                    }
+                    else {
+                        error!("error while reading Telegram response: {}", body);
+                        return Err(());
+                    }
+                },
+                _ => {
                     return Err(());
-                }
+                },
             }
         }
     }
@@ -219,36 +153,6 @@ fn truncate_str(s: &str, limit: usize, placeholder: char) -> String {
 
 pub trait Message {
     type Input;
-
-    fn get_form(&self, boundary: &str, chat_id: &str, mut image: Image, map_type: &str) -> Result<Body, ()> {
-        let mut data = Vec::new();
-        write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n{}\r\n", boundary, chat_id)
-            .map_err(|e| error!("error writing chat_id multipart: {}", e))?;
-        write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n{}\r\n", boundary, self.get_caption()?)
-            .map_err(|e| error!("error writing caption multipart: {}", e))?;
-        write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"reply_markup\"\r\n\r\n{}\r\n", boundary, self.message_button(chat_id, map_type)?)
-            .map_err(|e| error!("error writing reply_markup multipart: {}", e))?;
-        write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"disable_web_page_preview\"\r\n\r\ntrue\r\n", boundary)
-            .map_err(|e| error!("error writing disable_web_page_preview multipart: {}", e))?;
-
-        match image {
-            Image::FileId(file_id) => {
-                write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"photo\"\r\n\r\n{}\r\n", boundary, file_id)
-                    .map_err(|e| error!("error writing photo multipart: {}", e))?;
-            },
-            Image::Bytes(ref mut bytes) => {
-                write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"image.png\"\r\nContent-Type: image/png\r\n\r\n", boundary)
-                    .map_err(|e| error!("error writing photo multipart: {}", e))?;
-
-                data.append(bytes);
-            },
-        }
-
-        write!(&mut data, "\r\n--{}--\r\n", boundary)
-            .map_err(|e| error!("error closing multipart: {}", e))?;
-
-        Ok(data.into())
-    }
 
     fn open_font(path: String) -> Result<rusttype::Font<'static>, ()> {
         let mut file = File::open(&path).map_err(|e| error!("error opening font {}: {}", path, e))?;
@@ -276,7 +180,7 @@ pub trait Message {
         }).map_err(|e| error!("error converting meteo icon: {}", e))?))
     }
 
-    fn message_button(&self, _chat_id: &str, mtype: &str) -> Result<String, ()> {
+    fn message_button(&self, _chat_id: &str, mtype: &str) -> Result<Value, ()> {
         let lat = self.get_latitude();
         let lon = self.get_longitude();
 
@@ -291,12 +195,12 @@ pub trait Message {
         };
         let title = format!("{} Mappa", String::from_utf8(vec![0xf0, 0x9f, 0x8c, 0x8e]).map_err(|e| error!("error encoding map icon: {}", e))?);
 
-        Ok(serde_json::json!({
-                "inline_keyboard": [[{
-                    "text": title,
-                    "url": maplink
-                }]]
-            }).to_string())
+        Ok(json!({
+            "inline_keyboard": [[{
+                "text": title,
+                "url": maplink
+            }]]
+        }))
     }
 
     fn get_dummy(input: Self::Input) -> Self;
@@ -573,7 +477,7 @@ impl Message for PokemonMessage {
         }
     }
 
-    fn message_button(&self, chat_id: &str, mtype: &str) -> Result<String, ()> {
+    fn message_button(&self, chat_id: &str, mtype: &str) -> Result<Value, ()> {
         let lat = self.get_latitude();
         let lon = self.get_longitude();
 
@@ -588,7 +492,7 @@ impl Message for PokemonMessage {
         };
         let title = format!("{} Mappa", String::from_utf8(vec![0xf0, 0x9f, 0x8c, 0x8e]).map_err(|e| error!("error encoding map icon: {}", e))?);
 
-        let mut keyboard = serde_json::json!({
+        let mut keyboard = json!({
                 "inline_keyboard": [[{
                     "text": title,
                     "url": maplink
@@ -608,7 +512,7 @@ if chat_id == "25900594" || chat_id == "112086777" || chat_id == "9862788" || ch
             }
         }
 }//DEBUG
-        Ok(keyboard.to_string())
+        Ok(keyboard)
     }
 }
 

@@ -3,23 +3,15 @@ use std::time::Duration;
 use future_parking_lot::rwlock::FutureReadable;
 
 use futures_util::stream::StreamExt;
-use futures_util::try_stream::TryStreamExt;
 
-use tokio::future::FutureExt;
 use tokio::timer::Interval;
 use tokio::spawn;
 
 use chrono::{Local, Timelike, TimeZone};
 
-use hyper::{Client, Request};
-use hyper_tls::HttpsConnector;
-
-use serde_json::json;
-
-use log::error;
-
 use crate::config::CONFIG;
 use crate::lists::CITIES;
+use crate::telegram::send_message;
 
 pub fn init() {
     spawn(async {
@@ -43,7 +35,7 @@ pub fn init() {
                     }
 
                     if !alerts.is_empty() {
-                        send_alerts(&alerts, bot_token, chat_id).await.ok();
+                        send_message(bot_token, chat_id, &alerts.join("\n"), None, None, None, None, None).await.ok();
                     }
                 }).await
         }
@@ -59,37 +51,4 @@ fn check_timestamp(var: &Option<i64>, check: i64, city: &str, descr: &str, alert
     else {
         alerts.push(format!("La zona {} non ha MAI avuto scansioni {} dall'ultimo avvio del bot", city, descr));
     }
-}
-
-async fn send_alerts(alerts: &[String], bot_token: &str, chat_id: &str) -> Result<(), ()> {
-    let url = format!("https://api.telegram.org/bot{}/sendMessage", bot_token);
-    let body = json!({
-        "chat_id": chat_id,
-        "message": alerts.join("\n")
-    });
-
-    let req = Request::builder()
-        .method("POST")
-        .uri(&url)
-        .body(body.to_string().into())
-        .map_err(|e| error!("error building Telegram request: {}", e))?;
-
-    let https = HttpsConnector::new().unwrap();
-    let future = Client::builder().build::<_, hyper::Body>(https).request(req);
-    let res = match CONFIG.telegram.timeout {
-        Some(timeout) => future.timeout(Duration::from_secs(timeout)).await.map_err(|e| error!("timeout calling Telegram: {}", e))?,
-        None => future.await,
-    }.map_err(|e| error!("error calling Telegram: {}", e))?;
-
-    if !res.status().is_success() {
-        let debug = format!("error response from Telegram Alert: {:?}", res);
-
-        let chunks = res.into_body().try_concat().await.map_err(|e| error!("error while reading {}: {}", debug, e))?;
-
-        let body = String::from_utf8(chunks.to_vec()).map_err(|e| error!("error while encoding {}: {}", debug, e))?;
-
-        error!("{}\n{}", debug, body);
-    }
-
-    Ok(())
 }
