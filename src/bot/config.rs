@@ -92,7 +92,7 @@ impl BotConfig {
 
         let now = Local::now().timestamp();
 
-        if Self::convert_to_i64(&self.locs.t_p[2]).map(|i| i > now) == Ok(true) {
+        if BotLocs::convert_to_i64(&self.locs.t_p[2]).map(|i| i > now) == Ok(true) {
             match (BotLocs::convert_to_f64(&self.locs.t_p[0]), BotLocs::convert_to_f64(&self.locs.t_p[1])) {
                 (Ok(x), Ok(y)) => {
                     let p: Point<f64> = (x, y).into();
@@ -111,7 +111,7 @@ impl BotConfig {
             }
         }
 
-        if Self::convert_to_i64(&self.locs.t_r[2]).map(|i| i > now) == Ok(true) {
+        if BotLocs::convert_to_i64(&self.locs.t_r[2]).map(|i| i > now) == Ok(true) {
             match (BotLocs::convert_to_f64(&self.locs.t_r[0]), BotLocs::convert_to_f64(&self.locs.t_r[1])) {
                 (Ok(x), Ok(y)) => {
                     let p: Point<f64> = (x, y).into();
@@ -131,7 +131,7 @@ impl BotConfig {
         }
 
         if let Some(pos) = self.locs.t_i.as_ref() {
-            if Self::convert_to_i64(&pos[2]).map(|i| i > now) == Ok(true) {
+            if BotLocs::convert_to_i64(&pos[2]).map(|i| i > now) == Ok(true) {
                 match (BotLocs::convert_to_f64(&pos[0]), BotLocs::convert_to_f64(&pos[1])) {
                     (Ok(x), Ok(y)) => {
                         let p: Point<f64> = (x, y).into();
