@@ -19,19 +19,19 @@ pub fn init() {
             Interval::new_interval(Duration::from_secs(300))
                 .for_each(|_| async {
                     let now = Local::now();
-                    let five_minutes_ago = now.timestamp() - 300;
+                    let half_an_hour_ago = now.timestamp() - 1650;
 
                     let mut alerts = Vec::new();
                     for (_, city) in CITIES.iter() {
                         let lock = city.stats.future_read().await;
 
-                        check_timestamp(&lock.last_pokemon, five_minutes_ago, &city.name, "Pokémom", &mut alerts);
-                        check_timestamp(&lock.last_iv, five_minutes_ago, &city.name, "IV", &mut alerts);
+                        check_timestamp(&lock.last_pokemon, half_an_hour_ago, &city.name, "Pokémom", &mut alerts);
+                        check_timestamp(&lock.last_iv, half_an_hour_ago, &city.name, "IV", &mut alerts);
                         if now.hour() >= 6 && now.hour() <= 21 {
-                            check_timestamp(&lock.last_raid, five_minutes_ago, &city.name, "Raid", &mut alerts);
+                            check_timestamp(&lock.last_raid, half_an_hour_ago, &city.name, "Raid", &mut alerts);
                         }
                         check_timestamp(&lock.last_quest, now.timestamp() - 86400, &city.name, "Quest", &mut alerts);
-                        check_timestamp(&lock.last_invasion, five_minutes_ago, &city.name, "Invasioni", &mut alerts);
+                        check_timestamp(&lock.last_invasion, half_an_hour_ago, &city.name, "Invasioni", &mut alerts);
                     }
 
                     if !alerts.is_empty() {
@@ -48,7 +48,7 @@ fn check_timestamp(var: &Option<i64>, check: i64, city: &str, descr: &str, alert
             alerts.push(format!("La zona {} non ha scansioni {} da {}", city, descr, Local.timestamp(*timestamp, 0).format("%d-%m-%Y %R").to_string()));
         }
     }
-    else {
-        alerts.push(format!("La zona {} non ha MAI avuto scansioni {} dall'ultimo avvio del bot", city, descr));
-    }
+    // else {
+    //     alerts.push(format!("La zona {} non ha MAI avuto scansioni {} dall'ultimo avvio del bot", city, descr));
+    // }
 }

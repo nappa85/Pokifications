@@ -95,6 +95,7 @@ pub async fn send_message(bot_token: &str, chat_id: &str, text: &str, parse_mode
 
     let req = Request::builder()
         .method("POST")
+        .header("Content-Type", "application/json")
         .uri(&url)
         .body(body.to_string().into())
         .map_err(|e| {
@@ -119,25 +120,6 @@ pub async fn send_photo(bot_token: &str, chat_id: &str, mut photo: Image, captio
             error!("error writing chat_id multipart: {}", e);
             CallResult::Empty
         })?;
-
-    match photo {
-        Image::FileId(file_id) => {
-            write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"photo\"\r\n\r\n{}\r\n", boundary, file_id)
-                .map_err(|e| {
-                    error!("error writing photo multipart: {}", e);
-                    CallResult::Empty
-                })?;
-        },
-        Image::Bytes(ref mut bytes) => {
-            write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"image.png\"\r\nContent-Type: image/png\r\n\r\n", boundary)
-                .map_err(|e| {
-                    error!("error writing photo multipart: {}", e);
-                    CallResult::Empty
-                })?;
-
-            data.append(bytes);
-        },
-    }
 
     if let Some(v) = caption {
         write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n{}\r\n", boundary, v)
@@ -173,6 +155,25 @@ pub async fn send_photo(bot_token: &str, chat_id: &str, mut photo: Image, captio
                 error!("error writing reply_markup multipart: {}", e);
                 CallResult::Empty
             })?;
+    }
+
+    match photo {
+        Image::FileId(file_id) => {
+            write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"photo\"\r\n\r\n{}\r\n", boundary, file_id)
+                .map_err(|e| {
+                    error!("error writing photo multipart: {}", e);
+                    CallResult::Empty
+                })?;
+        },
+        Image::Bytes(ref mut bytes) => {
+            write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"image.png\"\r\nContent-Type: image/png\r\n\r\n", boundary)
+                .map_err(|e| {
+                    error!("error writing photo multipart: {}", e);
+                    CallResult::Empty
+                })?;
+
+            data.append(bytes);
+        },
     }
 
     write!(&mut data, "\r\n--{}--\r\n", boundary)
