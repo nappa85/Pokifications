@@ -159,7 +159,7 @@ pub async fn send_photo(bot_token: &str, chat_id: &str, mut photo: Image, captio
 
     match photo {
         Image::FileId(file_id) => {
-            write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"photo\"\r\n\r\n{}\r\n", boundary, file_id)
+            write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"photo\"\r\n\r\n{}", boundary, file_id)
                 .map_err(|e| {
                     error!("error writing photo multipart: {}", e);
                     CallResult::Empty
