@@ -25,32 +25,34 @@ pub fn init() {
                     for (_, city) in CITIES.iter() {
                         let lock = city.stats.future_read().await;
 
-                        check_timestamp(&lock.last_pokemon, half_an_hour_ago, &city.name, "Pokémom", &mut alerts);
+                        let mut city_alerts = Vec::new();
+                        check_timestamp(&lock.last_pokemon, half_an_hour_ago, "Pokémom", &mut city_alerts);
                         if city.scan_iv > 0 {
-                            check_timestamp(&lock.last_iv, half_an_hour_ago, &city.name, "IV", &mut alerts);
+                            check_timestamp(&lock.last_iv, half_an_hour_ago, "IV", &mut city_alerts);
                         }
                         if now.hour() >= 6 && now.hour() <= 21 {
-                            check_timestamp(&lock.last_raid, half_an_hour_ago, &city.name, "Raid", &mut alerts);
+                            check_timestamp(&lock.last_raid, half_an_hour_ago, "Raid", &mut city_alerts);
                         }
-                        check_timestamp(&lock.last_quest, now.timestamp() - 86400, &city.name, "Quest", &mut alerts);
-                        check_timestamp(&lock.last_invasion, half_an_hour_ago, &city.name, "Invasioni", &mut alerts);
+                        check_timestamp(&lock.last_quest, now.timestamp() - 86400, "Quest", &mut city_alerts);
+                        check_timestamp(&lock.last_invasion, half_an_hour_ago, "Invasioni", &mut city_alerts);
+
+                        if !city_alerts.is_empty() {
+                            alerts.push(format!("@{} la zona {} non ha scansioni:\n{}", city.admins_users, city.name, city_alerts.join("\n")));
+                        }
                     }
 
                     if !alerts.is_empty() {
-                        send_message(bot_token, chat_id, &alerts.join("\n"), None, None, None, None, None).await.ok();
+                        send_message(bot_token, chat_id, &alerts.join("\n\n"), None, None, None, None, None).await.ok();
                     }
                 }).await
         }
     });
 }
 
-fn check_timestamp(var: &Option<i64>, check: i64, city: &str, descr: &str, alerts: &mut Vec<String>) {
+fn check_timestamp(var: &Option<i64>, check: i64, descr: &str, alerts: &mut Vec<String>) {
     if let Some(timestamp) = var {
         if timestamp < &check {
-            alerts.push(format!("La zona {} non ha scansioni {} da {}", city, descr, Local.timestamp(*timestamp, 0).format("%d-%m-%Y %R").to_string()));
+            alerts.push(format!("* {} da {}", descr, Local.timestamp(*timestamp, 0).format("%d-%m-%Y %R").to_string()));
         }
     }
-    // else {
-    //     alerts.push(format!("La zona {} non ha MAI avuto scansioni {} dall'ultimo avvio del bot", city, descr));
-    // }
 }
