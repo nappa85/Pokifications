@@ -53,6 +53,7 @@ pub struct City {
     pub name: String,
     pub coordinates: Polygon<f64>,
     pub scadenza: i64,
+    pub scan_iv: u8,
     pub stats: RwLock<CityStats>,
 }
 
@@ -130,7 +131,7 @@ fn load_grunts() -> HashMap<u8, GruntType> {
 
 fn load_cities() -> HashMap<u16, City> {
     let mut conn = MYSQL.get_conn().expect("MySQL retrieve connection error");
-    let res = conn.query("SELECT id, name, coordinates, scadenza FROM city WHERE enabled = 1").expect("MySQL query error");
+    let res = conn.query("SELECT id, name, coordinates, scadenza, scan_iv FROM city WHERE enabled = 1").expect("MySQL query error");
 
     let mut ret = HashMap::new();
     for r in res {
@@ -155,7 +156,8 @@ fn load_cities() -> HashMap<u16, City> {
             name: row.take("name").expect("MySQL city.name error"),
             coordinates: Polygon::new(poly.into(), vec![]),
             scadenza: row.take("scadenza").expect("MySQL city.scadenza error"),
-            stats: RwLock::new(CityStats::default())
+            scan_iv: row.take("scan_iv").expect("MySQL city.scan_iv error"),
+            stats: RwLock::new(CityStats::default()),
         });
     }
     ret

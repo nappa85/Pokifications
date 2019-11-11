@@ -26,7 +26,9 @@ pub fn init() {
                         let lock = city.stats.future_read().await;
 
                         check_timestamp(&lock.last_pokemon, half_an_hour_ago, &city.name, "Pokémom", &mut alerts);
-                        check_timestamp(&lock.last_iv, half_an_hour_ago, &city.name, "IV", &mut alerts);
+                        if city.scan_iv > 0 {
+                            check_timestamp(&lock.last_iv, half_an_hour_ago, &city.name, "IV", &mut alerts);
+                        }
                         if now.hour() >= 6 && now.hour() <= 21 {
                             check_timestamp(&lock.last_raid, half_an_hour_ago, &city.name, "Raid", &mut alerts);
                         }
