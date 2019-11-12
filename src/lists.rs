@@ -132,7 +132,7 @@ fn load_grunts() -> HashMap<u8, GruntType> {
 
 fn load_cities() -> HashMap<u16, City> {
     let mut conn = MYSQL.get_conn().expect("MySQL retrieve connection error");
-    let res = conn.query("SELECT id, name, coordinates, scadenza, monitor, admins_users FROM city WHERE enabled = 1").expect("MySQL query error");
+    let res = conn.query("SELECT id, name, coordinates, scadenza, monitor, admins_users FROM city WHERE scadenza > UNIX_TIMESTAMP()").expect("MySQL query error");
 
     let mut ret = HashMap::new();
     for r in res {
