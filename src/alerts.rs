@@ -16,10 +16,10 @@ use crate::telegram::send_message;
 pub fn init() {
     spawn(async {
         if let (Some(bot_token), Some(chat_id)) = (CONFIG.telegram.alert_bot_token.as_ref(), CONFIG.telegram.alert_chat.as_ref()) {
-            Interval::new_interval(Duration::from_secs(300))
+            Interval::new_interval(Duration::from_secs(900))
                 .for_each(|_| async {
                     let now = Local::now();
-                    let half_an_hour_ago = now.timestamp() - 1650;
+                    let half_an_hour_ago = now.timestamp() - 1800;
 
                     let mut alerts = Vec::new();
                     for (_, city) in CITIES.iter() {
@@ -30,7 +30,7 @@ pub fn init() {
                         if city.scan_iv > 0 {
                             check_timestamp(&lock.last_iv, half_an_hour_ago, "IV", &mut city_alerts);
                         }
-                        if now.hour() >= 6 && now.hour() <= 21 {
+                        if now.hour() >= 6 && now.hour() <= 20 {
                             check_timestamp(&lock.last_raid, half_an_hour_ago, "Raid", &mut city_alerts);
                         }
                         check_timestamp(&lock.last_quest, now.timestamp() - 86400, "Quest", &mut city_alerts);
@@ -51,7 +51,8 @@ pub fn init() {
 
 fn check_timestamp(var: &Option<i64>, check: i64, descr: &str, alerts: &mut Vec<String>) {
     if let Some(timestamp) = var {
-        if timestamp < &check {
+        // alert only problems created since last time we checked
+        if timestamp <= &check && timestamp >= &(check - 900) {
             alerts.push(format!("* {} da {}", descr, Local.timestamp(*timestamp, 0).format("%d-%m-%Y %R").to_string()));
         }
     }

@@ -15,7 +15,6 @@ use tokio::spawn;
 
 use log::error;
 
-#[cfg(test)]
 use log::info;
 
 // use crate::lists::COMMON;
@@ -42,16 +41,20 @@ pub struct BotConfig {
 }
 
 impl BotConfig {
-    pub fn validate(&self, city_id: u16) -> bool {
+    pub fn validate(&self, user_id: &str, city_id: u16) -> bool {
         let polygon = match CITIES.get(&city_id) {
             Some(c) => &c.coordinates,
-            None => return false,
+            None => {
+                info!("{} is associated to disabled city {}", user_id, city_id);
+                return false;
+            },
         };
 
         // match (BotLocs::convert_to_f64(&self.locs.h[0]), BotLocs::convert_to_f64(&self.locs.h[1])) {
         //     (Ok(x), Ok(y)) => {
         //         let p: Point<f64> = (x, y).into();
         //         if !polygon.within(&p) {
+        //             info!("{} has home pointer out of city {}", user_id, city_id);
         //             return false;
         //         }
         //     },
@@ -62,6 +65,7 @@ impl BotConfig {
             (Ok(x), Ok(y)) => {
                 let p: Point<f64> = (x, y).into();
                 if !polygon.within(&p) {
+                    info!("{} has pokemon pointer out of city {}", user_id, city_id);
                     return false;
                 }
             },
@@ -72,6 +76,7 @@ impl BotConfig {
             (Ok(x), Ok(y)) => {
                 let p: Point<f64> = (x, y).into();
                 if !polygon.within(&p) {
+                    info!("{} has raid pointer out of city {}", user_id, city_id);
                     return false;
                 }
             },
@@ -83,6 +88,7 @@ impl BotConfig {
                 (Ok(x), Ok(y)) => {
                     let p: Point<f64> = (x, y).into();
                     if !polygon.within(&p) {
+                        info!("{} has pokestop pointer out of city {}", user_id, city_id);
                         return false;
                     }
                 },
@@ -104,6 +110,7 @@ impl BotConfig {
                         }
                     }
                     if not_found {
+                        info!("{} has temp pokemon pointer out of any city", user_id);
                         return false;
                     }
                 },
@@ -123,6 +130,7 @@ impl BotConfig {
                         }
                     }
                     if not_found {
+                        info!("{} has temp raid pointer out of any city", user_id);
                         return false;
                     }
                 },
@@ -143,6 +151,7 @@ impl BotConfig {
                             }
                         }
                         if not_found {
+                            info!("{} has temp pokestop pointer out of any city", user_id);
                             return false;
                         }
                     },

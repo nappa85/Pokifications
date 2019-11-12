@@ -139,7 +139,7 @@ impl BotConfigs {
     fn load_user(configs: &mut HashMap<String, config::BotConfig>, enabled: u8, user_id: String, config: String, beta: u8, status: u8, city_id: u16, scadenza: u64, now: u64) -> Result<LoadResult, ()> {
         if enabled > 0 && beta > 0 && status > 0 {
             let config: config::BotConfig = serde_json::from_str(&config).map_err(|e| error!("MySQL utenti_config_bot.config decoding error for user_id {}: {}", user_id, e))?;
-            if config.validate(city_id) {
+            if config.validate(&user_id, city_id) {
                 configs.insert(user_id.clone(), config);
 
                 spawn(async move {
