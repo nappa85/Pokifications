@@ -1,9 +1,7 @@
 use mysql::Pool;
 
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 
 use crate::config::CONFIG;
 
-lazy_static! {
-    pub static ref MYSQL: Pool = Pool::new(&CONFIG.database.url).expect("Can't connect to MySQL");
-}
+pub static MYSQL: Lazy<Pool> = Lazy::new(|| Pool::new(&CONFIG.database.url).expect("Can't connect to MySQL"));

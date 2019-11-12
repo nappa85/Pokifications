@@ -13,7 +13,7 @@ use geo::Point;
 
 use geo_raycasting::RayCasting;
 
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 
 use log::{info, error, debug, warn};
 
@@ -28,10 +28,8 @@ use crate::config::CONFIG;
 use crate::db::MYSQL;
 use crate::telegram::{Image, send_message};
 
-lazy_static! {
-    static ref BOT_CONFIGS: Arc<RwLock<HashMap<String, config::BotConfig>>> = Arc::new(RwLock::new(BotConfigs::init()));
-    static ref WATCHES: Arc<RwLock<Vec<Watch>>> = Arc::new(RwLock::new(BotConfigs::watches()));
-}
+static BOT_CONFIGS: Lazy<Arc<RwLock<HashMap<String, config::BotConfig>>>> = Lazy::new(|| Arc::new(RwLock::new(BotConfigs::init())));
+static WATCHES: Lazy<Arc<RwLock<Vec<Watch>>>> = Lazy::new(|| Arc::new(RwLock::new(BotConfigs::watches())));
 
 enum LoadResult {
     Ok,

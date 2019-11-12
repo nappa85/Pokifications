@@ -6,11 +6,9 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 
-lazy_static! {
-    pub static ref CONFIG: Config = Config::new();
-}
+pub static CONFIG: Lazy<Config> = Lazy::new(Config::new);
 
 #[derive(Deserialize)]
 pub struct Config {

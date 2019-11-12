@@ -4,32 +4,22 @@ use geo::Polygon;
 
 use future_parking_lot::rwlock::RwLock;
 
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 
 use crate::db::MYSQL;
 
-lazy_static! {
-    pub static ref LIST: HashMap<u16, Pokemon> = load_pokemons();
-    pub static ref SCANNED: Vec<u16> = LIST.iter().filter(|(_, p)| p.scanned == 1).map(|(id, _)| *id).collect();
-    pub static ref COMMON: Vec<u16> = LIST.iter().filter(|(_, p)| p.rarity < 2).map(|(id, _)| *id).collect();
-    pub static ref RARES: Vec<u16> = LIST.iter().filter(|(_, p)| p.rarity >= 2).map(|(id, _)| *id).collect();
-}
+pub static LIST: Lazy<HashMap<u16, Pokemon>> = Lazy::new(load_pokemons);
+// pub static SCANNED: Lazy<Vec<u16>> = Lazy::new(|| LIST.iter().filter(|(_, p)| p.scanned == 1).map(|(id, _)| *id).collect());
+// pub static COMMON: Lazy<Vec<u16>> = Lazy::new(|| LIST.iter().filter(|(_, p)| p.rarity < 2).map(|(id, _)| *id).collect());
+// pub static RARES: Lazy<Vec<u16>> = Lazy::new(|| LIST.iter().filter(|(_, p)| p.rarity >= 2).map(|(id, _)| *id).collect());
 
-lazy_static! {
-    pub static ref MOVES: HashMap<u16, String> = load_moves();
-}
+pub static MOVES: Lazy<HashMap<u16, String>> = Lazy::new(load_moves);
 
-lazy_static! {
-    pub static ref FORMS: HashMap<u16, String> = load_forms();
-}
+pub static FORMS: Lazy<HashMap<u16, String>> = Lazy::new(load_forms);
 
-lazy_static! {
-    pub static ref GRUNTS: HashMap<u8, GruntType> = load_grunts();
-}
+pub static GRUNTS: Lazy<HashMap<u8, GruntType>> = Lazy::new(load_grunts);
 
-lazy_static! {
-    pub static ref CITIES: HashMap<u16, City> = load_cities();
-}
+pub static CITIES: Lazy<HashMap<u16, City>> = Lazy::new(load_cities);
 
 pub struct Pokemon {
     pub id: u16,
