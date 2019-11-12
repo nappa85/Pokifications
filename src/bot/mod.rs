@@ -7,6 +7,8 @@ use future_parking_lot::rwlock::{RwLock, FutureReadable, FutureWriteable};
 use tokio::timer::delay;
 use tokio::spawn;
 
+use mysql_async::{from_row, prelude::Queryable};
+
 use chrono::{Local, DateTime};
 
 use geo::Point;
@@ -28,7 +30,7 @@ use crate::config::CONFIG;
 use crate::db::MYSQL;
 use crate::telegram::{Image, send_message};
 
-static BOT_CONFIGS: Lazy<Arc<RwLock<HashMap<String, config::BotConfig>>>> = Lazy::new(|| Arc::new(RwLock::new(BotConfigs::init())));
+static BOT_CONFIGS: Lazy<Arc<RwLock<HashMap<String, config::BotConfig>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 static WATCHES: Lazy<Arc<RwLock<Vec<Watch>>>> = Lazy::new(|| Arc::new(RwLock::new(BotConfigs::watches())));
 
 enum LoadResult {
@@ -41,10 +43,10 @@ enum LoadResult {
 pub struct BotConfigs;
 
 impl BotConfigs {
-    fn init() -> HashMap<String, config::BotConfig> {
-        let mut res = HashMap::new();
-        Self::load(&mut res, None).expect("Unable to init BotConfigs");
-        res
+    async fn init() -> Result<(), ()> {
+        let res = BOT_CONFIGS.future_write().await;
+        Self::load(&mut res, None).await?;
+        Ok(())
     }
 
     fn watches() -> Vec<Watch> {
@@ -54,7 +56,7 @@ impl BotConfigs {
     pub async fn reload(user_ids: Vec<String>) -> Result<(), ()> {
         delay(Instant::now() + Duration::from_secs(1)).await;
         let mut lock = BOT_CONFIGS.future_write().await;
-        let res = Self::load(&mut lock, Some(user_ids.clone()))?;
+        let res = Self::load(&mut lock, Some(user_ids.clone())).await?;
         for (user_id, result) in res {
             let msg = match result {
                 LoadResult::Ok => {
@@ -92,7 +94,7 @@ impl BotConfigs {
         Ok(())
     }
 
-    fn load(configs: &mut HashMap<String, config::BotConfig>, user_ids: Option<Vec<String>>) -> Result<HashMap<String, LoadResult>, ()> {
+    async fn load(configs: &mut HashMap<String, config::BotConfig>, user_ids: Option<Vec<String>>) -> Result<HashMap<String, LoadResult>, ()> {
         if let Some(ref user_ids) = user_ids {
             for user_id in user_ids {
                 configs.remove(user_id);
@@ -109,35 +111,24 @@ impl BotConfigs {
                     Some(format!("b.user_id IN ({})", v.join(", ")))
                 }).unwrap_or_else(|| String::from("b.enabled = 1 AND b.beta = 1 AND u.status != 0")));
 
-        let mut conn = MYSQL.get_conn().map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-        let res = conn.query(query).map_err(|e| error!("MySQL query error: {}", e))?;
+        let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+        let res = conn.query(query).await.map_err(|e| error!("MySQL query error: {}", e))?;
 
         let now: u64 = Local::now().timestamp() as u64;
         let mut results = HashMap::new();
-        for r in res {
-            let mut row = r.map_err(|e| error!("MySQL row error: {}", e))?;
-
-            let user_id: String = row.take("user_id").ok_or_else(|| error!("MySQL utenti_config_bot.user_id encoding error"))?;
-
-            let result = Self::load_user(configs,
-                row.take("enabled").ok_or_else(|| error!("MySQL utenti_config_bot.enabled encoding error"))?,
-                user_id.clone(),
-                row.take("config").ok_or_else(|| error!("MySQL utenti_config_bot.config encoding error for user_id {}", user_id))?,
-                row.take("beta").ok_or_else(|| error!("MySQL utenti_config_bot.beta encoding error for user_id {}", user_id))?,
-                row.take("status").ok_or_else(|| error!("MySQL utenti.status encoding error for user_id {}", user_id))?,
-                row.take("city_id").ok_or_else(|| error!("MySQL utenti.city_id encoding error for user_id {}", user_id))?,
-                row.take("scadenza").ok_or_else(|| error!("MySQL city.scadenza encoding error for user_id {}", user_id))?,
-                now).unwrap_or_else(|_| LoadResult::Error);
+        let (_, temp) = res.map_and_drop(from_row::<(u8, String, String, u8, u8, u64, u16)>).await.map_err(|e| error!("MySQL collect error: {}", e))?;
+        for (enabled, user_id, config, beta, status, scadenza, city_id) in temp {
+            let result = Self::load_user(configs, enabled, user_id.clone(), config, beta, status, city_id, scadenza, now).await.unwrap_or_else(|_| LoadResult::Error);
             results.insert(user_id, result);
         }
 
         Ok(results)
     }
 
-    fn load_user(configs: &mut HashMap<String, config::BotConfig>, enabled: u8, user_id: String, config: String, beta: u8, status: u8, city_id: u16, scadenza: u64, now: u64) -> Result<LoadResult, ()> {
+    async fn load_user(configs: &mut HashMap<String, config::BotConfig>, enabled: u8, user_id: String, config: String, beta: u8, status: u8, city_id: u16, scadenza: u64, now: u64) -> Result<LoadResult, ()> {
         if enabled > 0 && beta > 0 && status > 0 {
             let config: config::BotConfig = serde_json::from_str(&config).map_err(|e| error!("MySQL utenti_config_bot.config decoding error for user_id {}: {}", user_id, e))?;
-            if config.validate(&user_id, city_id) {
+            if config.validate(&user_id, city_id).await {
                 configs.insert(user_id.clone(), config);
 
                 spawn(async move {
@@ -233,27 +224,27 @@ impl BotConfigs {
         for input in inputs.into_iter() {
             // non config-related requests
             match input {
-                Request::Reload(user_ids) => {
-                    spawn(async {
-                        BotConfigs::reload(user_ids).await.ok();
-                    });
-                    continue;
-                },
-                Request::Watch(watches) => {
-                    spawn(async {
-                        BotConfigs::add_watches(watches).await;
-                    });
-                    continue;
-                },
-                Request::Weather(weather) => {
-                    spawn(async {
-                        BotConfigs::submit_weather(weather).await;
-                    });
-                    continue;
-                },
-                Request::Pokemon(_) | Request::Raid(_) | Request::Invasion(_) | Request::Quest(_) => {
-                    BotConfigs::update_city_stats(&input, now.timestamp());
-                },
+                // Request::Reload(user_ids) => {
+                //     spawn(async {
+                //         BotConfigs::reload(user_ids).await.ok();
+                //     });
+                //     continue;
+                // },
+                // Request::Watch(watches) => {
+                //     spawn(async {
+                //         BotConfigs::add_watches(watches).await;
+                //     });
+                //     continue;
+                // },
+                // Request::Weather(weather) => {
+                //     spawn(async {
+                //         BotConfigs::submit_weather(weather).await;
+                //     });
+                //     continue;
+                // },
+                // Request::Pokemon(_) | Request::Raid(_) | Request::Invasion(_) | Request::Quest(_) => {
+                //     BotConfigs::update_city_stats(&input, now.timestamp());
+                // },
                 _ => debug!("Unmanaged webhook: {:?}", input),
             }
 
@@ -298,7 +289,7 @@ impl BotConfigs {
                 let point: Point<f64> = (p.latitude, p.longitude).into();
 
                 spawn(async move {
-                    for (_, city) in CITIES.iter() {
+                    for (_, city) in CITIES.future_read().await.iter() {
                         if city.coordinates.within(&point) {
                             let update = {
                                 let lock = city.stats.future_read().await;
@@ -324,7 +315,7 @@ impl BotConfigs {
                 let point: Point<f64> = (r.latitude, r.longitude).into();
 
                 spawn(async move {
-                    for (_, city) in CITIES.iter() {
+                    for (_, city) in CITIES.future_read().await.iter() {
                         if city.coordinates.within(&point) {
                             let update = {
                                 let lock = city.stats.future_read().await;
@@ -345,7 +336,7 @@ impl BotConfigs {
                 let point: Point<f64> = (i.latitude, i.longitude).into();
 
                 spawn(async move {
-                    for (_, city) in CITIES.iter() {
+                    for (_, city) in CITIES.future_read().await.iter() {
                         if city.coordinates.within(&point) {
                             let update = {
                                 let lock = city.stats.future_read().await;
@@ -366,7 +357,7 @@ impl BotConfigs {
                 let point: Point<f64> = (q.latitude, q.longitude).into();
 
                 spawn(async move {
-                    for (_, city) in CITIES.iter() {
+                    for (_, city) in CITIES.future_read().await.iter() {
                         if city.coordinates.within(&point) {
                             let update = {
                                 let lock = city.stats.future_read().await;

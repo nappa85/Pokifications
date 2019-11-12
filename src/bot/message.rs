@@ -7,6 +7,8 @@ use std::time::Duration;
 // use tokio::timer::Delay;
 use tokio::future::FutureExt;
 
+use mysql_async::prelude::Queryable;
+
 use futures_util::try_stream::TryStreamExt;
 
 use hyper::Client;
@@ -30,8 +32,8 @@ use crate::telegram::{send_photo, CallResult, Image};
 pub async fn send_message<M: Message>(message: &M, chat_id: &str, image: Image, map_type: &str) -> Result<(), ()> {
     match send_photo(&CONFIG.telegram.bot_token, chat_id, image, Some(&message.get_caption()?), None, None, None, Some(message.message_button(chat_id, map_type)?)).await {
         Ok(_) => {
-            let mut conn = MYSQL.get_conn().map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-            conn.query(format!("UPDATE utenti_config_bot SET sent = sent + 1 WHERE user_id = {}", chat_id)).map_err(|e| error!("MySQL query error: {}", e))?;
+            let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+            conn.query(format!("UPDATE utenti_config_bot SET sent = sent + 1 WHERE user_id = {}", chat_id)).await.map_err(|e| error!("MySQL query error: {}", e))?;
             Ok(())
         },
         Err(CallResult::Body((_, body))) => {
@@ -39,8 +41,8 @@ pub async fn send_message<M: Message>(message: &M, chat_id: &str, image: Image, 
 
             // blocked, disable bot
             if json["description"] == "Forbidden: bot was blocked by the user" {
-                let mut conn = MYSQL.get_conn().map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-                conn.query(format!("UPDATE utenti_config_bot SET enabled = 0 WHERE user_id = {}", chat_id)).map_err(|e| error!("MySQL query error: {}", e))?;
+                let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+                conn.query(format!("UPDATE utenti_config_bot SET enabled = 0 WHERE user_id = {}", chat_id)).await.map_err(|e| error!("MySQL query error: {}", e))?;
                 // apply
                 BotConfigs::reload(vec![chat_id.to_owned()]).await
             }

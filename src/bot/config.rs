@@ -5,6 +5,8 @@ use serde::{Serialize, Deserialize};
 
 use serde_json::Value as JsonValue;
 
+use future_parking_lot::rwlock::read::FutureReadable;
+
 use chrono::{Local, DateTime};
 
 use geo::Point;
@@ -41,8 +43,8 @@ pub struct BotConfig {
 }
 
 impl BotConfig {
-    pub fn validate(&self, user_id: &str, city_id: u16) -> bool {
-        let polygon = match CITIES.get(&city_id) {
+    pub async fn validate(&self, user_id: &str, city_id: u16) -> bool {
+        let polygon = match CITIES.future_read().await.get(&city_id) {
             Some(c) => &c.coordinates,
             None => {
                 info!("{} is associated to disabled city {}", user_id, city_id);
@@ -103,7 +105,7 @@ impl BotConfig {
                 (Ok(x), Ok(y)) => {
                     let p: Point<f64> = (x, y).into();
                     let mut not_found = true;
-                    for (_, city) in CITIES.iter() {
+                    for (_, city) in CITIES.future_read().await.iter() {
                         if city.coordinates.within(&p) {
                             not_found = false;
                             break;
@@ -123,7 +125,7 @@ impl BotConfig {
                 (Ok(x), Ok(y)) => {
                     let p: Point<f64> = (x, y).into();
                     let mut not_found = true;
-                    for (_, city) in CITIES.iter() {
+                    for (_, city) in CITIES.future_read().await.iter() {
                         if city.coordinates.within(&p) {
                             not_found = false;
                             break;
@@ -144,7 +146,7 @@ impl BotConfig {
                     (Ok(x), Ok(y)) => {
                         let p: Point<f64> = (x, y).into();
                         let mut not_found = true;
-                        for (_, city) in CITIES.iter() {
+                        for (_, city) in CITIES.future_read().await.iter() {
                             if city.coordinates.within(&p) {
                                 not_found = false;
                                 break;
