@@ -34,9 +34,9 @@ pub fn init() {
                         }
                         if now.hour() >= 6 && now.hour() <= 20 {
                             check_timestamp(&lock.last_raid, half_an_hour_ago, "Raid", &mut city_alerts);
+                            check_timestamp(&lock.last_invasion, half_an_hour_ago, "Invasioni", &mut city_alerts);
                         }
                         check_timestamp(&lock.last_quest, now.timestamp() - 86400, "Quest", &mut city_alerts);
-                        check_timestamp(&lock.last_invasion, half_an_hour_ago, "Invasioni", &mut city_alerts);
 
                         if !city_alerts.is_empty() {
                             alerts.push(format!("@{} la zona {} non ha scansioni:\n{}", admins_users, name, city_alerts.join("\n")));
