@@ -5,15 +5,11 @@ use serde::{Serialize, Deserialize};
 
 use serde_json::Value as JsonValue;
 
-use future_parking_lot::rwlock::read::FutureReadable;
-
 use chrono::{Local, DateTime};
 
 use geo::Point;
 
 use geo_raycasting::RayCasting;
-
-use tokio::spawn;
 
 use log::error;
 
@@ -22,9 +18,9 @@ use log::info;
 // use crate::lists::COMMON;
 use crate::entities::{Pokemon, Pokestop, Raid, Request, Gender, Quest};
 use crate::lists::CITIES;
-use crate::telegram::Image;
+// use crate::telegram::Image;
 
-use super::message::{self, PokemonMessage, RaidMessage, InvasionMessage, QuestMessage};
+use super::message::{Message, PokemonMessage, RaidMessage, InvasionMessage, QuestMessage};
 
 const MAX_DISTANCE: f64 = 15f64;
 // const MIN_IV_LIMIT: f32 = 36f32;
@@ -32,6 +28,7 @@ const MAX_DISTANCE: f64 = 15f64;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BotConfig {
+    pub scadenza: Option<i64>,
     pub debug: Option<bool>,
     pub locs: BotLocs,
     pub raid: BotRaid,
@@ -44,8 +41,8 @@ pub struct BotConfig {
 
 impl BotConfig {
     pub async fn validate(&self, user_id: &str, city_id: u16) -> bool {
-        let polygon = match CITIES.future_read().await.get(&city_id) {
-            Some(c) => &c.coordinates,
+        let polygon = match CITIES.read().await.get(&city_id) {
+            Some(c) => c.coordinates.clone(),
             None => {
                 info!("{} is associated to disabled city {}", user_id, city_id);
                 return false;
@@ -105,7 +102,7 @@ impl BotConfig {
                 (Ok(x), Ok(y)) => {
                     let p: Point<f64> = (x, y).into();
                     let mut not_found = true;
-                    for (_, city) in CITIES.future_read().await.iter() {
+                    for (_, city) in CITIES.read().await.iter() {
                         if city.coordinates.within(&p) {
                             not_found = false;
                             break;
@@ -125,7 +122,7 @@ impl BotConfig {
                 (Ok(x), Ok(y)) => {
                     let p: Point<f64> = (x, y).into();
                     let mut not_found = true;
-                    for (_, city) in CITIES.future_read().await.iter() {
+                    for (_, city) in CITIES.read().await.iter() {
                         if city.coordinates.within(&p) {
                             not_found = false;
                             break;
@@ -146,7 +143,7 @@ impl BotConfig {
                     (Ok(x), Ok(y)) => {
                         let p: Point<f64> = (x, y).into();
                         let mut not_found = true;
-                        for (_, city) in CITIES.future_read().await.iter() {
+                        for (_, city) in CITIES.read().await.iter() {
                             if city.coordinates.within(&p) {
                                 not_found = false;
                                 break;
@@ -165,7 +162,7 @@ impl BotConfig {
         true
     }
 
-    pub fn submit(&self, now: &DateTime<Local>, chat_id: &str, input: &Request) -> Result<Box<dyn FnOnce(Image) + Send>, ()> {
+    pub fn submit(&self, now: &DateTime<Local>, input: &Request) -> Result<Box<dyn Message + Send + Sync>, ()> {
         if !self.time.is_active()? && self.time.fi[0] == 0 && self.time.fl[0] == 0 {
             #[cfg(test)]
             info!("Webhook discarded for time configs");
@@ -174,27 +171,16 @@ impl BotConfig {
         }
         else {
             match input {
-                Request::Pokemon(p) => self.submit_pokemon(now, chat_id, p),
-                Request::Raid(r) => self.submit_raid(now, chat_id, r),
-                Request::Quest(q) => self.submit_quest(now, chat_id, q),
-                Request::Invasion(i) => self.submit_invasion(now, chat_id, i),
+                Request::Pokemon(p) => Ok(Box::new(self.submit_pokemon(now, p)?)),
+                Request::Raid(r) => Ok(Box::new(self.submit_raid(now, r)?)),
+                Request::Quest(q) => Ok(Box::new(self.submit_quest(now, q)?)),
+                Request::Invasion(i) => Ok(Box::new(self.submit_invasion(now, i)?)),
                 _ => Err(()),
             }
         }
     }
 
-    fn submit_pokemon(&self, now: &DateTime<Local>, chat_id: &str, input: &Box<Pokemon>) -> Result<Box<dyn FnOnce(Image) + Send>, ()> {
-        let message = self._submit_pokemon(now, input)?;
-        let chat_id = chat_id.to_owned();
-        let map_type = self.more.l.clone();
-        Ok(Box::new(move |file_id| {
-            spawn(async move {
-                message::send_message(&message, &chat_id, file_id, &map_type).await.ok();
-            });
-        }))
-    }
-
-    fn _submit_pokemon(&self, now: &DateTime<Local>, input: &Box<Pokemon>) -> Result<PokemonMessage, ()> {
+    fn submit_pokemon(&self, now: &DateTime<Local>, input: &Box<Pokemon>) -> Result<PokemonMessage, ()> {
         let pokemon_id = input.pokemon_id.to_string();
         let filter = self.pkmn.l.get(&pokemon_id).ok_or_else(|| ())?;
         if filter.get(0) == Some(&0) {
@@ -298,18 +284,7 @@ impl BotConfig {
         })
     }
 
-    fn submit_raid(&self, now: &DateTime<Local>, chat_id: &str, input: &Raid) -> Result<Box<dyn FnOnce(Image) + Send>, ()> {
-        let message = self._submit_raid(now, input)?;
-        let chat_id = chat_id.to_owned();
-        let map_type = self.more.l.clone();
-        Ok(Box::new(move |file_id| {
-            spawn(async move {
-                message::send_message(&message, &chat_id, file_id, &map_type).await.ok();
-            });
-        }))
-    }
- 
-    fn _submit_raid(&self, now: &DateTime<Local>, input: &Raid) -> Result<RaidMessage, ()> {
+    fn submit_raid(&self, now: &DateTime<Local>, input: &Raid) -> Result<RaidMessage, ()> {
         let pokemon_id = input.pokemon_id.and_then(|id| if id > 0 { Some(id.to_string()) } else { None });
         let loc = self.locs.get_raid_settings()?;
         let pos = (input.latitude, input.longitude);
@@ -387,20 +362,13 @@ impl BotConfig {
         })
     }
 
-    fn submit_quest(&self, now: &DateTime<Local>, chat_id: &str, input: &Quest) -> Result<Box<dyn FnOnce(Image) + Send>, ()> {
-        let message = self._submit_quest(now, input).map(|debug| {
+    fn submit_quest(&self, now: &DateTime<Local>, input: &Quest) -> Result<QuestMessage, ()> {
+        self._submit_quest(now, input).map(|debug| {
             QuestMessage {
                 quest: input.clone(),
                 debug: if self.debug == Some(true) { Some(debug) } else { None },
             }
-        })?;
-        let chat_id = chat_id.to_owned();
-        let map_type = self.more.l.clone();
-        Ok(Box::new(move |file_id| {
-            spawn(async move {
-                message::send_message(&message, &chat_id, file_id, &map_type).await.ok();
-            });
-        }))
+        })
     }
 
     fn _submit_quest(&self, now: &DateTime<Local>, input: &Quest) -> Result<String, ()> {
@@ -465,18 +433,7 @@ impl BotConfig {
         Err(())
     }
 
-    fn submit_invasion(&self, now: &DateTime<Local>, chat_id: &str, input: &Pokestop) -> Result<Box<dyn FnOnce(Image) + Send>, ()> {
-        let message = self._submit_invasion(now, input)?;
-        let chat_id = chat_id.to_owned();
-        let map_type = self.more.l.clone();
-        Ok(Box::new(move |file_id| {
-            spawn(async move {
-                message::send_message(&message, &chat_id, file_id, &map_type).await.ok();
-            });
-        }))
-    }
-
-    fn _submit_invasion(&self, now: &DateTime<Local>, input: &Pokestop) -> Result<InvasionMessage, ()> {
+    fn submit_invasion(&self, now: &DateTime<Local>, input: &Pokestop) -> Result<InvasionMessage, ()> {
         let invs = self.invs.as_ref().ok_or_else(|| ())?;
         if invs.n == 0 {
             return Err(());

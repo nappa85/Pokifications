@@ -1,28 +1,35 @@
+use std::time::{Instant, Duration};
 use std::collections::HashMap;
 use std::sync::Arc;
+
+use futures_util::{future::join_all, stream::StreamExt};
 
 use geo::Polygon;
 
 use mysql_async::prelude::Queryable;
 
-use future_parking_lot::rwlock::{RwLock, write::FutureWriteable};
+use async_std::sync::RwLock;
+
+use tokio::{spawn, timer::Interval};
+
+use once_cell::sync::Lazy;
 
 use log::error;
 
 use crate::db::MYSQL;
 
-pub static LIST: Arc<RwLock<HashMap<u16, Pokemon>>> = Arc::new(RwLock::new(HashMap::new()));
+pub static LIST: Lazy<Arc<RwLock<HashMap<u16, Pokemon>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 // pub static SCANNED: Lazy<Vec<u16>> = Lazy::new(|| LIST.iter().filter(|(_, p)| p.scanned == 1).map(|(id, _)| *id).collect());
 // pub static COMMON: Lazy<Vec<u16>> = Lazy::new(|| LIST.iter().filter(|(_, p)| p.rarity < 2).map(|(id, _)| *id).collect());
 // pub static RARES: Lazy<Vec<u16>> = Lazy::new(|| LIST.iter().filter(|(_, p)| p.rarity >= 2).map(|(id, _)| *id).collect());
 
-pub static MOVES: Arc<RwLock<HashMap<u16, String>>> = Arc::new(RwLock::new(HashMap::new()));
+pub static MOVES: Lazy<Arc<RwLock<HashMap<u16, String>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 
-pub static FORMS: Arc<RwLock<HashMap<u16, String>>> = Arc::new(RwLock::new(HashMap::new()));
+pub static FORMS: Lazy<Arc<RwLock<HashMap<u16, String>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 
-pub static GRUNTS: Arc<RwLock<HashMap<u8, GruntType>>> = Arc::new(RwLock::new(HashMap::new()));
+pub static GRUNTS: Lazy<Arc<RwLock<HashMap<u8, GruntType>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 
-pub static CITIES: Arc<RwLock<HashMap<u16, City>>> = Arc::new(RwLock::new(HashMap::new()));
+pub static CITIES: Lazy<Arc<RwLock<HashMap<u16, City>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 
 pub struct Pokemon {
     pub id: u16,
@@ -61,12 +68,12 @@ pub struct CityStats {
 }
 
 async fn load_pokemons() -> Result<(), ()> {
-    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
     let res = conn.query("SELECT * FROM pokemon_list").await.map_err(|e| error!("MySQL query error: {}", e))?;
 
-    let list = LIST.future_write().await;
+    let mut list = LIST.write().await;
     list.clear();
-    res.for_each_and_drop(|row| {
+    res.for_each_and_drop(|ref mut row| {
         let id = row.take("id").expect("MySQL pokemon_list.id error");
         list.insert(id, Pokemon {
             id,
@@ -83,12 +90,12 @@ async fn load_pokemons() -> Result<(), ()> {
 }
 
 async fn load_moves() -> Result<(), ()> {
-    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
     let res = conn.query("SELECT * FROM pokemon_moves").await.map_err(|e| error!("MySQL query error: {}", e))?;
 
-    let moves = MOVES.future_write().await;
+    let mut moves = MOVES.write().await;
     moves.clear();
-    res.for_each_and_drop(|row| {
+    res.for_each_and_drop(|ref mut row| {
         moves.insert(row.take("id").expect("MySQL pokemon_moves.id error"), row.take("move").expect("MySQL pokemon_moves.move error"));
     }).await.map_err(|e| error!("MySQL for_each error: {}", e))?;
 
@@ -96,12 +103,12 @@ async fn load_moves() -> Result<(), ()> {
 }
 
 async fn load_forms() -> Result<(), ()> {
-    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
     let res = conn.query("SELECT * FROM pokemon_forms").await.map_err(|e| error!("MySQL query error: {}", e))?;
 
-    let forms = FORMS.future_write().await;
+    let mut forms = FORMS.write().await;
     forms.clear();
-    res.for_each_and_drop(|row| {
+    res.for_each_and_drop(|ref mut row| {
         forms.insert(row.take("id").expect("MySQL pokemon_forms.id error"), row.take("name").expect("MySQL pokemon_forms.name error"));
     }).await.map_err(|e| error!("MySQL for_each error: {}", e))?;
 
@@ -109,12 +116,12 @@ async fn load_forms() -> Result<(), ()> {
 }
 
 async fn load_grunts() -> Result<(), ()> {
-    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let conn =MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
     let res = conn.query("SELECT * FROM grunt_types").await.map_err(|e| error!("MySQL query error: {}", e))?;
 
-    let grunts = GRUNTS.future_write().await;
+    let mut grunts = GRUNTS.write().await;
     grunts.clear();
-    res.for_each_and_drop(|row| {
+    res.for_each_and_drop(|ref mut row| {
         let id = row.take("id").expect("MySQL grunt_types.id error");
         grunts.insert(id, GruntType {
             id,
@@ -128,12 +135,12 @@ async fn load_grunts() -> Result<(), ()> {
 }
 
 async fn load_cities() -> Result<(), ()> {
-    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let conn =MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
     let res = conn.query("SELECT id, name, coordinates, scadenza, monitor, admins_users FROM city WHERE scadenza > UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL query error: {}", e))?;
 
-    let cities = CITIES.future_write().await;
+    let mut cities = CITIES.write().await;
     cities.clear();
-    res.for_each_and_drop(|row| {
+    res.for_each_and_drop(|ref mut row| {
         let id = row.take("id").expect("MySQL city.id error");
         let coords: String = row.take("coordinates").expect("MySQL city.coordinates encoding error");
         let mut poly: Vec<[f64; 2]> = Vec::new();
@@ -162,11 +169,20 @@ async fn load_cities() -> Result<(), ()> {
     Ok(())
 }
 
-async fn init() {
-    //TODO: paralellize
-    load_pokemons().await.unwrap();
-    load_moves().await.unwrap();
-    load_forms().await.unwrap();
-    load_grunts().await.unwrap();
-    load_cities().await.unwrap();
+pub fn init() {
+    spawn(async {
+        Interval::new(Instant::now(), Duration::from_secs(1800))
+            .for_each(|_| async {
+                join_all((0_u8..5_u8).map(|i| async move {
+                    match i {
+                        0 => load_pokemons().await,
+                        1 => load_moves().await,
+                        2 => load_forms().await,
+                        3 => load_grunts().await,
+                        4 => load_cities().await,
+                        _ => panic!("WTF"),
+                    }
+                })).await;
+            }).await;
+    });
 }
