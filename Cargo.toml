@@ -1,6 +1,6 @@
 [package]
 name = "pokifications"
-version = "1.1.2"
+version = "1.2.0"
 authors = ["Marco Napetti <marco.napetti@gmail.com>"]
 edition = "2018"
 
@@ -17,7 +17,6 @@ async-trait = "0.1"
 log = "0.4"
 async-std = "1.0"
 mysql_async = "=0.21.0-alpha.4"
-# log4rs = "0.8"
 env_logger = "0.7"
 chrono = "0.4"
 imageproc = "=0.19.2"

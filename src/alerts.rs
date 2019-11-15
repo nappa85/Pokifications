@@ -52,11 +52,9 @@ pub fn init() {
 fn check_timestamp(var: &Option<i64>, check: i64, descr: &str, alerts: &mut Vec<String>) {
     if let Some(timestamp) = var {
         let elapsed = check - timestamp;
-        if elapsed > INTERVAL {
-            // alert only problems created since last time we checked
-            if (elapsed % 3600) < INTERVAL {
-                alerts.push(format!("* {} da {}", descr, format_time(elapsed)));
-            }
+        // alert only problems created since last time we checked
+        if elapsed > INTERVAL && (elapsed % 3600) < INTERVAL {
+            alerts.push(format!("* {} da {}", descr, format_time(elapsed)));
         }
     }
 }
