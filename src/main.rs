@@ -1,4 +1,5 @@
 #![deny(warnings)]
+#![allow(where_clauses_object_safety)]
 #![deny(missing_docs)]
 
 //! # pokifications
@@ -96,12 +97,14 @@ fn main() -> Result<(), ()> {
     };
 
     runtime.spawn(async move {
+        lists::init();
         alerts::init();
-
-        // bind and serve...
-        Server::bind(&addr).serve(service).await.map_err(|e| {
-            error!("server error: {}", e);
-        }).ok();
+        if bot::BotConfigs::init().await.is_ok() {
+            // bind and serve...
+            Server::bind(&addr).serve(service).await.map_err(|e| {
+                error!("server error: {}", e);
+            }).ok();
+        }
     });
 
     // wait for completion
