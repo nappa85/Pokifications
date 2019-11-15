@@ -5,16 +5,18 @@ use futures_util::stream::StreamExt;
 use tokio::timer::Interval;
 use tokio::spawn;
 
-use chrono::{Local,/* Timelike,*/ TimeZone};
+use chrono::{Local/*, Timelike*/};
 
 use crate::config::CONFIG;
 use crate::lists::CITIES;
 use crate::telegram::send_message;
 
+const INTERVAL: i64 = 900;
+
 pub fn init() {
     spawn(async {
         if let (Some(bot_token), Some(chat_id)) = (CONFIG.telegram.alert_bot_token.as_ref(), CONFIG.telegram.alert_chat.as_ref()) {
-            Interval::new_interval(Duration::from_secs(900))
+            Interval::new_interval(Duration::from_secs(INTERVAL as u64))
                 .for_each(|_| async {
                     let now = Local::now();
                     let half_an_hour_ago = now.timestamp() - 1800;
@@ -49,9 +51,30 @@ pub fn init() {
 
 fn check_timestamp(var: &Option<i64>, check: i64, descr: &str, alerts: &mut Vec<String>) {
     if let Some(timestamp) = var {
-        // alert only problems created since last time we checked
-        if timestamp <= &check && timestamp >= &(check - 900) {
-            alerts.push(format!("* {} da {}", descr, Local.timestamp(*timestamp, 0).format("%d-%m-%Y %R").to_string()));
+        let elapsed = check - timestamp;
+        if elapsed > INTERVAL {
+            // alert only problems created since last time we checked
+            if (elapsed % 3600) < INTERVAL {
+                alerts.push(format!("* {} da {}", descr, format_time(elapsed)));
+            }
         }
+    }
+}
+
+fn format_time(seconds: i64) -> String {
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+    if hours > 0 && minutes > 0 {
+        format!("{} ore e {} minuti", hours, minutes)
+    }
+    else if hours > 0 {
+        format!("{} ore", hours)
+    }
+    else if minutes > 0 {
+        format!("{} minuti", minutes)
+    }
+    else {
+        // should never happen
+        format!("{} secondi", seconds)
     }
 }
