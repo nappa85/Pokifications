@@ -50,9 +50,32 @@ fn truncate_str(s: &str, limit: usize, placeholder: char) -> String {
 
 async fn open_font(path: &str) -> Result<rusttype::Font<'static>, ()> {
     let mut file = File::open(path).await.map_err(|e| error!("error opening font {}: {}", path, e))?;
-    let mut font_data = Vec::new();
-    file.read_to_end(&mut font_data).await.map_err(|e| error!("error reading font {}: {}", path, e))?;
-    rusttype::Font::from_bytes(font_data).map_err(|e| error!("error decoding font {}: {}", path, e))
+    let mut data = Vec::new();
+    file.read_to_end(&mut data).await.map_err(|e| error!("error reading font {}: {}", path, e))?;
+    rusttype::Font::from_bytes(data).map_err(|e| error!("error decoding font {}: {}", path, e))
+}
+
+async fn open_image(path: &str) -> Result<image::DynamicImage, ()> {
+    let mut file = File::open(path).await.map_err(|e| error!("error opening image {}: {}", path, e))?;
+    let mut data = Vec::new();
+    file.read_to_end(&mut data).await.map_err(|e| error!("error reading image {}: {}", path, e))?;
+    image::load_from_memory_with_format(&data, image::ImageFormat::PNG).map_err(|e| error!("error opening image {}: {}", path, e))
+}
+
+async fn save_image(img: image::DynamicImage, path: &str) -> Result<Vec<u8>, ()> {
+    let mut out = Vec::new();
+    img.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting image {}: {}", path, e))?;
+
+    let mut file = OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .create(true)
+        .open(path)
+        .await
+        .map_err(|e| error!("error saving image {}: {}", path, e))?;
+    file.write_all(&out).await.map_err(|e| error!("error writing image {}: {}", path, e))?;
+
+    Ok(out)
 }
 
 fn get_text_width(font: &rusttype::Font, scale: rusttype::Scale, text: &str) -> i32 {
@@ -108,10 +131,10 @@ pub trait Message {
         // $lon = number_format(round($ilon, 3), 3);
         // $map_path = "../../data/bot/img_maps/" . $lat . "_" . $lon . ".png";
         let map_path_str = format!("{}img_maps/{:.3}_{:.3}.png", CONFIG.images.bot, self.get_latitude(), self.get_longitude());
-        let map_path = Path::new(&map_path_str);
 
+        let map_path = Path::new(&map_path_str);
         if map_path.exists() {
-            return image::open(&map_path).map_err(|e| error!("error opening map image {}: {}", map_path_str, e));
+            return open_image(&map_path_str).await;
         }
 
         let m_link = format!("https://maps.googleapis.com/maps/api/staticmap?center={:.3},{:.3}&zoom=14&size=280x101&maptype=roadmap&markers={:.3},{:.3}&key={}", self.get_latitude(), self.get_longitude(), self.get_latitude(), self.get_longitude(), CONFIG.google.maps_key)
@@ -329,8 +352,8 @@ impl Message for PokemonMessage {
     async fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
         let now = Local::now();
         let img_path_str = format!("{}img_sent/poke_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.pokemon.encounter_id, self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new));
-        let img_path = Path::new(&img_path_str);
 
+        let img_path = Path::new(&img_path_str);
         if img_path.exists() {
             let mut image = File::open(&img_path).await.map_err(|e| error!("error opening pokemon image {}: {}", img_path_str, e))?;
             let mut bytes = Vec::new();
@@ -352,13 +375,16 @@ impl Message for PokemonMessage {
         let scale18 = rusttype::Scale::uniform(23f32);
 
         // $mBg = null;
-        let mut background = image::open(format!("{}{}", CONFIG.images.sender, match self.iv {
-            Some(i) if i < 80f32 => "images/msg-bgs/msg-poke-big-norm.png",
-            Some(i) if i >= 80f32 && i < 90f32 => "images/msg-bgs/msg-poke-big-med.png",
-            Some(i) if i >= 90f32 && i < 100f32 => "images/msg-bgs/msg-poke-big-hi.png",
-            Some(i) if i >= 100f32 => "images/msg-bgs/msg-poke-big-top.png",
-            _ => "images/msg-bgs/msg-poke-sm.png",
-        })).map_err(|e| error!("error opening pokemon background image: {:?}", e))?;
+        let mut background = {
+            let path = format!("{}{}", CONFIG.images.sender, match self.iv {
+                Some(i) if i < 80f32 => "images/msg-bgs/msg-poke-big-norm.png",
+                Some(i) if i >= 80f32 && i < 90f32 => "images/msg-bgs/msg-poke-big-med.png",
+                Some(i) if i >= 90f32 && i < 100f32 => "images/msg-bgs/msg-poke-big-hi.png",
+                Some(i) if i >= 100f32 => "images/msg-bgs/msg-poke-big-top.png",
+                _ => "images/msg-bgs/msg-poke-sm.png",
+            });
+            open_image(&path).await?
+        };
 
         let pokemon = match self.pokemon.form {
             Some(form) if form > 0 => {
@@ -367,22 +393,23 @@ impl Message for PokemonMessage {
                     self.pokemon.pokemon_id,
                     form
                 );
-                image::open(&image)
-                    .map_err(|e| error!("error opening pokemon form image {}: {:?}", image, e))
-                    .or_else(|_| {
+                match open_image(&image).await {
+                    Ok(img) => img,
+                    Err(_) => {
                         let image = format!("{}img/pkmns/shuffle/{}.png",
                             CONFIG.images.assets,
                             self.pokemon.pokemon_id
                         );
-                        image::open(&image).map_err(|e| error!("error opening pokemon image {}: {:?}", image, e))
-                    })?
+                        open_image(&image).await?
+                    },
+                }
             },
             _ => {
                 let image = format!("{}img/pkmns/shuffle/{}.png",
                     CONFIG.images.assets,
                     self.pokemon.pokemon_id
                 );
-                image::open(&image).map_err(|e| error!("error opening pokemon image {}: {:?}", image, e))?
+                open_image(&image).await?
             },
         };
 
@@ -390,7 +417,8 @@ impl Message for PokemonMessage {
 
         match self.pokemon.gender {
             Gender::Male | Gender::Female => {
-                let icon = image::open(format!("{}img/{}.png", CONFIG.images.assets, if self.pokemon.gender == Gender::Female { "female" } else { "male" })).map_err(|e| error!("error opening gender image: {:?}", e))?;
+                let path = format!("{}img/{}.png", CONFIG.images.assets, if self.pokemon.gender == Gender::Female { "female" } else { "male" });
+                let icon = open_image(&path).await?;
                 image::imageops::overlay(&mut background, &icon, 32, 32);
             }
             _ => {},
@@ -467,11 +495,7 @@ impl Message for PokemonMessage {
             imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 140 - (dm / 2) as u32, 111, scale12, &f_cal1, &text);
         }
 
-        background.save(&img_path).map_err(|e| error!("error saving pokemon image {}: {}", img_path_str, e))?;
-
-        let mut out = Vec::new();
-        background.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting pokemon image {}: {}", img_path_str, e))?;
-        Ok(out)
+        save_image(background, &img_path_str).await
     }
 
     fn message_button(&self, chat_id: &str, mtype: &str) -> Result<Value, ()> {
@@ -614,7 +638,8 @@ impl Message for RaidMessage {
         let (mut background, pokemon) = match self.raid.pokemon_id {
             Some(pkmn_id) if pkmn_id > 0 => {
                 // $mBg = imagecreatefrompng("images/msg-bgs/msg-raid-big-t" . $v_team . ".png");
-                let mut background = image::open(format!("{}images/msg-bgs/msg-raid-big-t{}{}.png", CONFIG.images.sender, self.raid.team_id.get_id(), if self.raid.ex_raid_eligible { "-ex" } else { "" })).map_err(|e| error!("error opening raid background image: {:?}", e))?;
+                let path = format!("{}images/msg-bgs/msg-raid-big-t{}{}.png", CONFIG.images.sender, self.raid.team_id.get_id(), if self.raid.ex_raid_eligible { "-ex" } else { "" });
+                let mut background = open_image(&path).await?;
 
                 // $mPoke = imagecreatefrompng("../../assets/img/pkmns/shuffle/" . $v_pkmnid . ".png");
                 let pokemon = match self.raid.form {
@@ -624,22 +649,23 @@ impl Message for RaidMessage {
                             pkmn_id,
                             form
                         );
-                        image::open(&image)
-                            .map_err(|e| error!("error opening pokemon form image {}: {:?}", image, e))
-                            .or_else(|_| {
+                        match open_image(&image).await {
+                            Ok(img) => img,
+                            Err(_) => {
                                 let image = format!("{}img/pkmns/shuffle/{}.png",
                                     CONFIG.images.assets,
                                     pkmn_id
                                 );
-                                image::open(&image).map_err(|e| error!("error opening pokemon image {}: {:?}", image, e))
-                            })?
+                                open_image(&image).await?
+                            },
+                        }
                     },
                     _ => {
                         let image = format!("{}img/pkmns/shuffle/{}.png",
                             CONFIG.images.assets,
                             pkmn_id
                         );
-                        image::open(&image).map_err(|e| error!("error opening pokemon image {}: {:?}", image, e))?
+                        open_image(&image).await?
                     },
                 };
 
@@ -683,8 +709,14 @@ impl Message for RaidMessage {
                 (background, pokemon)
             },
             _ => {
-                let mut background = image::open(format!("{}images/msg-bgs/msg-raid-sm-t{}{}.png", CONFIG.images.sender, self.raid.team_id.get_id(), if self.raid.ex_raid_eligible { "-ex" } else { "" })).map_err(|e| error!("error opening raid background image: {:?}", e))?;
-                let pokemon = image::open(format!("{}images/raid_{}.png", CONFIG.images.sender, self.raid.level)).map_err(|e| error!("error opening pokemon image: {:?}", e))?;
+                let mut background = {
+                    let path = format!("{}images/msg-bgs/msg-raid-sm-t{}{}.png", CONFIG.images.sender, self.raid.team_id.get_id(), if self.raid.ex_raid_eligible { "-ex" } else { "" });
+                    open_image(&path).await?
+                };
+                let pokemon = {
+                    let path = format!("{}images/raid_{}.png", CONFIG.images.sender, self.raid.level);
+                    open_image(&path).await?
+                };
 
                 // imagettftext($mBg, 12, 0, 82, 71, 0x00000000, $f_cal2, $v_battle);
                 let v_battle = Local.timestamp(self.raid.start, 0);
@@ -705,11 +737,7 @@ impl Message for RaidMessage {
         // imagecopymerge($mBg, $mMap, 0, ($v_pkmnid == 0 ? 83 : 136), 0, 0, 280, 101, 100);
         image::imageops::overlay(&mut background, &map, 0, if self.raid.pokemon_id.and_then(|i| if i > 0 { Some(i) } else { None }).is_none() { 83 } else { 136 });
 
-        background.save(&img_path).map_err(|e| error!("error saving raid image {}: {}", img_path_str, e))?;
-
-        let mut out = Vec::new();
-        background.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting raid image {}: {}", img_path_str, e))?;
-        Ok(out)
+        save_image(background, &img_path_str).await
     }
 }
 
@@ -803,18 +831,27 @@ impl Message for InvasionMessage {
         let scale13 = rusttype::Scale::uniform(18f32);
         // let scale18 = rusttype::Scale::uniform(23f32);
 
-        let mut background = image::open(format!("{}images/msg-bgs/msg-invasion.png", CONFIG.images.sender)).map_err(|e| error!("error opening invasion background image: {:?}", e))?;
+        let mut background = {
+            let path = format!("{}images/msg-bgs/msg-invasion.png", CONFIG.images.sender);
+            open_image(&path).await?
+        };
 
         if let Some(id) = self.invasion.grunt_type {
             let lock = GRUNTS.read().await;
             if let Some(grunt) = lock.get(&id) {
                 if let Some(sex) = &grunt.sex {
-                    let icon = image::open(format!("{}img/grunts/{}.png", CONFIG.images.assets, sex)).map_err(|e| error!("error opening invasion sex image: {:?}", e))?;
+                    let icon = {
+                        let path = format!("{}img/grunts/{}.png", CONFIG.images.assets, sex);
+                        open_image(&path).await?
+                    };
                     image::imageops::overlay(&mut background, &icon, 5, 5);
                 }
 
                 if let Some(element) = &grunt.element {
-                    let icon = image::open(format!("{}img/pkmns/types/{}{}.png", CONFIG.images.assets, &element[0..1].to_uppercase(), &element[1..])).map_err(|e| error!("error opening invasion element image: {:?}", e))?;
+                    let icon = {
+                        let path = format!("{}img/pkmns/types/{}{}.png", CONFIG.images.assets, &element[0..1].to_uppercase(), &element[1..]);
+                        open_image(&path).await?
+                    };
                     let icon = image::DynamicImage::ImageRgba8(image::imageops::resize(&icon, 24, 24, image::FilterType::Triangle));
                     image::imageops::overlay(&mut background, &icon, 32, 32);
                 }
@@ -830,11 +867,7 @@ impl Message for InvasionMessage {
 
         image::imageops::overlay(&mut background, &map, 0, 58);
 
-        background.save(&img_path).map_err(|e| error!("error saving invasion image {}: {}", img_path_str, e))?;
-
-        let mut out = Vec::new();
-        background.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting invasion image {}: {}", img_path_str, e))?;
-        Ok(out)
+        save_image(background, &img_path_str).await
     }
 }
 
