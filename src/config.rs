@@ -24,6 +24,7 @@ pub struct Config {
 pub struct Service {
     pub address: Option<String>,
     pub port: Option<u32>,
+    pub safeword: Option<String>,
 }
 
 #[derive(Deserialize)]

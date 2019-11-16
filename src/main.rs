@@ -53,12 +53,14 @@ async fn parse(now: DateTime<Local>, req: Request<Body>) -> Result<(), ()> {
 }
 
 async fn service(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
-    let now = Local::now();
+    if config::CONFIG.service.safeword.is_none() || Some(req.uri().path().trim_matches('/')) == config::CONFIG.service.safeword.as_ref().map(|s| s.as_str()) {
+        let now = Local::now();
 
-    //spawn an independent future to parse the stream
-    spawn(async move {
-        parse(now, req).await.ok();
-    });
+        //spawn an independent future to parse the stream
+        spawn(async move {
+            parse(now, req).await.ok();
+        });
+    }
 
     //always reply empty 200 OK
     Ok(Response::new(Body::empty()))
