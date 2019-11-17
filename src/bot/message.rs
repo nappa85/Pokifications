@@ -9,7 +9,7 @@ use tokio::future::FutureExt;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use mysql_async::prelude::Queryable;
+use mysql_async::{prelude::Queryable, Conn};
 
 use futures_util::try_stream::TryStreamExt;
 
@@ -104,7 +104,7 @@ pub trait Message {
             Ok(_) => {
                 let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
                 let query = format!("UPDATE utenti_config_bot SET sent = sent + 1 WHERE user_id = {}", chat_id);
-                conn.query(query).await.map_err(|e| error!("MySQL query error: {}", e))?;
+                self.update_stats(conn).await?.query(query).await.map_err(|e| error!("MySQL query error: {}", e))?;
                 Ok(())
             },
             Err(CallResult::Body((_, body))) => {
@@ -241,6 +241,8 @@ pub trait Message {
     async fn get_caption(&self) -> Result<String, ()>;
 
     async fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()>;
+
+    async fn update_stats(&self, conn: Conn) -> Result<Conn, ()>;
 }
 
 #[derive(Debug)]
@@ -535,6 +537,12 @@ if chat_id == "25900594" || chat_id == "112086777" || chat_id == "9862788" || ch
 }//DEBUG
         Ok(keyboard)
     }
+
+    async fn update_stats(&self, conn: Conn) -> Result<Conn, ()> {
+        let query = format!("INSERT INTO bot_sent_pkmn (pokemon_id, sent) VALUES ({}, 1) ON DUPLICATE KEY UPDATE sent = sent + 1", self.pokemon.pokemon_id);
+        let res = conn.query(query).await.map_err(|e| error!("MySQL query error: {}", e))?;
+        res.drop_result().await.map_err(|e| error!("MySQL drop result error: {}", e))
+    }
 }
 
 #[derive(Debug)]
@@ -739,6 +747,15 @@ impl Message for RaidMessage {
 
         save_image(background, &img_path_str).await
     }
+
+    async fn update_stats(&self, conn: Conn) -> Result<Conn, ()> {
+        let query = format!("INSERT INTO bot_sent_raid (raid_id, sent) VALUES ('{}', 1) ON DUPLICATE KEY UPDATE sent = sent + 1", match self.raid.pokemon_id {
+            Some(id) if id > 0 => { format!("p{}", id) },
+            _ => format!("l{}", self.raid.level),
+        });
+        let res = conn.query(query).await.map_err(|e| error!("MySQL query error: {}", e))?;
+        res.drop_result().await.map_err(|e| error!("MySQL drop result error: {}", e))
+    }
 }
 
 #[derive(Debug)]
@@ -763,6 +780,11 @@ impl Message for QuestMessage {
 
     async fn get_image(&self, _map: image::DynamicImage) -> Result<Vec<u8>, ()> {
         Err(())
+    }
+
+    async fn update_stats(&self, conn: Conn) -> Result<Conn, ()> {
+        // TODO: impl quest stats
+        Ok(conn)
     }
 }
 
@@ -869,6 +891,11 @@ impl Message for InvasionMessage {
 
         save_image(background, &img_path_str).await
     }
+
+    async fn update_stats(&self, conn: Conn) -> Result<Conn, ()> {
+        // TODO: impl invasions stats
+        Ok(conn)
+    }
 }
 
 #[derive(Debug)]
@@ -907,5 +934,10 @@ impl Message for WeatherMessage {
         let mut out = Vec::new();
         map.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting weather map image: {}", e))?;
         Ok(out)
+    }
+
+    async fn update_stats(&self, conn: Conn) -> Result<Conn, ()> {
+        // TODO: impl weather changes stats
+        Ok(conn)
     }
 }
