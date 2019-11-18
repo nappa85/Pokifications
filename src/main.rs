@@ -68,7 +68,6 @@ async fn service(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
 
 /// Launch service according to config
 fn main() -> Result<(), ()> {
-    //log4rs::init_file("log4rs.yaml", Default::default()).expect("Unable to init logging");
     env_logger::init();
 
     //retrieve address and port, defaulting if not configured
