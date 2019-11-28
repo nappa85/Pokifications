@@ -427,7 +427,11 @@ impl Message for PokemonMessage {
         }
 
         // imagettftext($mBg, 18, 0, 63, 25, 0x00000000, $f_cal2, strtoupper($p_name));
-        let name = LIST.read().await.get(&self.pokemon.pokemon_id).map(|p| p.name.to_uppercase()).unwrap_or_else(String::new);
+        let name = LIST.read().await.get(&self.pokemon.pokemon_id).map(|p| {
+            // fix nidoran gender
+            let gender = self.pokemon.gender.get_glyph();
+            p.name.replace(&gender, "").to_uppercase()
+        }).unwrap_or_else(String::new);
         imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale18, &f_cal2, &name);
 
         if let Some(id) = self.pokemon.form {

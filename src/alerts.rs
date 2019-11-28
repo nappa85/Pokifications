@@ -7,8 +7,10 @@ use tokio::spawn;
 
 use chrono::{Local/*, Timelike*/};
 
+use log::debug;
+
 use crate::config::CONFIG;
-use crate::lists::CITIES;
+use crate::lists::{CITIES, CITYSTATS};
 use crate::telegram::send_message;
 
 const INTERVAL: i64 = 900;
@@ -22,19 +24,29 @@ pub fn init() {
                     let timestamp = now.timestamp();
 
                     let mut alerts = Vec::new();
-                    for (_, city) in CITIES.read().await.iter() {
-                        let lock = city.stats.read().await;
+                    for (city_id, stats) in CITYSTATS.read().await.iter() {
+                        let lock = CITIES.read().await;
+                        let city = match lock.get(city_id) {
+                            Some(c) => c,
+                            None => continue,
+                        };
 
                         let mut city_alerts = Vec::new();
-                        check_timestamp(&lock.last_pokemon, timestamp, "Pokémom", &mut city_alerts);
+                        if let Some(elapsed) = check_timestamp(&stats.last_pokemon, timestamp, "Pokémon", &mut city_alerts) {
+                            debug!("City {} had last Pokémon scan {} seconds ago", city.name, elapsed);
+                        }
                         if city.scan_iv > 0 {
-                            check_timestamp(&lock.last_iv, timestamp, "IV", &mut city_alerts);
+                            if let Some(elapsed) = check_timestamp(&stats.last_iv, timestamp, "IV", &mut city_alerts) {
+                                debug!("City {} had last IV scan {} seconds ago", city.name, elapsed);
+                            }
                         }
                         // if now.hour() >= 6 && now.hour() <= 20 {
-                        //     check_timestamp(&lock.last_raid, timestamp, "Raid", &mut city_alerts);
-                        //     check_timestamp(&lock.last_invasion, timestamp, "Invasioni", &mut city_alerts);
+                        //     check_timestamp(&stats.last_raid, timestamp, "Raid", &mut city_alerts);
+                        //     check_timestamp(&stats.last_invasion, timestamp, "Invasioni", &mut city_alerts);
                         // }
-                        check_timestamp(&lock.last_quest, timestamp - 86400, "Quest", &mut city_alerts);
+                        if let Some(elapsed) = check_timestamp(&stats.last_quest, timestamp - 86400, "Quest", &mut city_alerts) {
+                            debug!("City {} had last Quest scan {} seconds ago", city.name, elapsed);
+                        }
 
                         if !city_alerts.is_empty() {
                             alerts.push(format!("@{} la zona {} non ha scansioni:\n{}", city.admins_users, city.name, city_alerts.join("\n")));
@@ -49,7 +61,7 @@ pub fn init() {
     });
 }
 
-fn check_timestamp(var: &Option<i64>, check: i64, descr: &str, alerts: &mut Vec<String>) {
+fn check_timestamp(var: &Option<i64>, check: i64, descr: &str, alerts: &mut Vec<String>) -> Option<i64> {
     if let Some(timestamp) = var {
         let elapsed = check - timestamp;
 
@@ -57,6 +69,11 @@ fn check_timestamp(var: &Option<i64>, check: i64, descr: &str, alerts: &mut Vec<
         if elapsed > INTERVAL && (elapsed % 3600) <= INTERVAL {
             alerts.push(format!("* {} da {}", descr, format_time(elapsed)));
         }
+
+        Some(elapsed)
+    }
+    else {
+        None
     }
 }
 

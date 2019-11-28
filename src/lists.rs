@@ -31,6 +31,8 @@ pub static GRUNTS: Lazy<Arc<RwLock<HashMap<u8, GruntType>>>> = Lazy::new(|| Arc:
 
 pub static CITIES: Lazy<Arc<RwLock<HashMap<u16, City>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 
+pub static CITYSTATS: Lazy<Arc<RwLock<HashMap<u16, CityStats>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
+
 pub struct Pokemon {
     pub id: u16,
     pub name: String,
@@ -55,7 +57,6 @@ pub struct City {
     pub scadenza: i64,
     pub scan_iv: u8,
     pub admins_users: String,
-    pub stats: Arc<RwLock<CityStats>>,
 }
 
 #[derive(Default)]
@@ -142,27 +143,32 @@ async fn load_cities() -> Result<(), ()> {
     cities.clear();
     res.for_each_and_drop(|ref mut row| {
         let id = row.take("id").expect("MySQL city.id error");
+        let name = row.take("name").expect("MySQL city.name error");
         let coords: String = row.take("coordinates").expect("MySQL city.coordinates encoding error");
+
         let mut poly: Vec<[f64; 2]> = Vec::new();
         for (i, c) in coords.replace("(", "").replace(")", "").split(",").enumerate() {
-            let f: f64 = c.trim().parse().expect("Coordinate parse error");
-            if i % 2 == 0 {
-                poly.push([f, 0_f64]);
-            }
-            else {
-                let len = poly.len();
-                poly[len - 1][1] = f;
+            match c.trim().parse() {
+                Ok(f) => {
+                    if i % 2 == 0 {
+                        poly.push([f, 0_f64]);
+                    }
+                    else {
+                        let len = poly.len();
+                        poly[len - 1][1] = f;
+                    }
+                },
+                Err(e) => error!("Coordinate parse error for city {}: {}", name, e),
             }
         }
 
         cities.insert(id, City {
             id,
-            name: row.take("name").expect("MySQL city.name error"),
+            name,
             coordinates: Polygon::new(poly.into(), vec![]),
             scadenza: row.take("scadenza").expect("MySQL city.scadenza error"),
             scan_iv: row.take("monitor").expect("MySQL city.monitor error"),
             admins_users: row.take("admins_users").expect("MySQL city.admins_users error"),
-            stats: Arc::new(RwLock::new(CityStats::default())),
         });
     }).await.map_err(|e| error!("MySQL for_each error: {}", e))?;
 

@@ -27,7 +27,7 @@ mod message;
 use message::{Message, WeatherMessage};
 
 use crate::entities::{Request, Weather, Watch};
-use crate::lists::CITIES;
+use crate::lists::{CITIES, CITYSTATS, CityStats};
 use crate::config::CONFIG;
 use crate::db::MYSQL;
 use crate::telegram::send_message;
@@ -283,20 +283,21 @@ impl BotConfigs {
                 let point: Point<f64> = (p.latitude, p.longitude).into();
 
                 spawn(async move {
-                    for (_, city) in CITIES.read().await.iter() {
+                    for (id, city) in CITIES.read().await.iter() {
                         if city.coordinates.within(&point) {
                             let update = {
-                                let lock = city.stats.read().await;
-                                (!iv && lock.last_pokemon != Some(now)) || (iv && lock.last_iv != Some(now))
+                                let lock = CITYSTATS.read().await;
+                                lock.get(id).map(|lock| (!iv && lock.last_pokemon != Some(now)) || (iv && lock.last_iv != Some(now)))
                             };
 
-                            if update {
-                                let mut lock = city.stats.write().await;
+                            if update.is_none() || update == Some(true) {
+                                let mut lock = CITYSTATS.write().await;
+                                let entry = lock.entry(*id).or_insert_with(|| CityStats::default());
                                 if iv {
-                                    lock.last_iv = Some(now);
+                                    entry.last_iv = Some(now);
                                 }
                                 else {
-                                    lock.last_pokemon = Some(now);
+                                    entry.last_pokemon = Some(now);
                                 }
                             }
 
@@ -309,16 +310,17 @@ impl BotConfigs {
                 let point: Point<f64> = (r.latitude, r.longitude).into();
 
                 spawn(async move {
-                    for (_, city) in CITIES.read().await.iter() {
+                    for (id, city) in CITIES.read().await.iter() {
                         if city.coordinates.within(&point) {
                             let update = {
-                                let lock = city.stats.read().await;
-                                lock.last_raid != Some(now)
+                                let lock = CITYSTATS.read().await;
+                                lock.get(id).map(|lock| lock.last_raid != Some(now))
                             };
 
-                            if update {
-                                let mut lock = city.stats.write().await;
-                                lock.last_raid = Some(now);
+                            if update.is_none() || update == Some(true) {
+                                let mut lock = CITYSTATS.write().await;
+                                let entry = lock.entry(*id).or_insert_with(|| CityStats::default());
+                                entry.last_raid = Some(now);
                             }
 
                             break;
@@ -330,16 +332,17 @@ impl BotConfigs {
                 let point: Point<f64> = (i.latitude, i.longitude).into();
 
                 spawn(async move {
-                    for (_, city) in CITIES.read().await.iter() {
+                    for (id, city) in CITIES.read().await.iter() {
                         if city.coordinates.within(&point) {
                             let update = {
-                                let lock = city.stats.read().await;
-                                lock.last_invasion != Some(now)
+                                let lock = CITYSTATS.read().await;
+                                lock.get(id).map(|lock| lock.last_invasion != Some(now))
                             };
 
-                            if update {
-                                let mut lock = city.stats.write().await;
-                                lock.last_invasion = Some(now);
+                            if update.is_none() || update == Some(true) {
+                                let mut lock = CITYSTATS.write().await;
+                                let entry = lock.entry(*id).or_insert_with(|| CityStats::default());
+                                entry.last_invasion = Some(now);
                             }
 
                             break;
@@ -351,16 +354,17 @@ impl BotConfigs {
                 let point: Point<f64> = (q.latitude, q.longitude).into();
 
                 spawn(async move {
-                    for (_, city) in CITIES.read().await.iter() {
+                    for (id, city) in CITIES.read().await.iter() {
                         if city.coordinates.within(&point) {
                             let update = {
-                                let lock = city.stats.read().await;
-                                lock.last_quest != Some(now)
+                                let lock = CITYSTATS.read().await;
+                                lock.get(id).map(|lock| lock.last_quest != Some(now))
                             };
 
-                            if update {
-                                let mut lock = city.stats.write().await;
-                                lock.last_quest = Some(now);
+                            if update.is_none() || update == Some(true) {
+                                let mut lock = CITYSTATS.write().await;
+                                let entry = lock.entry(*id).or_insert_with(|| CityStats::default());
+                                entry.last_quest = Some(now);
                             }
 
                             break;
