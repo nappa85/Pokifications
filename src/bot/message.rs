@@ -927,11 +927,9 @@ impl Message for WeatherMessage {
     }
 
     async fn get_caption(&self) -> Result<String, ()> {
-        Ok(format!("{} Meteo cambiato nella cella\n{}\nvecchio: {:#?}\nnuovo: {:#?}",
+        Ok(format!("{} Meteo cambiato nella cella\n{}",
             String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?,
-            self.old_weather.diff(&self.new_weather),
-            self.old_weather,
-            self.new_weather))
+            self.old_weather.diff(&self.new_weather)))
     }
 
     async fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
