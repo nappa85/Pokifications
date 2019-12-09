@@ -7,8 +7,6 @@ use tokio::spawn;
 
 use chrono::{Local/*, Timelike*/};
 
-use log::debug;
-
 use crate::config::CONFIG;
 use crate::lists::{CITIES, CITYSTATS};
 use crate::telegram::send_message;
@@ -32,21 +30,15 @@ pub fn init() {
                         };
 
                         let mut city_alerts = Vec::new();
-                        if let Some(elapsed) = check_timestamp(&stats.last_pokemon, timestamp, "Pokémon", &mut city_alerts) {
-                            debug!("City {} had last Pokémon scan {} seconds ago", city.name, elapsed);
-                        }
+                        check_timestamp(&stats.last_pokemon, timestamp, "Pokémon", &mut city_alerts);
                         if city.scan_iv > 0 {
-                            if let Some(elapsed) = check_timestamp(&stats.last_iv, timestamp, "IV", &mut city_alerts) {
-                                debug!("City {} had last IV scan {} seconds ago", city.name, elapsed);
-                            }
+                            check_timestamp(&stats.last_iv, timestamp, "IV", &mut city_alerts);
                         }
                         // if now.hour() >= 6 && now.hour() <= 20 {
                         //     check_timestamp(&stats.last_raid, timestamp, "Raid", &mut city_alerts);
                         //     check_timestamp(&stats.last_invasion, timestamp, "Invasioni", &mut city_alerts);
                         // }
-                        if let Some(elapsed) = check_timestamp(&stats.last_quest, timestamp - 86400, "Quest", &mut city_alerts) {
-                            debug!("City {} had last Quest scan {} seconds ago", city.name, elapsed);
-                        }
+                        check_timestamp(&stats.last_quest, timestamp - 86400, "Quest", &mut city_alerts);
 
                         if !city_alerts.is_empty() {
                             alerts.push(format!("@{} la zona {} non ha scansioni:\n{}", city.admins_users, city.name, city_alerts.join("\n")));
@@ -61,7 +53,7 @@ pub fn init() {
     });
 }
 
-fn check_timestamp(var: &Option<i64>, check: i64, descr: &str, alerts: &mut Vec<String>) -> Option<i64> {
+fn check_timestamp(var: &Option<i64>, check: i64, descr: &str, alerts: &mut Vec<String>) {
     if let Some(timestamp) = var {
         let elapsed = check - timestamp;
 
@@ -69,11 +61,6 @@ fn check_timestamp(var: &Option<i64>, check: i64, descr: &str, alerts: &mut Vec<
         if elapsed > INTERVAL && (elapsed % 3600) <= INTERVAL {
             alerts.push(format!("* {} da {}", descr, format_time(elapsed)));
         }
-
-        Some(elapsed)
-    }
-    else {
-        None
     }
 }
 

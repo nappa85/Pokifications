@@ -194,7 +194,7 @@ impl BotConfigs {
                         }
 
                         if reference_weather.as_ref() != Some(&weather) {
-                            info!("Weather watch has seend a weather change");
+                            info!("Weather watch has seen a weather change");
                             let old_weather = reference_weather.take();
                             *reference_weather = Some(weather.clone());
 
@@ -202,7 +202,7 @@ impl BotConfigs {
                             let message = WeatherMessage {
                                 old_weather: old_weather.unwrap(),
                                 new_weather: weather.clone(),
-                                position: Some(watch.point.x_y()),
+                                position: watch.point.x_y(),
                                 debug: None,
                             };
 
@@ -210,7 +210,9 @@ impl BotConfigs {
                                 let lock = BOT_CONFIGS.read().await;
                                 if let Some(l) = lock.get(&chat_id).map(|c| c.more.l.clone()) {
                                     if let Ok(file_id) = message.prepare(Local::now()).await {
-                                        message.send(&chat_id, file_id, l.as_str()).await.ok();
+                                        message.send(&chat_id, file_id, l.as_str()).await
+                                            .map_err(|_| error!("Error sending weather notification"))
+                                            .ok();
                                     }
                                 }
                             });

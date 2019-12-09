@@ -4,7 +4,7 @@ use serde::{Deserialize, Deserializer};
 
 use serde_json::value::Value;
 
-use geo::{LineString, Point};
+use geo::{LineString, Polygon, Point};
 
 #[derive(Clone, Debug, Deserialize)]
 // #[serde(deny_unknown_fields)]
@@ -403,7 +403,8 @@ pub struct Weather {
     pub latitude: f64,
     pub cloud_level: u8,
     pub severity: u8,
-    pub polygon: LineString<f64>,
+    #[serde(deserialize_with = "deserialize_polygon")]
+    pub polygon: Polygon<f64>,
     pub special_effect_level: u8,
     pub longitude: f64,
     pub id: u64,
@@ -415,6 +416,13 @@ pub struct Weather {
     pub updated: u8,
     pub gameplay_condition: u8,
     pub wind_level: u8
+}
+
+fn deserialize_polygon<'de, D>(data: D) -> Result<Polygon<f64>, D::Error>
+where
+	D: Deserializer<'de>,
+{
+    Ok(Polygon::new(LineString::deserialize(data)?, vec![]))
 }
 
 impl Weather {

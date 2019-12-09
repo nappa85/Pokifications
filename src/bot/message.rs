@@ -906,24 +906,18 @@ impl Message for InvasionMessage {
 pub struct WeatherMessage {
     pub old_weather: Weather,
     pub new_weather: Weather,
-    pub position: Option<(f64, f64)>,
+    pub position: (f64, f64),
     pub debug: Option<String>,
 }
 
 #[async_trait]
 impl Message for WeatherMessage {
     fn get_latitude(&self) -> f64 {
-        match self.position {
-            Some((lat, _)) => lat,
-            None => self.new_weather.latitude,
-        }
+        self.position.0
     }
 
     fn get_longitude(&self) -> f64 {
-        match self.position {
-            Some((_, lon)) => lon,
-            None => self.new_weather.longitude,
-        }
+        self.position.1
     }
 
     async fn get_caption(&self) -> Result<String, ()> {
