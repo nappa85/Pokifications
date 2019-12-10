@@ -1,7 +1,7 @@
 use std::f64::consts::PI;
 use std::collections::HashMap;
 
-use serde::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize, Deserializer, de::Error as _};
 
 use serde_json::Value as JsonValue;
 
@@ -617,7 +617,26 @@ pub struct BotRaid {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BotPkmn {
+    #[serde(deserialize_with = "deserialize_list")]
     pub l: HashMap<String, Vec<u8>>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum RaidList {
+    Map(HashMap<String, Vec<u8>>),
+    Array(Vec<JsonValue>),
+}
+
+fn deserialize_list<'de, D>(data: D) -> Result<HashMap<String, Vec<u8>>, D::Error>
+where
+	D: Deserializer<'de>,
+{
+    match RaidList::deserialize(data)? {
+        RaidList::Map(m) => Ok(m),
+        RaidList::Array(v) if v.is_empty() => Ok(HashMap::new()),
+        _ => Err(D::Error::custom("invalid Pokémon list")),
+    }
 }
 
 impl BotPkmn {
