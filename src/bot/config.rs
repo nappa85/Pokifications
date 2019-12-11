@@ -199,7 +199,7 @@ impl BotConfig {
         }
         else {
             // $pkmn_rad = ValMinMax($locs["p"][2], 0.1, MAX_DISTANCE);
-            let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(&self.locs.p[2])?).max(0.1);
+            let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &self.locs.p[2]))?).max(0.1);
             debug.push_str(&format!("Distanza standard per Pokémon inferiore a {:.2} km", rad));
             rad
         };
@@ -304,7 +304,7 @@ impl BotConfig {
         }
 
         // $raid_rad = ValMinMax($locs["r"][2], 0.1, MAX_DISTANCE);
-        let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(&self.locs.r[2])?).max(0.1);
+        let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &self.locs.r[2]))?).max(0.1);
 
         let mut debug = format!("Scansione avvenuta alle {}\n", now.format("%T").to_string());
         let dist = BotLocs::calc_dist(loc, pos)?;
@@ -380,7 +380,7 @@ impl BotConfig {
         let loc = self.locs.get_invs_settings()?;
         let pos = (input.latitude, input.longitude);
 
-        let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(&loc[2])?).max(0.1);
+        let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &loc[2]))?).max(0.1);
 
         let mut debug = format!("Scansione avvenuta alle {}\n", now.format("%T").to_string());
         let dist = BotLocs::calc_dist(loc, pos)?;
@@ -442,7 +442,7 @@ impl BotConfig {
         let loc = self.locs.get_invs_settings()?;
         let pos = (input.latitude, input.longitude);
 
-        let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(&loc[2])?).max(0.1);
+        let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &loc[2]))?).max(0.1);
 
         let mut debug = format!("Scansione avvenuta alle {}\n", now.format("%T").to_string());
         let dist = BotLocs::calc_dist(loc, pos)?;
