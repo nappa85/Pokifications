@@ -1,17 +1,13 @@
-// use std::fs::{File, OpenOptions};
-// use std::io::{Read, Write};
 use std::path::Path;
-// use std::time::{Instant, Duration};
 use std::time::Duration;
 
-// use tokio::timer::Delay;
-use tokio::future::FutureExt;
+use futures_util::stream::TryStreamExt;
+
+use tokio::time::timeout;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use mysql_async::{prelude::Queryable, Conn};
-
-use futures_util::try_stream::TryStreamExt;
 
 use hyper::Client;
 use hyper_tls::HttpsConnector;
@@ -140,14 +136,14 @@ pub trait Message {
         let m_link = format!("https://maps.googleapis.com/maps/api/staticmap?center={:.3},{:.3}&zoom=14&size=280x101&maptype=roadmap&markers={:.3},{:.3}&key={}", self.get_latitude(), self.get_longitude(), self.get_latitude(), self.get_longitude(), CONFIG.google.maps_key)
             .parse()
             .map_err(|e| error!("Error building Google URI: {}", e))?;
-        let https = HttpsConnector::new().unwrap();
+        let https = HttpsConnector::new();
         let future = Client::builder().build::<_, hyper::Body>(https).get(m_link);
         let res = match CONFIG.google.timeout {
-                Some(timeout) => future.timeout(Duration::from_secs(timeout)).await.map_err(|e| error!("timeout calling google maps: {}", e))?,
+                Some(t) => timeout(Duration::from_secs(t), future).await.map_err(|e| error!("timeout calling google maps: {}", e))?,
                 None => future.await,
             }.map_err(|e| error!("error calling google maps: {}", e))?;
 
-        let chunks = res.into_body().try_concat().await.map_err(|e| error!("error reading google maps response: {}", e))?;
+        let buf = res.into_body().map_ok(|c| c.to_vec()).try_concat().await.map_err(|e| error!("error reading google maps response: {}", e))?;
 
         let mut file = OpenOptions::new()
             .write(true)
@@ -155,7 +151,6 @@ pub trait Message {
             .open(&map_path_str)
             .await
             .map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
-        let buf = chunks.to_vec();
         file.write_all(&buf).await.map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
         
         image::load_from_memory_with_format(&buf, image::ImageFormat::PNG)
@@ -532,7 +527,7 @@ if chat_id == "25900594" || chat_id == "112086777" || chat_id == "9862788" || ch
                 (Some(_), Some(_), Some(_), Some(a)) => {
                     a.push(json!([{
                         "text": format!("{} Avvisami se cambia il Meteo", String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?),
-                        "callback_data": format!("watch|{}|{}|{}", lat, lon, self.pokemon.disappear_time)
+                        "callback_data": format!("watch|{}|{}|{}|{}", lat, lon, self.pokemon.disappear_time, self.pokemon.spawnpoint_id)
                     }]));
                 },
                 _ => {},
@@ -904,8 +899,8 @@ impl Message for InvasionMessage {
 
 #[derive(Debug)]
 pub struct WeatherMessage {
-    pub old_weather: Weather,
-    pub new_weather: Weather,
+    pub old_weather: Option<Weather>,
+    pub new_weather: Option<Weather>,
     pub position: (f64, f64),
     pub debug: Option<String>,
 }
@@ -923,7 +918,10 @@ impl Message for WeatherMessage {
     async fn get_caption(&self) -> Result<String, ()> {
         Ok(format!("{} Meteo cambiato nella cella:{}",
             String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?,
-            self.old_weather.diff(&self.new_weather)))
+            match (self.old_weather.as_ref(), self.new_weather.as_ref()) {
+                (Some(old), Some(new)) => old.diff(new),
+                _ => String::from("\nSTESSO SPAWNPOINT_ID!!!"),
+            }))
     }
 
     async fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {

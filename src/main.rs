@@ -22,7 +22,6 @@ use hyper::service::{make_service_fn, service_fn};
 use futures_util::TryStreamExt;
 
 use tokio::spawn;
-use tokio::runtime::{Runtime, Builder};
 // use tokio::fs::File;
 // use tokio::prelude::*;
 
@@ -38,8 +37,7 @@ use log::{info, error};
 // }
 
 async fn parse(now: DateTime<Local>, req: Request<Body>) -> Result<(), ()> {
-    let chunks = req.into_body().try_concat().await.map_err(|e| error!("concat error: {}", e))?;
-    let bytes = chunks.to_vec();
+    let bytes = req.into_body().map_ok(|c| c.to_vec()).try_concat().await.map_err(|e| error!("concat error: {}", e))?;
     // let bytes2 = bytes.clone();
 
     // spawn(async move {
@@ -67,7 +65,8 @@ async fn service(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
 }
 
 /// Launch service according to config
-fn main() -> Result<(), ()> {
+#[tokio::main]
+async fn main() -> Result<(), ()> {
     env_logger::init();
 
     //retrieve address and port, defaulting if not configured
@@ -86,30 +85,14 @@ fn main() -> Result<(), ()> {
 
     info!("Starting webserver at {}", addr);//debug
 
-    let runtime = match config::CONFIG.threads {
-        Some(ref threads) => {
-            let mut runtime_builder = Builder::new();
-            runtime_builder.core_threads(threads.min)
-                .blocking_threads(threads.max)
-                .build()
-                .map_err(|e| error!("Threadpool build error: {}", e))?
-        },
-        None => Runtime::new().map_err(|e| error!("Runtime build error: {}", e))?,
-    };
-
-    runtime.spawn(async move {
-        lists::init();
-        alerts::init();
-        if bot::BotConfigs::init().await.is_ok() {
-            // bind and serve...
-            Server::bind(&addr).serve(service).await.map_err(|e| {
-                error!("server error: {}", e);
-            }).ok();
-        }
-    });
-
-    // wait for completion
-    runtime.shutdown_on_idle();
+    lists::init();
+    alerts::init();
+    if bot::BotConfigs::init().await.is_ok() {
+        // bind and serve...
+        Server::bind(&addr).serve(service).await.map_err(|e| {
+            error!("server error: {}", e);
+        }).ok();
+    }
 
     Ok(())
 }

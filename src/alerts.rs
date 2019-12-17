@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use futures_util::stream::StreamExt;
 
-use tokio::timer::Interval;
+use tokio::time::interval;
 use tokio::spawn;
 
 use chrono::{Local/*, Timelike*/};
@@ -16,7 +16,7 @@ const INTERVAL: i64 = 900;
 pub fn init() {
     spawn(async {
         if let (Some(bot_token), Some(chat_id)) = (CONFIG.telegram.alert_bot_token.as_ref(), CONFIG.telegram.alert_chat.as_ref()) {
-            Interval::new_interval(Duration::from_secs(INTERVAL as u64))
+            interval(Duration::from_secs(INTERVAL as u64))
                 .for_each(|_| async {
                     let now = Local::now();
                     let timestamp = now.timestamp();

@@ -501,6 +501,7 @@ impl PartialEq for Weather {
 #[derive(Debug, Deserialize)]
 pub struct Watch {
     pub user_id: String,
+    pub spawnpoint_id: String,
     pub point: Point<f64>,
     pub expire: i64,
     #[serde(skip_deserializing)]
@@ -522,6 +523,7 @@ impl Clone for Watch {
     fn clone(&self) -> Self {
         Watch {
             user_id: self.user_id.clone(),
+            spawnpoint_id: self.spawnpoint_id.clone(),
             point: self.point,
             expire: self.expire,
             reference_weather: UnsafeCell::new(None),

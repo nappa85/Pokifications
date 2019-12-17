@@ -1,4 +1,4 @@
-use std::time::{Instant, Duration};
+use std::time::Duration;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -10,7 +10,7 @@ use mysql_async::prelude::Queryable;
 
 use async_std::sync::RwLock;
 
-use tokio::{spawn, timer::Interval};
+use tokio::{spawn, time::interval};
 
 use once_cell::sync::Lazy;
 
@@ -177,7 +177,7 @@ async fn load_cities() -> Result<(), ()> {
 
 pub fn init() {
     spawn(async {
-        Interval::new(Instant::now(), Duration::from_secs(1800))
+        interval(Duration::from_secs(1800))
             .for_each(|_| async {
                 join_all((0_u8..5_u8).map(|i| async move {
                     match i {

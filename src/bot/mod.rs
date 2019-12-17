@@ -1,13 +1,12 @@
 use std::sync::Arc;
 use std::collections::HashMap;
-use std::time::{Instant, Duration};
+use std::time::Duration;
 
 use async_std::sync::RwLock;
 
 use futures_util::stream::StreamExt;
 
-use tokio::timer::delay;
-use tokio::{spawn, timer::Interval};
+use tokio::{spawn, time::interval};
 
 use mysql_async::{from_row, prelude::Queryable};
 
@@ -49,7 +48,7 @@ impl BotConfigs {
         let mut res = BOT_CONFIGS.write().await;
         Self::load(&mut res, None).await?;
         spawn(async {
-            Interval::new_interval(Duration::from_secs(60)).for_each(|_| async {
+            interval(Duration::from_secs(60)).for_each(|_| async {
                 let user_ids = {
                     let lock = BOT_CONFIGS.read().await;
                     let now = Some(Local::now().timestamp());
@@ -64,7 +63,6 @@ impl BotConfigs {
     }
 
     pub async fn reload(user_ids: Vec<String>) -> Result<(), ()> {
-        delay(Instant::now() + Duration::from_secs(1)).await;
         let mut lock = BOT_CONFIGS.write().await;
         let res = Self::load(&mut lock, Some(user_ids.clone())).await?;
         for (user_id, result) in res {
@@ -200,8 +198,8 @@ impl BotConfigs {
 
                             let chat_id = watch.user_id.clone();
                             let message = WeatherMessage {
-                                old_weather: old_weather.unwrap(),
-                                new_weather: weather.clone(),
+                                old_weather: old_weather,
+                                new_weather: Some(weather.clone()),
                                 position: watch.point.x_y(),
                                 debug: None,
                             };
@@ -246,7 +244,34 @@ impl BotConfigs {
                     });
                     continue;
                 },
-                Request::Pokemon(_) | Request::Raid(_) | Request::Invasion(_) | Request::Quest(_) => {
+                Request::Pokemon(ref p) => {
+                    let id = p.spawnpoint_id.clone();
+                    let pos = (p.latitude, p.longitude);
+                    spawn(async move {
+                        let lock = WATCHES.read().await;
+                        for watch in lock.iter() {
+                            if watch.spawnpoint_id == id {
+                                let message = WeatherMessage {
+                                    old_weather: None,
+                                    new_weather: None,
+                                    position: pos,
+                                    debug: None,
+                                };
+
+                                let lock = BOT_CONFIGS.read().await;
+                                if let Some(l) = lock.get(&watch.user_id).map(|c| c.more.l.clone()) {
+                                    if let Ok(file_id) = message.prepare(Local::now()).await {
+                                        message.send(&watch.user_id, file_id, l.as_str()).await
+                                            .map_err(|_| error!("Error sending weather notification"))
+                                            .ok();
+                                    }
+                                }
+                            }
+                        }
+                    });
+                    BotConfigs::update_city_stats(&input, now.timestamp());
+                },
+                Request::Raid(_) | Request::Invasion(_) | Request::Quest(_) => {
                     BotConfigs::update_city_stats(&input, now.timestamp());
                 },
                 _ => debug!("Unmanaged webhook: {:?}", input),

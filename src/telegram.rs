@@ -1,9 +1,9 @@
 use std::time::Duration;
 use std::io::Write;
 
-use futures_util::try_stream::TryStreamExt;
+use futures_util::stream::TryStreamExt;
 
-use tokio::future::FutureExt;
+use tokio::time::timeout;
 
 use hyper::{Body, Client, Request};
 use hyper_tls::HttpsConnector;
@@ -29,10 +29,10 @@ pub enum Image {
 }
 
 async fn call_telegram(req: Request<Body>) -> Result<String, CallResult> {
-    let https = HttpsConnector::new().unwrap();
+    let https = HttpsConnector::new();
     let future = Client::builder().build::<_, Body>(https).request(req);
     let res = match CONFIG.telegram.timeout {
-        Some(timeout) => future.timeout(Duration::from_secs(timeout)).await.map_err(|e| {
+        Some(t) => timeout(Duration::from_secs(t), future).await.map_err(|e| {
             error!("timeout calling Telegram: {}", e);
             CallResult::Empty
         })?,
@@ -47,12 +47,12 @@ async fn call_telegram(req: Request<Body>) -> Result<String, CallResult> {
 
     let debug = format!("error response from Telegram: {:?}", res);
 
-    let chunks = res.into_body().try_concat().await.map_err(|e| {
+    let chunks = res.into_body().map_ok(|c| c.to_vec()).try_concat().await.map_err(|e| {
         error!("error while reading {}: {}", debug, e);
         CallResult::Empty
     })?;
 
-    let body = String::from_utf8(chunks.to_vec()).map_err(|e| {
+    let body = String::from_utf8(chunks).map_err(|e| {
         error!("error while encoding {}: {}", debug, e);
         CallResult::Empty
     })?;
