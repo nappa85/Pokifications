@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::collections::HashMap;
 use std::time::Duration;
 
-use async_std::sync::RwLock;
+use async_std::sync::{RwLock, Mutex};
 
 use futures_util::stream::StreamExt;
 
@@ -10,7 +10,7 @@ use tokio::{spawn, time::interval};
 
 use mysql_async::{from_row, prelude::Queryable};
 
-use chrono::{Local, DateTime};
+use chrono::{Local, DateTime, Timelike, offset::TimeZone};
 
 use geo::Point;
 
@@ -32,7 +32,7 @@ use crate::db::MYSQL;
 use crate::telegram::send_message;
 
 static BOT_CONFIGS: Lazy<Arc<RwLock<HashMap<String, config::BotConfig>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
-static WATCHES: Lazy<Arc<RwLock<Vec<Watch>>>> = Lazy::new(|| Arc::new(RwLock::new(Vec::new())));
+static WATCHES: Lazy<Arc<Mutex<Vec<Watch>>>> = Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
 
 enum LoadResult {
     Ok,
@@ -151,7 +151,7 @@ impl BotConfigs {
     }
 
     async fn add_watches(watch: Watch) {
-        let mut lock = WATCHES.write().await;
+        let mut lock = WATCHES.lock().await;
         let now = Local::now().timestamp();
 
         // remove expired watches
@@ -161,11 +161,11 @@ impl BotConfigs {
                 remove.push(index);
             }
         }
-        for index in remove.iter().rev() {
-            lock.remove(*index);
+        for index in remove.into_iter().rev() {
+            lock.remove(index);
         }
 
-        if watch.expire > now {
+        if watch.expire > now && Local::now().hour() != Local.timestamp(watch.expire, 0).hour() {
             if !lock.contains(&watch) {
                 //TODO: add to DB
                 lock.push(watch);
@@ -174,51 +174,58 @@ impl BotConfigs {
     }
 
     async fn submit_weather(weather: Weather) {
-        let lock = WATCHES.read().await;
-        let now = Local::now().timestamp();
+        let mut lock = WATCHES.lock().await;
+        let now = Local::now();
+        let timestamp = now.timestamp();
+        let hour = now.hour();
 
-        for watch in lock.iter() {
-            if watch.expire < now {
+        let mut remove = Vec::new();
+        let mut fire = Vec::new();
+        for (index, watch) in lock.iter_mut().enumerate() {
+            if watch.expire < timestamp {
+                remove.push(index);
                 continue;
             }
 
             if weather.polygon.within(&watch.point) {
-                match unsafe { watch.reference_weather.get().as_mut() } {
-                    Some(reference_weather) => {
-                        if reference_weather.is_none() {
-                            info!("First weather webhook for weather watch");
-                            *reference_weather = Some(weather.clone());
-                            continue;
-                        }
+                if watch.reference_weather.is_none() {
+                    if hour != Local.timestamp(watch.expire, 0).hour() {
+                        watch.reference_weather = Some(weather.clone());
+                    }
+                    else {
+                        remove.push(index);
+                    }
+                    continue;
+                }
 
-                        if reference_weather.as_ref() != Some(&weather) {
-                            info!("Weather watch has seen a weather change");
-                            let old_weather = reference_weather.take();
-                            *reference_weather = Some(weather.clone());
-
-                            let chat_id = watch.user_id.clone();
-                            let message = WeatherMessage {
-                                old_weather: old_weather,
-                                new_weather: Some(weather.clone()),
-                                position: watch.point.x_y(),
-                                debug: None,
-                            };
-
-                            spawn(async move {
-                                let lock = BOT_CONFIGS.read().await;
-                                if let Some(l) = lock.get(&chat_id).map(|c| c.more.l.clone()) {
-                                    if let Ok(file_id) = message.prepare(Local::now()).await {
-                                        message.send(&chat_id, file_id, l.as_str()).await
-                                            .map_err(|_| error!("Error sending weather notification"))
-                                            .ok();
-                                    }
-                                }
-                            });
-                        }
-                    },
-                    None => {},
+                if hour == Local.timestamp(watch.expire, 0).hour() {
+                    fire.push(index);
+                    remove.push(index);
                 }
             }
+        }
+
+        for index in fire.into_iter() {
+            let message = WeatherMessage {
+                watch: lock[index].clone(),
+                actual_weather: weather.clone(),
+                debug: None,
+            };
+
+            spawn(async move {
+                let lock = BOT_CONFIGS.read().await;
+                if let Some(l) = lock.get(&message.watch.user_id).map(|c| c.more.l.clone()) {
+                    if let Ok(file_id) = message.prepare(Local::now()).await {
+                        message.send(&message.watch.user_id, file_id, l.as_str()).await
+                            .map_err(|_| error!("Error sending weather notification"))
+                            .ok();
+                    }
+                }
+            });
+        }
+
+        for index in remove.into_iter().rev() {
+            lock.remove(index);
         }
     }
 
@@ -244,34 +251,39 @@ impl BotConfigs {
                     });
                     continue;
                 },
-                Request::Pokemon(ref p) => {
-                    let id = p.spawnpoint_id.clone();
-                    let pos = (p.latitude, p.longitude);
-                    spawn(async move {
-                        let lock = WATCHES.read().await;
-                        for watch in lock.iter() {
-                            if watch.spawnpoint_id == id {
-                                let message = WeatherMessage {
-                                    old_weather: None,
-                                    new_weather: None,
-                                    position: pos,
-                                    debug: None,
-                                };
+                // Request::Pokemon(ref p) => {
+                //     let id = p.spawnpoint_id.clone();
+                //     let pos = (p.latitude, p.longitude);
+                //     spawn(async move {
+                //         let lock = WATCHES.read().await;
+                //         let now = Local::now().timestamp();
+                //         for watch in lock.iter() {
+                //             if watch.expire < now {
+                //                 continue;
+                //             }
 
-                                let lock = BOT_CONFIGS.read().await;
-                                if let Some(l) = lock.get(&watch.user_id).map(|c| c.more.l.clone()) {
-                                    if let Ok(file_id) = message.prepare(Local::now()).await {
-                                        message.send(&watch.user_id, file_id, l.as_str()).await
-                                            .map_err(|_| error!("Error sending weather notification"))
-                                            .ok();
-                                    }
-                                }
-                            }
-                        }
-                    });
-                    BotConfigs::update_city_stats(&input, now.timestamp());
-                },
-                Request::Raid(_) | Request::Invasion(_) | Request::Quest(_) => {
+                //             if watch.spawnpoint_id == id {
+                //                 let message = WeatherMessage {
+                //                     old_weather: None,
+                //                     new_weather: None,
+                //                     position: pos,
+                //                     debug: None,
+                //                 };
+
+                //                 let lock = BOT_CONFIGS.read().await;
+                //                 if let Some(l) = lock.get(&watch.user_id).map(|c| c.more.l.clone()) {
+                //                     if let Ok(file_id) = message.prepare(Local::now()).await {
+                //                         message.send(&watch.user_id, file_id, l.as_str()).await
+                //                             .map_err(|_| error!("Error sending weather notification"))
+                //                             .ok();
+                //                     }
+                //                 }
+                //             }
+                //         }
+                //     });
+                //     BotConfigs::update_city_stats(&input, now.timestamp());
+                // },
+                Request::Pokemon(_) | Request::Raid(_) | Request::Invasion(_) | Request::Quest(_) => {
                     BotConfigs::update_city_stats(&input, now.timestamp());
                 },
                 _ => debug!("Unmanaged webhook: {:?}", input),

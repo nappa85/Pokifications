@@ -23,7 +23,7 @@ use log::error;
 
 use super::BotConfigs;
 
-use crate::entities::{Pokemon, Raid, Pokestop, Gender, Weather, Quest};
+use crate::entities::{Pokemon, Raid, Pokestop, Gender, Weather, Quest, Watch};
 use crate::lists::{LIST, MOVES, FORMS, GRUNTS};
 use crate::config::CONFIG;
 use crate::db::MYSQL;
@@ -347,8 +347,8 @@ impl Message for PokemonMessage {
     }
 
     async fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
-        let now = Local::now();
-        let img_path_str = format!("{}img_sent/poke_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.pokemon.encounter_id, self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new));
+        let timestamp = Local.timestamp(self.pokemon.disappear_time, 0);
+        let img_path_str = format!("{}img_sent/poke_{}_{}_{}.png", CONFIG.images.bot, timestamp.format("%Y%m%d%H").to_string(), self.pokemon.encounter_id, self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new));
 
         let img_path = Path::new(&img_path_str);
         if img_path.exists() {
@@ -520,14 +520,33 @@ impl Message for PokemonMessage {
                     "url": maplink
                 }]]
             });
-if chat_id == "25900594" || chat_id == "112086777" || chat_id == "9862788" || chat_id == "82417031" {//DEBUG
+if chat_id == "25900594" {//DEBUG
+        if Local::now().hour() != Local.timestamp(self.pokemon.disappear_time, 0).hour() {
+            let user_id = chat_id.to_owned();
+            let encounter_id = self.pokemon.encounter_id.clone();
+            let iv = self.iv.map(|iv| iv.floor() as u8);
+            let point = (self.pokemon.latitude, self.pokemon.longitude);
+            let expire = self.pokemon.disappear_time;
+            tokio::spawn(async move {
+                BotConfigs::add_watches(Watch {
+                    user_id,
+                    encounter_id,
+                    iv,
+                    point: point.into(),
+                    expire,
+                    reference_weather: None,
+                }).await;
+            });
+        }
+}
+else if chat_id == "25900594" || chat_id == "112086777" || chat_id == "9862788" || chat_id == "82417031" {
         // watch button available only on crossing-hour spawns
         if Local::now().hour() != Local.timestamp(self.pokemon.disappear_time, 0).hour() {
             match (self.pokemon.individual_attack, self.pokemon.individual_defense, self.pokemon.individual_stamina, keyboard["inline_keyboard"].as_array_mut()) {
                 (Some(_), Some(_), Some(_), Some(a)) => {
                     a.push(json!([{
                         "text": format!("{} Avvisami se cambia il Meteo", String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?),
-                        "callback_data": format!("watch|{}|{}|{}|{}", lat, lon, self.pokemon.disappear_time, self.pokemon.spawnpoint_id)
+                        "callback_data": format!("watch|{}|{}|{}|{}|{}", lat, lon, self.pokemon.disappear_time, self.pokemon.encounter_id, self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new))
                     }]));
                 },
                 _ => {},
@@ -899,35 +918,49 @@ impl Message for InvasionMessage {
 
 #[derive(Debug)]
 pub struct WeatherMessage {
-    pub old_weather: Option<Weather>,
-    pub new_weather: Option<Weather>,
-    pub position: (f64, f64),
+    pub watch: Watch,
+    pub actual_weather: Weather,
     pub debug: Option<String>,
 }
 
 #[async_trait]
 impl Message for WeatherMessage {
     fn get_latitude(&self) -> f64 {
-        self.position.0
+        self.watch.point.x()
     }
 
     fn get_longitude(&self) -> f64 {
-        self.position.1
+        self.watch.point.y()
     }
 
     async fn get_caption(&self) -> Result<String, ()> {
-        Ok(format!("{} Meteo cambiato nella cella:{}",
-            String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?,
-            match (self.old_weather.as_ref(), self.new_weather.as_ref()) {
-                (Some(old), Some(new)) => old.diff(new),
-                _ => String::from("\nSTESSO SPAWNPOINT_ID!!!"),
-            }))
+        let old = self.watch.reference_weather.as_ref().ok_or_else(|| error!("reference_weather is None"))?;
+        if old == &self.actual_weather {
+            Ok(format!("{} Meteo invariato nella cella!",
+                String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?))
+        }
+        else {
+            Ok(format!("{} Meteo cambiato nella cella:{}",
+                String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?,
+                old.diff(&self.actual_weather)))
+        }
     }
 
-    async fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
-        let mut out = Vec::new();
-        map.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting weather map image: {}", e))?;
-        Ok(out)
+    async fn get_image(&self, _: image::DynamicImage) -> Result<Vec<u8>, ()> {
+        let timestamp = Local.timestamp(self.watch.expire, 0);
+        let img_path_str = format!("{}img_sent/poke_{}_{}_{}.png", CONFIG.images.bot, timestamp.format("%Y%m%d%H").to_string(), self.watch.encounter_id, self.watch.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new));
+
+        let img_path = Path::new(&img_path_str);
+        if img_path.exists() {
+            let mut image = File::open(&img_path).await.map_err(|e| error!("error opening pokemon image {}: {}", img_path_str, e))?;
+            let mut bytes = Vec::new();
+            image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading pokemon image {}: {}", img_path_str, e))?;
+            Ok(bytes)
+        }
+        else {
+            error!("pokemon image {} not found", img_path_str);
+            Err(())
+        }
     }
 
     async fn update_stats(&self, conn: Conn) -> Result<Conn, ()> {

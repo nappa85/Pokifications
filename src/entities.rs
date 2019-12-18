@@ -1,4 +1,3 @@
-use std::cell::UnsafeCell;
 
 use serde::{Deserialize, Deserializer};
 
@@ -498,36 +497,25 @@ impl PartialEq for Weather {
 }
 
 /// Meteo watch request
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct Watch {
     pub user_id: String,
-    pub spawnpoint_id: String,
+    pub encounter_id: String,
+    pub iv: Option<u8>,
     pub point: Point<f64>,
     pub expire: i64,
     #[serde(skip_deserializing)]
     #[serde(default)]
-    pub reference_weather: UnsafeCell<Option<Weather>>,
+    pub reference_weather: Option<Weather>,
 }
-
-unsafe impl Sync for Watch {}
 
 impl PartialEq for Watch {
     fn eq(&self, other: &Watch) -> bool {
         self.user_id == other.user_id &&
+            self.encounter_id == other.encounter_id &&
+            self.iv == other.iv &&
             self.point == other.point &&
             self.expire == other.expire
-    }
-}
-
-impl Clone for Watch {
-    fn clone(&self) -> Self {
-        Watch {
-            user_id: self.user_id.clone(),
-            spawnpoint_id: self.spawnpoint_id.clone(),
-            point: self.point,
-            expire: self.expire,
-            reference_weather: UnsafeCell::new(None),
-        }
     }
 }
 
