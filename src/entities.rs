@@ -424,57 +424,57 @@ where
     Ok(Polygon::new(LineString::deserialize(data)?, vec![]))
 }
 
-impl Weather {
-    pub fn diff(&self, other: &Weather) -> String {
-        let mut diff = String::new();
-        // if self.latitude != other.latitude {
-        //     diff.push_str(&format!("\nlatitude changed from {} to {}", self.latitude, other.latitude));
-        // }
-        if self.cloud_level != other.cloud_level {
-            diff.push_str(&format!("\ncloud_level changed from {} to {}", self.cloud_level, other.cloud_level));
-        }
-        if self.severity != other.severity {
-            diff.push_str(&format!("\nseverity changed from {} to {}", self.severity, other.severity));
-        }
-        if self.polygon != other.polygon {
-            diff.push_str(&format!("\npolygon changed from {:?} to {:?}", self.polygon, other.polygon));
-        }
-        if self.special_effect_level != other.special_effect_level {
-            diff.push_str(&format!("\nspecial_effect_level changed from {} to {}", self.special_effect_level, other.special_effect_level));
-        }
-        // if self.longitude != other.longitude {
-        //     diff.push_str(&format!("\nlongitude changed from {} to {}", self.longitude, other.longitude));
-        // }
-        // if self.id != other.id {
-        //     diff.push_str(&format!("\nid changed from {} to {}", self.id, other.id));
-        // }
-        if self.rain_level != other.rain_level {
-            diff.push_str(&format!("\nrain_level changed from {} to {}", self.rain_level, other.rain_level));
-        }
-        if self.fog_level != other.fog_level {
-            diff.push_str(&format!("\nfog_level changed from {} to {}", self.fog_level, other.fog_level));
-        }
-        // if self.wind_direction != other.wind_direction {
-        //     diff.push_str(&format!("\nwind_direction changed from {} to {}", self.wind_direction, other.wind_direction));
-        // }
-        if self.snow_level != other.snow_level {
-            diff.push_str(&format!("\nsnow_level changed from {} to {}", self.snow_level, other.snow_level));
-        }
-        if self.warn_weather != other.warn_weather {
-            diff.push_str(&format!("\nwarn_weather changed from {} to {}", self.warn_weather, other.warn_weather));
-        }
-        if self.updated != other.updated {
-            diff.push_str(&format!("\nupdated changed from {} to {}", self.updated, other.updated));
-        }
-        if self.gameplay_condition != other.gameplay_condition {
-            diff.push_str(&format!("\ngameplay_condition changed from {} to {}", self.gameplay_condition, other.gameplay_condition));
-        }
-        if self.wind_level != other.wind_level {
-            diff.push_str(&format!("\ncloud_level changed from {} to {}", self.wind_level, other.wind_level));
-        }
-        diff
-    }
-}
+// impl Weather {
+//     pub fn diff(&self, other: &Weather) -> String {
+//         let mut diff = String::new();
+//         // if self.latitude != other.latitude {
+//         //     diff.push_str(&format!("\nlatitude changed from {} to {}", self.latitude, other.latitude));
+//         // }
+//         if self.cloud_level != other.cloud_level {
+//             diff.push_str(&format!("\ncloud_level changed from {} to {}", self.cloud_level, other.cloud_level));
+//         }
+//         if self.severity != other.severity {
+//             diff.push_str(&format!("\nseverity changed from {} to {}", self.severity, other.severity));
+//         }
+//         if self.polygon != other.polygon {
+//             diff.push_str(&format!("\npolygon changed from {:?} to {:?}", self.polygon, other.polygon));
+//         }
+//         if self.special_effect_level != other.special_effect_level {
+//             diff.push_str(&format!("\nspecial_effect_level changed from {} to {}", self.special_effect_level, other.special_effect_level));
+//         }
+//         // if self.longitude != other.longitude {
+//         //     diff.push_str(&format!("\nlongitude changed from {} to {}", self.longitude, other.longitude));
+//         // }
+//         // if self.id != other.id {
+//         //     diff.push_str(&format!("\nid changed from {} to {}", self.id, other.id));
+//         // }
+//         if self.rain_level != other.rain_level {
+//             diff.push_str(&format!("\nrain_level changed from {} to {}", self.rain_level, other.rain_level));
+//         }
+//         if self.fog_level != other.fog_level {
+//             diff.push_str(&format!("\nfog_level changed from {} to {}", self.fog_level, other.fog_level));
+//         }
+//         // if self.wind_direction != other.wind_direction {
+//         //     diff.push_str(&format!("\nwind_direction changed from {} to {}", self.wind_direction, other.wind_direction));
+//         // }
+//         if self.snow_level != other.snow_level {
+//             diff.push_str(&format!("\nsnow_level changed from {} to {}", self.snow_level, other.snow_level));
+//         }
+//         if self.warn_weather != other.warn_weather {
+//             diff.push_str(&format!("\nwarn_weather changed from {} to {}", self.warn_weather, other.warn_weather));
+//         }
+//         if self.updated != other.updated {
+//             diff.push_str(&format!("\nupdated changed from {} to {}", self.updated, other.updated));
+//         }
+//         if self.gameplay_condition != other.gameplay_condition {
+//             diff.push_str(&format!("\ngameplay_condition changed from {} to {}", self.gameplay_condition, other.gameplay_condition));
+//         }
+//         if self.wind_level != other.wind_level {
+//             diff.push_str(&format!("\ncloud_level changed from {} to {}", self.wind_level, other.wind_level));
+//         }
+//         diff
+//     }
+// }
 
 impl PartialEq for Weather {
     fn eq(&self, other: &Weather) -> bool {

@@ -8,7 +8,7 @@ use futures_util::stream::StreamExt;
 
 use tokio::{spawn, time::interval};
 
-use mysql_async::{from_row, prelude::Queryable};
+use mysql_async::{from_row, prelude::Queryable, params};
 
 use chrono::{Local, DateTime, Timelike, offset::TimeZone};
 
@@ -44,21 +44,41 @@ enum LoadResult {
 pub struct BotConfigs;
 
 impl BotConfigs {
-    pub async fn init() -> Result<(), ()> {//TODO load Watches from DB
-        let mut res = BOT_CONFIGS.write().await;
-        Self::load(&mut res, None).await?;
-        spawn(async {
-            interval(Duration::from_secs(60)).for_each(|_| async {
-                let user_ids = {
-                    let lock = BOT_CONFIGS.read().await;
-                    let now = Some(Local::now().timestamp());
-                    lock.iter().filter(|(_, config)| config.scadenza < now).map(|(id, _)| id.clone()).collect::<Vec<String>>()
-                };
-                if !user_ids.is_empty() {
-                    Self::reload(user_ids).await.ok();
-                }
-            }).await;
-        });
+    pub async fn init() -> Result<(), ()> {
+        {
+            let mut res = BOT_CONFIGS.write().await;
+            Self::load(&mut res, None).await?;
+            spawn(async {
+                interval(Duration::from_secs(60)).for_each(|_| async {
+                    let user_ids = {
+                        let lock = BOT_CONFIGS.read().await;
+                        let now = Some(Local::now().timestamp());
+                        lock.iter().filter(|(_, config)| config.scadenza < now).map(|(id, _)| id.clone()).collect::<Vec<String>>()
+                    };
+                    if !user_ids.is_empty() {
+                        Self::reload(user_ids).await.ok();
+                    }
+                }).await;
+            });
+        }
+
+        {
+            let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+            let res = conn.query("SELECT user_id, encounter_id, iv, latitude, longitude, expire FROM bot_weather_watches WHERE expire > UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL query error: {}", e))?;
+            let mut lock = WATCHES.lock().await;
+            res.for_each_and_drop(|row| {
+                let (user_id, encounter_id, iv, latitude, longitude, expire) = from_row::<(String, String, Option<u8>, f64, f64, i64)>(row);
+                lock.push(Watch {
+                    user_id,
+                    encounter_id,
+                    iv,
+                    point: (latitude, longitude).into(),
+                    expire,
+                    reference_weather: None,
+                });
+            }).await.map_err(|e| error!("MySQL collect error: {}", e))?;
+        }
+        
         Ok(())
     }
 
@@ -150,7 +170,7 @@ impl BotConfigs {
         }
     }
 
-    async fn add_watches(watch: Watch) {
+    async fn add_watches(watch: Watch) -> Result<(), ()> {
         let mut lock = WATCHES.lock().await;
         let now = Local::now().timestamp();
 
@@ -167,10 +187,25 @@ impl BotConfigs {
 
         if watch.expire > now && Local::now().hour() != Local.timestamp(watch.expire, 0).hour() {
             if !lock.contains(&watch) {
-                //TODO: add to DB
+                let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+                conn.drop_query("DELETE FROM bot_weather_watches WHERE expire < UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL delete error: {}", e))?
+                    .drop_exec(
+                        "INSERT INTO bot_weather_watches (user_id, encounter_id, iv, latitude, longitude, expire) VALUES (:user_id, :encounter_id, :iv, :latitude, :longitude, :expire)",
+                        params! {
+                            "user_id" => watch.user_id.clone(),
+                            "encounter_id" => watch.encounter_id.clone(),
+                            "iv" => watch.iv,
+                            "latitude" => watch.point.x(),
+                            "longitude" => watch.point.y(),
+                            "expire" => watch.expire,
+                        }
+                    ).await.map_err(|e| error!("MySQL insert error: {}", e))?;
+
                 lock.push(watch);
             }
         }
+
+        Ok(())
     }
 
     async fn submit_weather(weather: Weather) {
@@ -241,7 +276,7 @@ impl BotConfigs {
                 },
                 Request::Watch(watches) => {
                     spawn(async {
-                        BotConfigs::add_watches(watches).await;
+                        BotConfigs::add_watches(watches).await.ok();
                     });
                     continue;
                 },

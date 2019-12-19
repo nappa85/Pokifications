@@ -499,7 +499,7 @@ impl Message for PokemonMessage {
         save_image(background, &img_path_str).await
     }
 
-    fn message_button(&self, chat_id: &str, mtype: &str) -> Result<Value, ()> {
+    fn message_button(&self, _chat_id: &str, mtype: &str) -> Result<Value, ()> {
         let lat = self.get_latitude();
         let lon = self.get_longitude();
 
@@ -520,39 +520,20 @@ impl Message for PokemonMessage {
                     "url": maplink
                 }]]
             });
-if chat_id == "25900594" {//DEBUG
-        if Local::now().hour() != Local.timestamp(self.pokemon.disappear_time, 0).hour() {
-            let user_id = chat_id.to_owned();
-            let encounter_id = self.pokemon.encounter_id.clone();
-            let iv = self.iv.map(|iv| iv.floor() as u8);
-            let point = (self.pokemon.latitude, self.pokemon.longitude);
-            let expire = self.pokemon.disappear_time;
-            tokio::spawn(async move {
-                BotConfigs::add_watches(Watch {
-                    user_id,
-                    encounter_id,
-                    iv,
-                    point: point.into(),
-                    expire,
-                    reference_weather: None,
-                }).await;
-            });
-        }
-}
-else if chat_id == "25900594" || chat_id == "112086777" || chat_id == "9862788" || chat_id == "82417031" {
+// if chat_id == "25900594" || chat_id == "112086777" || chat_id == "9862788" || chat_id == "82417031" {//DEBUG
         // watch button available only on crossing-hour spawns
         if Local::now().hour() != Local.timestamp(self.pokemon.disappear_time, 0).hour() {
             match (self.pokemon.individual_attack, self.pokemon.individual_defense, self.pokemon.individual_stamina, keyboard["inline_keyboard"].as_array_mut()) {
                 (Some(_), Some(_), Some(_), Some(a)) => {
                     a.push(json!([{
-                        "text": format!("{} Avvisami se cambia il Meteo", String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?),
-                        "callback_data": format!("watch|{}|{}|{}|{}|{}", lat, lon, self.pokemon.disappear_time, self.pokemon.encounter_id, self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new))
+                        "text": format!("{} Avvia tracciamento Meteo", String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?),
+                        "callback_data": format!("watch|{:.3}|{:.3}|{}|{}|{}", lat, lon, self.pokemon.disappear_time, self.pokemon.encounter_id, self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new))
                     }]));
                 },
                 _ => {},
             }
         }
-}//DEBUG
+// }//DEBUG
         Ok(keyboard)
     }
 
@@ -936,13 +917,14 @@ impl Message for WeatherMessage {
     async fn get_caption(&self) -> Result<String, ()> {
         let old = self.watch.reference_weather.as_ref().ok_or_else(|| error!("reference_weather is None"))?;
         if old == &self.actual_weather {
-            Ok(format!("{} Meteo invariato nella cella!",
+            Ok(format!("{} Meteo invariato nella cella",
                 String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?))
         }
         else {
-            Ok(format!("{} Meteo cambiato nella cella:{}",
-                String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?,
-                old.diff(&self.actual_weather)))
+            Ok(format!("{} Meteo cambiato nella cella!",
+                String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?//,
+                //old.diff(&self.actual_weather)
+                ))
         }
     }
 
