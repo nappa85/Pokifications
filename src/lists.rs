@@ -157,6 +157,7 @@ async fn load_cities() -> Result<(), ()> {
         let coords = coords.replace(char::is_whitespace, "");
 
         let poly: Vec<Point<f64>> = if coords.is_empty() {
+            error!("City \"{}\" ({}) has empty coordinates", name, id);
             Vec::new()
         }
         else {
@@ -208,6 +209,7 @@ async fn load_parks() -> Result<(), ()> {
         let coords = coords.replace(char::is_whitespace, "");
 
         let poly: Vec<Point<f64>> = if coords.is_empty() {
+            error!("Park \"{}\" ({}) has empty coordinates", name, id);
             Vec::new()
         }
         else {
