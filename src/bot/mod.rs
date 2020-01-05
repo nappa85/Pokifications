@@ -26,7 +26,7 @@ mod message;
 use message::{Message, WeatherMessage};
 
 use crate::entities::{Request, Weather, Watch};
-use crate::lists::{CITIES, CITYSTATS, CityStats};
+use crate::lists::{CITIES, CITYSTATS, CITYPARKS, CityStats};
 use crate::config::CONFIG;
 use crate::db::MYSQL;
 use crate::telegram::send_message;
@@ -286,39 +286,43 @@ impl BotConfigs {
                     });
                     continue;
                 },
-                // Request::Pokemon(ref p) => {
-                //     let id = p.spawnpoint_id.clone();
-                //     let pos = (p.latitude, p.longitude);
-                //     spawn(async move {
-                //         let lock = WATCHES.read().await;
-                //         let now = Local::now().timestamp();
-                //         for watch in lock.iter() {
-                //             if watch.expire < now {
-                //                 continue;
-                //             }
+                Request::Pokemon(ref p) => {
+                    match (p.individual_attack, p.individual_defense, p.individual_stamina) {
+                        (Some(_), Some(_), Some(_)) => {},
+                        _ => {
+                            let point = Point::new(p.latitude, p.longitude);
+                            let pokemon_id = p.pokemon_id;
+                            spawn(async move {
+                                let city = {
+                                    let lock = CITIES.read().await;
+                                    lock.iter().find_map(|(id, city)| if city.coordinates.within(&point) { Some(*id) } else { None })
+                                };
+                                if let Some(city_id) = city {
+                                    let lock = CITYPARKS.read().await;
+                                    if let Some(parks) = lock.get(&city_id) {
+                                        for park in parks {
+                                            if park.coordinates.within(&point) {
+                                                match MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e)) {
+                                                    Ok(conn) => {
+                                                        conn.drop_exec("INSERT INTO city_park_stats (park_id, pokemon_id, spawns) VALUES (:park_id, :pokemon_id, 1) ON DUPLICATE KEY UPDATE spawns = spawns + 1", params! {
+                                                                "park_id" => park.id,
+                                                                "pokemon_id" => pokemon_id,
+                                                            }).await
+                                                            .map_err(|e| error!("MySQL query error: {}", e)).ok();
+                                                    },
+                                                    Err(_) => {},
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                        },
+                    }
 
-                //             if watch.spawnpoint_id == id {
-                //                 let message = WeatherMessage {
-                //                     old_weather: None,
-                //                     new_weather: None,
-                //                     position: pos,
-                //                     debug: None,
-                //                 };
-
-                //                 let lock = BOT_CONFIGS.read().await;
-                //                 if let Some(l) = lock.get(&watch.user_id).map(|c| c.more.l.clone()) {
-                //                     if let Ok(file_id) = message.prepare(Local::now()).await {
-                //                         message.send(&watch.user_id, file_id, l.as_str()).await
-                //                             .map_err(|_| error!("Error sending weather notification"))
-                //                             .ok();
-                //                     }
-                //                 }
-                //             }
-                //         }
-                //     });
-                //     BotConfigs::update_city_stats(&input, now.timestamp());
-                // },
-                Request::Pokemon(_) | Request::Raid(_) | Request::Invasion(_) | Request::Quest(_) => {
+                    BotConfigs::update_city_stats(&input, now.timestamp());
+                },
+                Request::Raid(_) | Request::Invasion(_) | Request::Quest(_) => {
                     BotConfigs::update_city_stats(&input, now.timestamp());
                 },
                 _ => debug!("Unmanaged webhook: {:?}", input),

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use futures_util::{future::join_all, stream::StreamExt};
 
-use geo::Polygon;
+use geo::{Point, Polygon};
 
 use mysql_async::prelude::Queryable;
 
@@ -32,6 +32,8 @@ pub static GRUNTS: Lazy<Arc<RwLock<HashMap<u8, GruntType>>>> = Lazy::new(|| Arc:
 pub static CITIES: Lazy<Arc<RwLock<HashMap<u16, City>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 
 pub static CITYSTATS: Lazy<Arc<RwLock<HashMap<u16, CityStats>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
+
+pub static CITYPARKS: Lazy<Arc<RwLock<HashMap<u16, Vec<CityPark>>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 
 pub struct Pokemon {
     pub id: u16,
@@ -66,6 +68,13 @@ pub struct CityStats {
     pub last_iv: Option<i64>,
     pub last_quest: Option<i64>,
     pub last_invasion: Option<i64>,
+}
+
+pub struct CityPark {
+    pub id: u64,
+    pub city_id: u16,
+    pub name: String,
+    pub coordinates: Polygon<f64>,
 }
 
 async fn load_pokemons() -> Result<(), ()> {
@@ -144,23 +153,33 @@ async fn load_cities() -> Result<(), ()> {
     res.for_each_and_drop(|ref mut row| {
         let id = row.take("id").expect("MySQL city.id error");
         let name = row.take("name").expect("MySQL city.name error");
-        let coords: String = row.take("coordinates").expect("MySQL city.coordinates encoding error");
+        let coords = row.take::<String, _>("coordinates").expect("MySQL city.coordinates encoding error");
+        let coords = coords.replace(char::is_whitespace, "");
 
-        let mut poly: Vec<[f64; 2]> = Vec::new();
-        for (i, c) in coords.replace("(", "").replace(")", "").split(",").enumerate() {
-            match c.trim().parse() {
-                Ok(f) => {
-                    if i % 2 == 0 {
-                        poly.push([f, 0_f64]);
+        let poly: Vec<Point<f64>> = if coords.is_empty() {
+            Vec::new()
+        }
+        else {
+            (&coords[1..(coords.len() - 2)]).split("),(")
+                .map(|s| {
+                    let x_y: Vec<f64> = s.split(",")
+                        .map(|s| match s.parse::<f64>() {
+                            Ok(f) => f,
+                            Err(_) => panic!("Error parsing \"{}\" as a float", s),
+                        })
+                        .collect();
+                    if x_y.len() == 2 {
+                        Some(Point::new(x_y[0], x_y[1]))
                     }
                     else {
-                        let len = poly.len();
-                        poly[len - 1][1] = f;
+                        error!("City \"{}\" ({}) has invalid coordinates", name, id);
+                        None
                     }
-                },
-                Err(e) => error!("Coordinate parse error for city {}: {}", name, e),
-            }
-        }
+                })
+                .filter(Option::is_some)
+                .map(Option::unwrap)
+                .collect()
+        };
 
         cities.insert(id, City {
             id,
@@ -175,17 +194,68 @@ async fn load_cities() -> Result<(), ()> {
     Ok(())
 }
 
+async fn load_parks() -> Result<(), ()> {
+    let conn =MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let res = conn.query("SELECT id, city_id, name, coordinates FROM city_parks").await.map_err(|e| error!("MySQL query error: {}", e))?;
+
+    let mut parks = CITYPARKS.write().await;
+    parks.clear();
+    res.for_each_and_drop(|ref mut row| {
+        let id = row.take("id").expect("MySQL city_parks.id error");
+        let city_id = row.take("city_id").expect("MySQL city_parks.city_id error");
+        let name = row.take("name").expect("MySQL city_parks.name error");
+        let coords = row.take::<String, _>("coordinates").expect("MySQL city_parks.coordinates encoding error");
+        let coords = coords.replace(char::is_whitespace, "");
+
+        let poly: Vec<Point<f64>> = if coords.is_empty() {
+            Vec::new()
+        }
+        else {
+            (&coords[1..(coords.len() - 2)]).split("),(")
+                .map(|s| {
+                    let x_y: Vec<f64> = s.split(",")
+                        .map(|s| match s.parse::<f64>() {
+                            Ok(f) => f,
+                            Err(_) => panic!("Error parsing \"{}\" as a float", s),
+                        })
+                        .collect();
+                    if x_y.len() == 2 {
+                        Some(Point::new(x_y[0], x_y[1]))
+                    }
+                    else {
+                        error!("Park \"{}\" ({}) has invalid coordinates", name, id);
+                        None
+                    }
+                })
+                .filter(Option::is_some)
+                .map(Option::unwrap)
+                .collect()
+        };
+
+        let cityparks = parks.entry(city_id).or_insert_with(Vec::new);
+        cityparks.push(CityPark {
+            id,
+            city_id,
+            name,
+            coordinates: Polygon::new(poly.into(), vec![]),
+        });
+    }).await.map_err(|e| error!("MySQL for_each error: {}", e))?;
+
+    Ok(())
+}
+
 pub fn init() {
     spawn(async {
         interval(Duration::from_secs(1800))
             .for_each(|_| async {
-                join_all((0_u8..5_u8).map(|i| async move {
+                join_all((0_u8..6_u8).map(|i| async move {
                     match i {
                         0 => load_pokemons().await,
                         1 => load_moves().await,
                         2 => load_forms().await,
                         3 => load_grunts().await,
                         4 => load_cities().await,
+                        5 => load_parks().await,
                         _ => panic!("WTF"),
                     }
                 })).await;
