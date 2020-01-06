@@ -73,7 +73,6 @@ pub struct CityStats {
 pub struct CityPark {
     pub id: u64,
     pub city_id: u16,
-    pub name: String,
     pub coordinates: Polygon<f64>,
 }
 
@@ -197,19 +196,18 @@ async fn load_cities() -> Result<(), ()> {
 
 async fn load_parks() -> Result<(), ()> {
     let conn =MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-    let res = conn.query("SELECT id, city_id, name, coordinates FROM city_parks").await.map_err(|e| error!("MySQL query error: {}", e))?;
+    let res = conn.query("SELECT id, city_id, coordinates FROM city_parks").await.map_err(|e| error!("MySQL query error: {}", e))?;
 
     let mut parks = CITYPARKS.write().await;
     parks.clear();
     res.for_each_and_drop(|ref mut row| {
         let id = row.take("id").expect("MySQL city_parks.id error");
         let city_id = row.take("city_id").expect("MySQL city_parks.city_id error");
-        let name = row.take("name").expect("MySQL city_parks.name error");
         let coords = row.take::<String, _>("coordinates").expect("MySQL city_parks.coordinates encoding error");
         let coords = coords.replace(char::is_whitespace, "");
 
         let poly: Vec<Point<f64>> = if coords.is_empty() {
-            error!("Park \"{}\" ({}) has empty coordinates", name, id);
+            error!("Park {} has empty coordinates", id);
             Vec::new()
         }
         else {
@@ -225,7 +223,7 @@ async fn load_parks() -> Result<(), ()> {
                         Some(Point::new(x_y[0], x_y[1]))
                     }
                     else {
-                        error!("Park \"{}\" ({}) has invalid coordinates", name, id);
+                        error!("Park {} has invalid coordinates", id);
                         None
                     }
                 })
@@ -238,7 +236,6 @@ async fn load_parks() -> Result<(), ()> {
         cityparks.push(CityPark {
             id,
             city_id,
-            name,
             coordinates: Polygon::new(poly.into(), vec![]),
         });
     }).await.map_err(|e| error!("MySQL for_each error: {}", e))?;
