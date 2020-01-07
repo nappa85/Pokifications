@@ -6,7 +6,7 @@ use futures_util::{future::join_all, stream::StreamExt};
 
 use geo::{Point, Polygon};
 
-use mysql_async::prelude::Queryable;
+use mysql_async::{prelude::Queryable, Row};
 
 use async_std::sync::RwLock;
 
@@ -59,6 +59,50 @@ pub struct City {
     pub scadenza: i64,
     pub scan_iv: u8,
     pub admins_users: String,
+}
+
+impl From<Row> for City {
+    fn from(mut row: Row) -> Self {
+        let id = row.take("id").expect("MySQL city.id error");
+        let name = row.take("name").expect("MySQL city.name error");
+        let coords = row.take::<String, _>("coordinates").expect("MySQL city.coordinates encoding error");
+        let coords = coords.replace(char::is_whitespace, "");
+
+        let poly: Vec<Point<f64>> = if coords.is_empty() {
+            error!("City \"{}\" ({}) has empty coordinates", name, id);
+            Vec::new()
+        }
+        else {
+            (&coords[1..(coords.len() - 2)]).split("),(")
+                .map(|s| {
+                    let x_y: Vec<f64> = s.split(",")
+                        .map(|s| match s.parse::<f64>() {
+                            Ok(f) => f,
+                            Err(_) => panic!("Error parsing \"{}\" as a float", s),
+                        })
+                        .collect();
+                    if x_y.len() == 2 {
+                        Some(Point::new(x_y[0], x_y[1]))
+                    }
+                    else {
+                        error!("City \"{}\" ({}) has invalid coordinates", name, id);
+                        None
+                    }
+                })
+                .filter(Option::is_some)
+                .map(Option::unwrap)
+                .collect()
+        };
+
+        City {
+            id,
+            name,
+            coordinates: Polygon::new(poly.into(), vec![]),
+            scadenza: row.take("scadenza").expect("MySQL city.scadenza error"),
+            scan_iv: row.take("monitor").expect("MySQL city.monitor error"),
+            admins_users: row.take("admins_users").expect("MySQL city.admins_users error"),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -149,46 +193,9 @@ async fn load_cities() -> Result<(), ()> {
 
     let mut cities = CITIES.write().await;
     cities.clear();
-    res.for_each_and_drop(|ref mut row| {
-        let id = row.take("id").expect("MySQL city.id error");
-        let name = row.take("name").expect("MySQL city.name error");
-        let coords = row.take::<String, _>("coordinates").expect("MySQL city.coordinates encoding error");
-        let coords = coords.replace(char::is_whitespace, "");
-
-        let poly: Vec<Point<f64>> = if coords.is_empty() {
-            error!("City \"{}\" ({}) has empty coordinates", name, id);
-            Vec::new()
-        }
-        else {
-            (&coords[1..(coords.len() - 2)]).split("),(")
-                .map(|s| {
-                    let x_y: Vec<f64> = s.split(",")
-                        .map(|s| match s.parse::<f64>() {
-                            Ok(f) => f,
-                            Err(_) => panic!("Error parsing \"{}\" as a float", s),
-                        })
-                        .collect();
-                    if x_y.len() == 2 {
-                        Some(Point::new(x_y[0], x_y[1]))
-                    }
-                    else {
-                        error!("City \"{}\" ({}) has invalid coordinates", name, id);
-                        None
-                    }
-                })
-                .filter(Option::is_some)
-                .map(Option::unwrap)
-                .collect()
-        };
-
-        cities.insert(id, City {
-            id,
-            name,
-            coordinates: Polygon::new(poly.into(), vec![]),
-            scadenza: row.take("scadenza").expect("MySQL city.scadenza error"),
-            scan_iv: row.take("monitor").expect("MySQL city.monitor error"),
-            admins_users: row.take("admins_users").expect("MySQL city.admins_users error"),
-        });
+    res.for_each_and_drop(|row| {
+        let city: City = row.into();
+        cities.insert(city.id, city);
     }).await.map_err(|e| error!("MySQL for_each error: {}", e))?;
 
     Ok(())

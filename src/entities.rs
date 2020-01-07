@@ -31,6 +31,8 @@ pub enum Request {
     Weather(Weather),
     #[serde(rename = "reload")]
     Reload(Vec<String>),
+    #[serde(rename = "reload_city")]
+    ReloadCity(u16),
     #[serde(rename = "watch")]
     Watch(Watch),
 }

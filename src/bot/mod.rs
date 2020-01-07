@@ -26,7 +26,7 @@ mod message;
 use message::{Message, WeatherMessage};
 
 use crate::entities::{Request, Weather, Watch};
-use crate::lists::{CITIES, CITYSTATS, CITYPARKS, CityStats};
+use crate::lists::{CITIES, CITYSTATS, CITYPARKS, City, CityStats};
 use crate::config::CONFIG;
 use crate::db::MYSQL;
 use crate::telegram::send_message;
@@ -56,7 +56,8 @@ impl BotConfigs {
                         lock.iter().filter(|(_, config)| config.scadenza < now).map(|(id, _)| id.clone()).collect::<Vec<String>>()
                     };
                     if !user_ids.is_empty() {
-                        Self::reload(user_ids).await.ok();
+                        let mut res = BOT_CONFIGS.write().await;
+                        Self::load(&mut res, Some(user_ids)).await.ok();
                     }
                 }).await;
             });
@@ -79,6 +80,39 @@ impl BotConfigs {
             }).await.map_err(|e| error!("MySQL collect error: {}", e))?;
         }
         
+        Ok(())
+    }
+
+    async fn reload_city(city_id: u16) -> Result<(), ()> {
+        let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+        let res = conn.prep_exec(
+                "SELECT id, name, coordinates, scadenza, monitor, admins_users FROM city WHERE id = :id AND scadenza > UNIX_TIMESTAMP()",
+                params! {
+                    "city_id" => city_id,
+                }
+            ).await.map_err(|e| error!("MySQL query error: {}", e))?;
+
+        if !res.is_empty() {
+            let conn = {
+                let mut cities = CITIES.write().await;
+                res.for_each_and_drop(|row| {
+                    let city: City = row.into();
+                    cities.insert(city.id, city);
+                }).await.map_err(|e| error!("MySQL for_each error: {}", e))?
+            };
+
+            let res = conn.prep_exec(
+                    "SELECT user_id FROM utenti WHERE city_id = :id AND expire > UNIX_TIMESTAMP()",
+                    params! {
+                        "id" => city_id
+                    }
+                ).await.map_err(|e| error!("MySQL query error: {}", e))?;
+            let (_, user_ids) = res.collect_and_drop().await.map_err(|e| error!("MySQL collect error: {}", e))?;
+
+            let mut lock = BOT_CONFIGS.write().await;
+            Self::load(&mut lock, Some(user_ids)).await?;
+        }
+
         Ok(())
     }
 
@@ -271,6 +305,12 @@ impl BotConfigs {
                 Request::Reload(user_ids) => {
                     spawn(async {
                         BotConfigs::reload(user_ids).await.ok();
+                    });
+                    continue;
+                },
+                Request::ReloadCity(city_id) => {
+                    spawn(async move {
+                        BotConfigs::reload_city(city_id).await.ok();
                     });
                     continue;
                 },
