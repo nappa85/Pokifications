@@ -327,38 +327,7 @@ impl BotConfigs {
                     continue;
                 },
                 Request::Pokemon(ref p) => {
-                    match (p.individual_attack, p.individual_defense, p.individual_stamina) {
-                        (Some(_), Some(_), Some(_)) => {},
-                        _ => {
-                            let point = Point::new(p.latitude, p.longitude);
-                            let pokemon_id = p.pokemon_id;
-                            spawn(async move {
-                                let city = {
-                                    let lock = CITIES.read().await;
-                                    lock.iter().find_map(|(id, city)| if city.coordinates.within(&point) { Some(*id) } else { None })
-                                };
-                                if let Some(city_id) = city {
-                                    let lock = CITYPARKS.read().await;
-                                    if let Some(parks) = lock.get(&city_id) {
-                                        for park in parks {
-                                            if park.coordinates.within(&point) {
-                                                match MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e)) {
-                                                    Ok(conn) => {
-                                                        conn.drop_exec("INSERT INTO city_park_stats (park_id, pokemon_id, spawns) VALUES (:park_id, :pokemon_id, 1) ON DUPLICATE KEY UPDATE spawns = spawns + 1", params! {
-                                                                "park_id" => park.id,
-                                                                "pokemon_id" => pokemon_id,
-                                                            }).await
-                                                            .map_err(|e| error!("MySQL query error: {}", e)).ok();
-                                                    },
-                                                    Err(_) => {},
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            });
-                        },
-                    }
+                    BotConfigs::update_park_stats((p.latitude, p.longitude).into(), p.pokemon_id, p.encounter_id.clone());
 
                     BotConfigs::update_city_stats(&input, now.timestamp());
                 },
@@ -391,6 +360,43 @@ impl BotConfigs {
                 });
             }
         }
+    }
+
+    fn update_park_stats(point: Point<f64>, pokemon_id: u16, encounter_id: String) {
+        spawn(async move {
+            let city = {
+                let lock = CITIES.read().await;
+                lock.iter().find_map(|(id, city)| {
+                    if city.coordinates.within(&point) {
+                        Some(*id)
+                    }
+                    else {
+                        None
+                    }
+                })
+            };
+
+            if let Some(city_id) = city {
+                let lock = CITYPARKS.read().await;
+                if let Some(parks) = lock.get(&city_id) {
+                    for park in parks {
+                        if park.coordinates.within(&point) {
+                            match MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e)) {
+                                Ok(conn) => {
+                                    conn.drop_exec("REPLACE INTO city_park_stats (park_id, encounter_id, pokemon_id) VALUES (:park_id, :encounter_id, :pokemon_id)", params! {
+                                            "park_id" => park.id,
+                                            "encounter_id" => encounter_id.as_str(),
+                                            "pokemon_id" => pokemon_id,
+                                        }).await
+                                        .map_err(|e| error!("MySQL query error: {}", e)).ok();
+                                },
+                                Err(_) => {},
+                            }
+                        }
+                    }
+                }
+            }
+        });
     }
 
     fn update_city_stats(input: &Request, now: i64) {
