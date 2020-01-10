@@ -88,7 +88,7 @@ impl BotConfigs {
         let res = conn.prep_exec(
                 "SELECT id, name, coordinates, scadenza, monitor, admins_users FROM city WHERE id = :id AND scadenza > UNIX_TIMESTAMP()",
                 params! {
-                    "city_id" => city_id,
+                    "id" => city_id,
                 }
             ).await.map_err(|e| error!("MySQL query error: {}", e))?;
 
