@@ -1,12 +1,6 @@
 use std::time::Duration;
-use std::io::Write;
 
-use futures_util::stream::TryStreamExt;
-
-use tokio::time::timeout;
-
-use hyper::{Body, Client, Request};
-use hyper_tls::HttpsConnector;
+use reqwest::{Body, Client, Method, Url, RequestBuilder, multipart::{Form, Part}};
 
 use serde_json::{json, value::Value};
 
@@ -28,46 +22,46 @@ pub enum Image {
     Bytes(Vec<u8>),
 }
 
-async fn call_telegram(req: Request<Body>) -> Result<String, CallResult> {
-    let https = HttpsConnector::new();
-    let future = Client::builder().build::<_, Body>(https).request(req);
-    let res = match CONFIG.telegram.timeout {
-        Some(t) => timeout(Duration::from_secs(t), future).await.map_err(|e| {
-            error!("timeout calling Telegram: {}", e);
+pub async fn call_telegram(req: RequestBuilder) -> Result<String, CallResult> {
+    let res = if let Some(t) = CONFIG.telegram.timeout {
+            req.timeout(Duration::from_secs(t))
+        }
+        else {
+            req
+        }
+        .send()
+        .await
+        .map_err(|e| {
+            error!("error calling Telegram: {}", e);
             CallResult::Empty
-        })?,
-        None => future.await,
-    }.map_err(|e| {
-        error!("error calling Telegram: {}", e);
-        CallResult::Empty
-    })?;
+        })?;
 
     let success = res.status().is_success();
     let status = res.status().as_u16();
 
-    let debug = format!("error response from Telegram: {:?}", res);
+    let debug = format!("response from Telegram: {:?}", res);
 
-    let chunks = res.into_body().map_ok(|c| c.to_vec()).try_concat().await.map_err(|e| {
-        error!("error while reading {}: {}", debug, e);
-        CallResult::Empty
-    })?;
-
-    let body = String::from_utf8(chunks).map_err(|e| {
-        error!("error while encoding {}: {}", debug, e);
-        CallResult::Empty
-    })?;
+    let body = res.text()
+        .await
+        .map_err(|e| {
+            error!("error while encoding {}: {}", debug, e);
+            CallResult::Empty
+        })?;
 
     if success {
         Ok(body)
     }
     else {
-        error!("{}\n{}", debug, body);
+        error!("error {}\n{}", debug, body);
         Err(CallResult::Body((status, body)))
     }
 }
 
 pub async fn send_message(bot_token: &str, chat_id: &str, text: &str, parse_mode: Option<&str>, disable_web_page_preview: Option<bool>, disable_notification: Option<bool>, reply_to_message_id: Option<i64>, reply_markup: Option<Value>) -> Result<String, CallResult> {
-    let url = format!("https://api.telegram.org/bot{}/sendMessage", bot_token);
+    let url = Url::parse(&format!("https://api.telegram.org/bot{}/sendMessage", bot_token)).map_err(|e| {
+        error!("error building Telegram URL: {}", e);
+        CallResult::Empty
+    })?;
     let mut body = json!({
         "chat_id": chat_id,
         "text": text
@@ -93,104 +87,58 @@ pub async fn send_message(bot_token: &str, chat_id: &str, text: &str, parse_mode
         body["reply_markup"] = v;
     }
 
-    let req = Request::builder()
-        .method("POST")
+    let client = Client::new();
+    let req = client.request(Method::POST, url)
         .header("Content-Type", "application/json")
-        .uri(&url)
-        .body(body.to_string().into())
-        .map_err(|e| {
-            error!("error building Telegram request: {}", e);
-            CallResult::Empty
-        })?;
-
+        .json(&body);
     call_telegram(req).await
 }
 
 
-pub async fn send_photo(bot_token: &str, chat_id: &str, mut photo: Image, caption: Option<&str>, parse_mode: Option<&str>, disable_notification: Option<bool>, reply_to_message_id: Option<i64>, reply_markup: Option<Value>) -> Result<String, CallResult> {
-    let url = format!("https://api.telegram.org/bot{}/sendPhoto", bot_token);
+pub async fn send_photo(bot_token: &str, chat_id: &str, photo: Image, caption: Option<&str>, parse_mode: Option<&str>, disable_notification: Option<bool>, reply_to_message_id: Option<i64>, reply_markup: Option<Value>) -> Result<String, CallResult> {
+    let url = Url::parse(&format!("https://api.telegram.org/bot{}/sendPhoto", bot_token)).map_err(|e| {
+        error!("error building Telegram URL: {}", e);
+        CallResult::Empty
+    })?;
     let boundary: String = thread_rng()
         .sample_iter(&Alphanumeric)
         .take(30)
         .collect();
 
-    let mut data = Vec::new();
-    write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n{}\r\n", boundary, chat_id)
-        .map_err(|e| {
-            error!("error writing chat_id multipart: {}", e);
-            CallResult::Empty
-        })?;
+    let mut form = Form::new()
+        .text("chat_id", chat_id.to_owned());
 
     if let Some(v) = caption {
-        write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n{}\r\n", boundary, v)
-            .map_err(|e| {
-                error!("error writing caption multipart: {}", e);
-                CallResult::Empty
-            })?;
+        form = form.text("caption", v.to_owned());
     }
     if let Some(v) = parse_mode {
-        write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"parse_mode\"\r\n\r\n{}\r\n", boundary, v)
-            .map_err(|e| {
-                error!("error writing parse_mode multipart: {}", e);
-                CallResult::Empty
-            })?;
+        form = form.text("parse_mode", v.to_owned());
     }
     if let Some(v) = disable_notification {
-        write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"disable_notification\"\r\n\r\n{}\r\n", boundary, v)
-            .map_err(|e| {
-                error!("error writing disable_notification multipart: {}", e);
-                CallResult::Empty
-            })?;
+        form = form.text("disable_notification", v.to_string());
     }
     if let Some(v) = reply_to_message_id {
-        write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"reply_to_message_id\"\r\n\r\n{}\r\n", boundary, v)
-            .map_err(|e| {
-                error!("error writing reply_to_message_id multipart: {}", e);
-                CallResult::Empty
-            })?;
+        form = form.text("reply_to_message_id", v.to_string());
     }
     if let Some(v) = reply_markup {
-        write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"reply_markup\"\r\n\r\n{}\r\n", boundary, v)
-            .map_err(|e| {
-                error!("error writing reply_markup multipart: {}", e);
-                CallResult::Empty
-            })?;
+        form = form.text("reply_markup", v.to_string());
     }
 
     match photo {
         Image::FileId(file_id) => {
-            write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"photo\"\r\n\r\n{}", boundary, file_id)
-                .map_err(|e| {
-                    error!("error writing photo multipart: {}", e);
-                    CallResult::Empty
-                })?;
+            form = form.text("photo", file_id);
         },
-        Image::Bytes(ref mut bytes) => {
-            write!(&mut data, "--{}\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"image.png\"\r\nContent-Type: image/png\r\n\r\n", boundary)
-                .map_err(|e| {
-                    error!("error writing photo multipart: {}", e);
-                    CallResult::Empty
-                })?;
-
-            data.append(bytes);
+        Image::Bytes(bytes) => {
+            form = form.part("photo", Part::stream(Body::from(bytes)).file_name("image.png").mime_str("image/png").map_err(|e| {
+                error!("error writing multipart mime: {}", e);
+                CallResult::Empty
+            })?);
         },
     }
 
-    write!(&mut data, "\r\n--{}--\r\n", boundary)
-        .map_err(|e| {
-            error!("error closing multipart: {}", e);
-            CallResult::Empty
-        })?;
-
-    let req = Request::builder()
-        .method("POST")
+    let client = Client::new();
+    let req = client.request(Method::POST, url)
         .header("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
-        .uri(&url)
-        .body(data.into())
-        .map_err(|e| {
-            error!("error building Telegram request: {}", e);
-            CallResult::Empty
-        })?;
-
+        .multipart(form);
     call_telegram(req).await
 }

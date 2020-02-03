@@ -1,16 +1,9 @@
 use std::path::Path;
-use std::time::Duration;
 
-use futures_util::stream::TryStreamExt;
-
-use tokio::time::timeout;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use mysql_async::{prelude::Queryable, Conn};
-
-use hyper::Client;
-use hyper_tls::HttpsConnector;
 
 use chrono::{Local, DateTime, Timelike};
 use chrono::offset::TimeZone;
@@ -133,28 +126,35 @@ pub trait Message {
             return open_image(&map_path_str).await;
         }
 
-        let m_link = format!("https://maps.googleapis.com/maps/api/staticmap?center={:.3},{:.3}&zoom=14&size=280x101&maptype=roadmap&markers={:.3},{:.3}&key={}", self.get_latitude(), self.get_longitude(), self.get_latitude(), self.get_longitude(), CONFIG.google.maps_key)
-            .parse()
-            .map_err(|e| error!("Error building Google URI: {}", e))?;
-        let https = HttpsConnector::new();
-        let future = Client::builder().build::<_, hyper::Body>(https).get(m_link);
-        let res = match CONFIG.google.timeout {
-                Some(t) => timeout(Duration::from_secs(t), future).await.map_err(|e| error!("timeout calling google maps: {}", e))?,
-                None => future.await,
-            }.map_err(|e| error!("error calling google maps: {}", e))?;
+        // let m_link = format!("https://maps.googleapis.com/maps/api/staticmap?center={:.3},{:.3}&zoom=14&size=280x101&maptype=roadmap&markers={:.3},{:.3}&key={}", self.get_latitude(), self.get_longitude(), self.get_latitude(), self.get_longitude(), CONFIG.google.maps_key)
+        //     .parse()
+        //     .map_err(|e| error!("Error building Google URI: {}", e))?;
+        // let https = HttpsConnector::new();
+        // let future = Client::builder().build::<_, hyper::Body>(https).get(m_link);
+        // let res = match CONFIG.google.timeout {
+        //         Some(t) => timeout(Duration::from_secs(t), future).await.map_err(|e| error!("timeout calling google maps: {}", e))?,
+        //         None => future.await,
+        //     }.map_err(|e| error!("error calling google maps: {}", e))?;
 
-        let buf = res.into_body().map_ok(|c| c.to_vec()).try_concat().await.map_err(|e| error!("error reading google maps response: {}", e))?;
+        // let buf = res.into_body().map_ok(|c| c.to_vec()).try_concat().await.map_err(|e| error!("error reading google maps response: {}", e))?;
 
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .open(&map_path_str)
-            .await
-            .map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
-        file.write_all(&buf).await.map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
+        // let mut file = OpenOptions::new()
+        //     .write(true)
+        //     .create(true)
+        //     .open(&map_path_str)
+        //     .await
+        //     .map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
+        // file.write_all(&buf).await.map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
         
-        image::load_from_memory_with_format(&buf, image::ImageFormat::PNG)
-            .map_err(|e| error!("error opening map image {}: {}", map_path_str, e))
+        // image::load_from_memory_with_format(&buf, image::ImageFormat::PNG)
+        //     .map_err(|e| error!("error opening map image {}: {}", map_path_str, e))
+        let map = super::map::Map::new("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", 256, 256, 14, 280, 101, self.get_latitude(), self.get_longitude());
+        let image = map.get_map().await?;
+
+        image.save_with_format(&map_path_str, image::ImageFormat::PNG)
+            .map_err(|e| error!("error saving image: {}", e))?;
+
+        Ok(image)
     }
 
     async fn prepare(&self, now: DateTime<Local>) -> Result<Image, ()> {

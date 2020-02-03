@@ -22,6 +22,7 @@ use log::{info, error, debug, warn};
 
 mod config;
 mod message;
+mod map;
 
 use message::{Message, WeatherMessage};
 
