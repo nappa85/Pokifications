@@ -33,7 +33,7 @@ fn tile_xy(lat: f64, lon: f64, z: u8) -> (i64, i64) {
     // x,y = latlon2xy(lat, lon, z)
     let (x, y) = latlon2xy(lat, lon, z);
     // return int(x), int(y)
-    (x.trunc() as i64, y.trunc() as i64)
+    (x.round() as i64, y.round() as i64)
 }
 
 pub struct Map<'a> {
@@ -61,22 +61,6 @@ impl<'a> Map<'a> {
         }
     }
 
-    // fn number_of_tiles_for_zoom(&self) -> u32 {
-    //     num_tiles(self.zoom)
-    // }
-
-    // fn relative_x_y(&self) -> (f64, f64) {
-    //     latlon2relative_xy(self.lat, self.lon)
-    // }
-
-    // fn absolute_x_y(self) -> (f64, f64) {
-    //     latlon2xy(self.lat, self.lon, self.zoom)
-    // }
-
-    // fn tile_number(self) -> (i64, i64) {
-    //     tile_xy(self.lat, self.lon, self.zoom)
-    // }
-
     pub async fn get_map(&self, marker: Option<image::DynamicImage>) -> Result<image::DynamicImage, ()> {
         // tiles_x = int(math.ceil(self.width / self.tile_width)) + 2
         let tiles_x = (self.width / self.tile_width) + 2;
@@ -94,9 +78,9 @@ impl<'a> Map<'a> {
         let (x_absolute, y_absolute) = latlon2xy(self.lat, self.lon, self.zoom);
 
         // lat_center_diff = int((x_absolute - x_offset) * self.tile_width)
-        let lat_center_diff = ((x_absolute - (x_offset as f64)) * (self.tile_width as f64)).trunc() as u32;
+        let lat_center_diff = ((x_absolute - (x_offset as f64)) * (self.tile_width as f64)).round() as i32;
         // lon_center_diff = int((y_absolute - y_offset) * self.tile_height)
-        let lon_center_diff = ((y_absolute - (y_offset as f64)) * (self.tile_height as f64)).trunc() as u32;
+        let lon_center_diff = ((y_absolute - (y_offset as f64)) * (self.tile_height as f64)).round() as i32;
 
         // tiles = [[(x_offset + x, y_offset + y) for x in x_row] for y in y_row]
         let mut tiles = Vec::new();
@@ -111,15 +95,15 @@ impl<'a> Map<'a> {
         // x_left = x_row.index(0) * self.tile_width + lat_center_diff
         let zero_index = x_row.enumerate()
             .find(|(_, x)| x == &0)
-            .map(|(i, _)| i as u32)
+            .map(|(i, _)| i as i32)
             .ok_or_else(|| log::error!("0 index not found"))?;
-        let x_left = zero_index * self.tile_width + lat_center_diff;
+        let x_left = (zero_index * (self.tile_width as i32) + lat_center_diff) as u32;
         // y_top = y_row.index(0) * self.tile_height + lon_center_diff
         let zero_index = y_row.enumerate()
             .find(|(_, x)| x == &0)
-            .map(|(i, _)| i as u32)
+            .map(|(i, _)| i as i32)
             .ok_or_else(|| log::error!("0 index not found"))?;
-        let y_top = zero_index * self.tile_height + lon_center_diff;
+        let y_top = (zero_index * (self.tile_height as i32) + lon_center_diff) as u32;
 
         // image_width = tiles_x * self.tile_width
         let image_width = tiles_x * self.tile_width;
@@ -162,8 +146,8 @@ impl<'a> Map<'a> {
         //     int(y_top + (self.height / 2)),
         // ))
         Ok(image.crop(
-            x_left - (self.width / 2),
-            y_top - (self.height / 2),
+            x_left.checked_sub(self.width / 2).unwrap_or_else(|| 0),
+            y_top.checked_sub(self.height / 2).unwrap_or_else(|| 0),
             self.width,
             self.height
         ))
@@ -197,7 +181,6 @@ impl<'a> Map<'a> {
                 .map_err(|e| log::error!("error reading tile {}: {}", tile_url, e))?;
 
             image::load_from_memory(&bytes)
-                // .map(|img| image::DynamicImage::ImageRgba8(img.to_rgba()))
                 .map_err(|e| log::error!("error loading tile {}: {}", tile_url, e))
         }
     }

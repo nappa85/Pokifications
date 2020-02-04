@@ -1,4 +1,3 @@
-use std::time::Duration;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -10,7 +9,7 @@ use mysql_async::{prelude::Queryable, Row};
 
 use async_std::sync::RwLock;
 
-use tokio::{spawn, time::interval};
+use tokio::{spawn, time::{Duration, Instant, interval_at}};
 
 use once_cell::sync::Lazy;
 
@@ -250,21 +249,26 @@ async fn load_parks() -> Result<(), ()> {
     Ok(())
 }
 
-pub fn init() {
+async fn load() {
+    join_all((0_u8..6_u8).map(|i| async move {
+        match i {
+            0 => load_pokemons().await,
+            1 => load_moves().await,
+            2 => load_forms().await,
+            3 => load_grunts().await,
+            4 => load_cities().await,
+            5 => load_parks().await,
+            _ => panic!("WTF"),
+        }
+    })).await;
+}
+
+pub async fn init() {
+    // force first load
+    load().await;
     spawn(async {
-        interval(Duration::from_secs(1800))
-            .for_each(|_| async {
-                join_all((0_u8..6_u8).map(|i| async move {
-                    match i {
-                        0 => load_pokemons().await,
-                        1 => load_moves().await,
-                        2 => load_forms().await,
-                        3 => load_grunts().await,
-                        4 => load_cities().await,
-                        5 => load_parks().await,
-                        _ => panic!("WTF"),
-                    }
-                })).await;
-            }).await;
+        let period = Duration::from_secs(1800);
+        interval_at(Instant::now() + period, period)
+            .for_each(|_| load()).await;
     });
 }
