@@ -51,7 +51,7 @@ async fn open_image(path: &str) -> Result<image::DynamicImage, ()> {
     image::load_from_memory_with_format(&data, image::ImageFormat::PNG).map_err(|e| error!("error opening image {}: {}", path, e))
 }
 
-async fn save_image(img: image::DynamicImage, path: &str) -> Result<Vec<u8>, ()> {
+async fn save_image(img: &image::DynamicImage, path: &str) -> Result<Vec<u8>, ()> {
     let mut out = Vec::new();
     img.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting image {}: {}", path, e))?;
 
@@ -126,33 +126,11 @@ pub trait Message {
             return open_image(&map_path_str).await;
         }
 
-        // let m_link = format!("https://maps.googleapis.com/maps/api/staticmap?center={:.3},{:.3}&zoom=14&size=280x101&maptype=roadmap&markers={:.3},{:.3}&key={}", self.get_latitude(), self.get_longitude(), self.get_latitude(), self.get_longitude(), CONFIG.google.maps_key)
-        //     .parse()
-        //     .map_err(|e| error!("Error building Google URI: {}", e))?;
-        // let https = HttpsConnector::new();
-        // let future = Client::builder().build::<_, hyper::Body>(https).get(m_link);
-        // let res = match CONFIG.google.timeout {
-        //         Some(t) => timeout(Duration::from_secs(t), future).await.map_err(|e| error!("timeout calling google maps: {}", e))?,
-        //         None => future.await,
-        //     }.map_err(|e| error!("error calling google maps: {}", e))?;
+        let map = super::map::Map::new(&CONFIG.osm.tile_url, 14, 280, 101, self.get_latitude(), self.get_longitude());
+        let marker = format!("{}img/marker.png", CONFIG.images.assets);
+        let image = map.get_map(open_image(&marker).await.ok()).await?;
 
-        // let buf = res.into_body().map_ok(|c| c.to_vec()).try_concat().await.map_err(|e| error!("error reading google maps response: {}", e))?;
-
-        // let mut file = OpenOptions::new()
-        //     .write(true)
-        //     .create(true)
-        //     .open(&map_path_str)
-        //     .await
-        //     .map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
-        // file.write_all(&buf).await.map_err(|e| error!("error creating file {}: {}", map_path_str, e))?;
-        
-        // image::load_from_memory_with_format(&buf, image::ImageFormat::PNG)
-        //     .map_err(|e| error!("error opening map image {}: {}", map_path_str, e))
-        let map = super::map::Map::new("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", 256, 256, 14, 280, 101, self.get_latitude(), self.get_longitude());
-        let image = map.get_map().await?;
-
-        image.save_with_format(&map_path_str, image::ImageFormat::PNG)
-            .map_err(|e| error!("error saving image: {}", e))?;
+        save_image(&image, &map_path_str).await?;
 
         Ok(image)
     }
@@ -496,7 +474,7 @@ impl Message for PokemonMessage {
             imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 140 - (dm / 2) as u32, 111, scale12, &f_cal1, &text);
         }
 
-        save_image(background, &img_path_str).await
+        save_image(&background, &img_path_str).await
     }
 
     fn message_button(&self, _chat_id: &str, mtype: &str) -> Result<Value, ()> {
@@ -744,7 +722,7 @@ impl Message for RaidMessage {
         // imagecopymerge($mBg, $mMap, 0, ($v_pkmnid == 0 ? 83 : 136), 0, 0, 280, 101, 100);
         image::imageops::overlay(&mut background, &map, 0, if self.raid.pokemon_id.and_then(|i| if i > 0 { Some(i) } else { None }).is_none() { 83 } else { 136 });
 
-        save_image(background, &img_path_str).await
+        save_image(&background, &img_path_str).await
     }
 
     async fn update_stats(&self, conn: Conn) -> Result<Conn, ()> {
@@ -888,7 +866,7 @@ impl Message for InvasionMessage {
 
         image::imageops::overlay(&mut background, &map, 0, 58);
 
-        save_image(background, &img_path_str).await
+        save_image(&background, &img_path_str).await
     }
 
     async fn update_stats(&self, conn: Conn) -> Result<Conn, ()> {

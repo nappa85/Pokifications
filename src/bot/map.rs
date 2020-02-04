@@ -48,16 +48,16 @@ pub struct Map<'a> {
 }
 
 impl<'a> Map<'a> {
-    pub fn new(tile_url: &'a str, tile_width: u32, tile_height: u32, zoom: u8, width: u32, height: u32, lat: f64, lon: f64) -> Self {
+    pub fn new(tile_url: &'a str, zoom: u8, width: u32, height: u32, lat: f64, lon: f64) -> Self {
         Map {
             tile_url,
-            tile_width,
-            tile_height,
+            tile_width: 256,
+            tile_height: 256,
             zoom,
             width,
             height,
-            lat,
-            lon,
+            lat: (lat * 1000.0).round() / 1000.0,
+            lon: (lon * 1000.0).round() / 1000.0,
         }
     }
 
@@ -77,16 +77,16 @@ impl<'a> Map<'a> {
     //     tile_xy(self.lat, self.lon, self.zoom)
     // }
 
-    pub async fn get_map(&self) -> Result<image::DynamicImage, ()> {
+    pub async fn get_map(&self, marker: Option<image::DynamicImage>) -> Result<image::DynamicImage, ()> {
         // tiles_x = int(math.ceil(self.width / self.tile_width)) + 2
-        let tiles_x = ((self.width as f64) / (self.tile_width as f64)).ceil() + 2.0;
+        let tiles_x = (self.width / self.tile_width) + 2;
         // tiles_y = int(math.ceil(self.height / self.tile_height)) + 2
-        let tiles_y = ((self.height as f64) / (self.tile_height as f64)).ceil() + 2.0;
+        let tiles_y = (self.height / self.tile_height) + 2;
 
         // x_row = range(-int(math.floor(tiles_x/2)),int(math.ceil(tiles_x/2)))
-        let x_row = (((tiles_x / 2.0).floor() * -1.0) as i64)..((tiles_x / 2.0).ceil() as i64);
+        let x_row = (((tiles_x / 2) as i64) * -1)..=((tiles_x / 2) as i64);
         // y_row = range(-int(math.floor(tiles_y/2)),int(math.ceil(tiles_y/2)))
-        let y_row = (((tiles_y / 2.0).floor() * -1.0) as i64)..((tiles_y / 2.0).ceil() as i64);
+        let y_row = (((tiles_y / 2) as i64) * -1)..=((tiles_y / 2) as i64);
 
         // x_offset, y_offset = tileXY(self.lat, self.lon, self.zoom)
         let (x_offset, y_offset) = tile_xy(self.lat, self.lon, self.zoom);
@@ -94,9 +94,9 @@ impl<'a> Map<'a> {
         let (x_absolute, y_absolute) = latlon2xy(self.lat, self.lon, self.zoom);
 
         // lat_center_diff = int((x_absolute - x_offset) * self.tile_width)
-        let lat_center_diff = ((x_absolute - (x_offset as f64)) * (self.tile_width as f64)).trunc();
+        let lat_center_diff = ((x_absolute - (x_offset as f64)) * (self.tile_width as f64)).trunc() as u32;
         // lon_center_diff = int((y_absolute - y_offset) * self.tile_height)
-        let lon_center_diff = ((y_absolute - (y_offset as f64)) * (self.tile_height as f64)).trunc();
+        let lon_center_diff = ((y_absolute - (y_offset as f64)) * (self.tile_height as f64)).trunc() as u32;
 
         // tiles = [[(x_offset + x, y_offset + y) for x in x_row] for y in y_row]
         let mut tiles = Vec::new();
@@ -109,14 +109,22 @@ impl<'a> Map<'a> {
         }
 
         // x_left = x_row.index(0) * self.tile_width + lat_center_diff
-        let x_left = (x_row.start as f64) * (self.tile_width as f64) + lat_center_diff;
+        let zero_index = x_row.enumerate()
+            .find(|(_, x)| x == &0)
+            .map(|(i, _)| i as u32)
+            .ok_or_else(|| log::error!("0 index not found"))?;
+        let x_left = zero_index * self.tile_width + lat_center_diff;
         // y_top = y_row.index(0) * self.tile_height + lon_center_diff
-        let y_top = (y_row.start as f64) * (self.tile_height as f64) + lon_center_diff;
+        let zero_index = y_row.enumerate()
+            .find(|(_, x)| x == &0)
+            .map(|(i, _)| i as u32)
+            .ok_or_else(|| log::error!("0 index not found"))?;
+        let y_top = zero_index * self.tile_height + lon_center_diff;
 
         // image_width = tiles_x * self.tile_width
-        let image_width = (tiles_x as u32) * self.tile_width;
+        let image_width = tiles_x * self.tile_width;
         // image_height = tiles_y * self.tile_height
-        let image_height = (tiles_y as u32) * self.tile_height;
+        let image_height = tiles_y * self.tile_height;
 
         // image = Image.new('RGBA', (image_width, image_height), (0,0,0,0))
         let mut image = image::DynamicImage::ImageRgba8(image::RgbaImage::new(image_width, image_height));
@@ -131,13 +139,20 @@ impl<'a> Map<'a> {
                 //     new_image = Image.open(self.get_tile(self.zoom, x, y))
                 // except requests.HTTPError:
                 //     new_image = blank_image
-                let new_image = match self.get_tile(x, y).await {
-                    Ok(image) => image,
-                    Err(_) => blank_image.clone(),
+                let temp = self.get_tile(x, y).await;
+                let new_image = match temp {
+                    Ok(ref image) => image,
+                    Err(_) => &blank_image,
                 };
                 // image.paste(new_image, ((col_offset * self.tile_width, row_offset * self.tile_height)))
-                image::imageops::replace(&mut image, &new_image, (col_offset as u32) * self.tile_width, (row_offset as u32) * self.tile_height);
+                image::imageops::replace(&mut image, new_image, (col_offset as u32) * self.tile_width, (row_offset as u32) * self.tile_height);
             }
+        }
+
+        if let Some(mark) = marker {
+            use image::GenericImageView;
+            let (width, height) = mark.dimensions();
+            image::imageops::overlay(&mut image, &mark, x_left - (width / 2), y_top - height);
         }
 
         // image = image.crop((
@@ -147,27 +162,43 @@ impl<'a> Map<'a> {
         //     int(y_top + (self.height / 2)),
         // ))
         Ok(image.crop(
-            (x_left - (self.width as f64) / 2.0).trunc() as u32,
-            (y_top - (self.height as f64) / 2.0).trunc() as u32,
+            x_left - (self.width / 2),
+            y_top - (self.height / 2),
             self.width,
             self.height
         ))
     }
 
     async fn get_tile(&self, x: i64, y: i64) -> Result<image::DynamicImage, ()> {
-        let tile_url = self.tile_url.replace("{s}", "a")
+        let tile_url = self.tile_url.replace("{s}", {
+                use rand::Rng;
+                match rand::thread_rng().gen_range(0, 3) {
+                    0 => "a",
+                    1 => "b",
+                    _ => "c",
+                }
+            })
             .replace("{z}", &self.zoom.to_string())
             .replace("{x}", &x.to_string())
             .replace("{y}", &y.to_string());
         let url = reqwest::Url::parse(&tile_url).map_err(|e| log::error!("error building tile url: {}", e))?;
-        let bytes = reqwest::get(url)
-            .await
-            .map_err(|e| log::error!("error retrieving tile: {}", e))?
-            .bytes()
-            .await
-            .map_err(|e| log::error!("error reading tile: {}", e))?;
 
-        image::load_from_memory_with_format(&bytes, image::ImageFormat::PNG)
-            .map_err(|e| log::error!("error loading tile image: {}", e))
+        let res = reqwest::get(url)
+            .await
+            .map_err(|e| log::error!("error retrieving tile {}: {}", tile_url, e))?;
+
+        if !res.status().is_success() {
+            log::error!("tile {} retriever failed with status code {}", tile_url, res.status());
+            Err(())
+        }
+        else {
+            let bytes = res.bytes()
+                .await
+                .map_err(|e| log::error!("error reading tile {}: {}", tile_url, e))?;
+
+            image::load_from_memory(&bytes)
+                // .map(|img| image::DynamicImage::ImageRgba8(img.to_rgba()))
+                .map_err(|e| log::error!("error loading tile {}: {}", tile_url, e))
+        }
     }
 }

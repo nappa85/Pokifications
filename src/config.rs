@@ -15,7 +15,7 @@ pub struct Config {
     pub service: Service,
     pub database: Database,
     pub images: Images,
-    pub google: Google,
+    pub osm: Osm,
     pub telegram: Telegram,
 }
 
@@ -39,8 +39,8 @@ pub struct Images {
 }
 
 #[derive(Deserialize)]
-pub struct Google {
-    pub maps_key: String,
+pub struct Osm {
+    pub tile_url: String,
     pub timeout: Option<u64>,
 }
 

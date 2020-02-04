@@ -11,8 +11,8 @@ sent = "/path/to/img_sent/"
 source = "/path/to/sources/"
 assets = "/path/to/assets"
 
-[google]
-maps_key = ""
+[osm]
+tile_url = ""
 timeout = 1
 
 [telegram]
