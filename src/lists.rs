@@ -220,10 +220,9 @@ async fn load_parks() -> Result<(), ()> {
             (&coords[1..(coords.len() - 2)]).split("),(")
                 .map(|s| {
                     let x_y: Vec<f64> = s.split(",")
-                        .map(|s| match s.parse::<f64>() {
-                            Ok(f) => f,
-                            Err(_) => panic!("Error parsing \"{}\" as a float", s),
-                        })
+                        .map(|s| s.parse::<f64>().map_err(|e| error!("Error parsing \"{}\" as a float: {}", s, e)).ok())
+                        .filter(Option::is_some)
+                        .map(Option::unwrap)
                         .collect();
                     if x_y.len() == 2 {
                         Some(Point::new(x_y[0], x_y[1]))
