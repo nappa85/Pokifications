@@ -115,6 +115,9 @@ pub struct Pokemon {
     pub username: Option<String>,
     pub shiny: Option<bool>,
     pub display_pokemon_id: Option<u16>,
+    pub capture_1: f64,
+    pub capture_2: f64,
+    pub capture_3: f64,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
