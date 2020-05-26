@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use reqwest::{Body, Client, Method, Url, RequestBuilder, multipart::{Form, Part}};
 
@@ -7,9 +7,25 @@ use serde_json::{json, value::Value};
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
 
+use tokio::{spawn, time::{Duration, Instant, interval_at, delay_for}};
+
+use chrono::offset::Local;
+
+use once_cell::sync::Lazy;
+
 use log::error;
 
 use crate::config::CONFIG;
+
+pub static COUNT: Lazy<AtomicUsize> = Lazy::new(|| AtomicUsize::new(0));
+
+async fn wall() {
+    // Telegram accepts only 30 messages per second
+    while COUNT.fetch_add(1, Ordering::Relaxed) > 30 {
+        let now = Local::now();
+        delay_for(Duration::from_nanos(1_000_000_000_u64 - (now.timestamp_subsec_nanos() as u64))).await;
+    }
+}
 
 pub enum CallResult {
     Body((u16, String)),
@@ -23,6 +39,8 @@ pub enum Image {
 }
 
 pub async fn call_telegram(req: RequestBuilder) -> Result<String, CallResult> {
+    wall().await;
+
     let res = if let Some(t) = CONFIG.telegram.timeout {
             req.timeout(Duration::from_secs(t))
         }
@@ -141,4 +159,12 @@ pub async fn send_photo(bot_token: &str, chat_id: &str, photo: Image, caption: O
         .header("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
         .multipart(form);
     call_telegram(req).await
+}
+
+pub async fn init() {
+    spawn(async {
+        let period = Duration::from_secs(1);
+        interval_at(Instant::now() + period, period)
+            .for_each(|_| COUNT.store(0, Ordering::Relaxed)).await;
+    });
 }
