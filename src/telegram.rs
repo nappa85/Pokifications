@@ -15,7 +15,7 @@ use chrono::offset::Local;
 
 use once_cell::sync::Lazy;
 
-use log::error;
+use log::{error, warn};
 
 use crate::config::CONFIG;
 
@@ -24,6 +24,7 @@ pub static COUNT: Lazy<AtomicUsize> = Lazy::new(|| AtomicUsize::new(0));
 async fn wall() {
     // Telegram accepts only 30 messages per second
     while COUNT.fetch_add(1, Ordering::Relaxed) > 30 {
+        warn!("Too many Telegram messages, delaying message");
         let now = Local::now();
         delay_for(Duration::from_nanos(1_000_000_000_u64 - (now.timestamp_subsec_nanos() as u64))).await;
     }
