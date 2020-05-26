@@ -7,6 +7,8 @@ use serde_json::{json, value::Value};
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
 
+use futures_util::stream::StreamExt;
+
 use tokio::{spawn, time::{Duration, Instant, interval_at, delay_for}};
 
 use chrono::offset::Local;
@@ -161,10 +163,13 @@ pub async fn send_photo(bot_token: &str, chat_id: &str, photo: Image, caption: O
     call_telegram(req).await
 }
 
-pub async fn init() {
+pub fn init() {
     spawn(async {
-        let period = Duration::from_secs(1);
-        interval_at(Instant::now() + period, period)
-            .for_each(|_| COUNT.store(0, Ordering::Relaxed)).await;
+        // start next leap second
+        let now = Local::now();
+        interval_at(Instant::now() + Duration::from_nanos(1_000_000_000_u64 - (now.timestamp_subsec_nanos() as u64)), Duration::from_secs(1))
+            .for_each(|_| async {
+                COUNT.store(0, Ordering::Relaxed);
+            }).await;
     });
 }
