@@ -22,11 +22,15 @@ use crate::config::CONFIG;
 pub static COUNT: Lazy<AtomicUsize> = Lazy::new(|| AtomicUsize::new(0));
 
 async fn wall() {
+    let mut delays = 0;
     // Telegram accepts only 30 messages per second
     while COUNT.fetch_add(1, Ordering::Relaxed) > 30 {
-        warn!("Too many Telegram messages, delaying message");
+        delays += 1;
         let now = Local::now();
         delay_for(Duration::from_nanos(1_000_000_000_u64 - (now.timestamp_subsec_nanos() as u64))).await;
+    }
+    if delays > 0 {
+        warn!("Too many Telegram messages, message delayed {} times", delays);
     }
 }
 
