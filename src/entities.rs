@@ -416,7 +416,7 @@ pub struct Weather {
     pub polygon: Polygon<f64>,
     pub special_effect_level: u8,
     pub longitude: f64,
-    pub id: u64,
+    pub id: Option<u64>,
     pub rain_level: u8,
     pub fog_level: u8,
     pub wind_direction: u16,
@@ -424,7 +424,8 @@ pub struct Weather {
     pub warn_weather: bool,
     pub updated: u8,
     pub gameplay_condition: u8,
-    pub wind_level: u8
+    pub wind_level: u8,
+    pub s2_cell_id: u64,
 }
 
 fn deserialize_polygon<'de, D>(data: D) -> Result<Polygon<f64>, D::Error>
