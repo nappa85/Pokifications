@@ -29,6 +29,10 @@ pub fn init() {
                             None => continue,
                         };
 
+                        if city.scadenza < now {
+                            continue;
+                        }
+
                         let mut city_alerts = Vec::new();
                         check_timestamp(&stats.last_pokemon, timestamp, "Pokémon", &mut city_alerts);
                         if city.scan_iv > 0 {

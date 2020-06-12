@@ -87,7 +87,7 @@ impl BotConfigs {
     async fn reload_city(city_id: u16) -> Result<(), ()> {
         let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
         let res = conn.prep_exec(
-                "SELECT id, name, coordinates, scadenza, monitor, admins_users FROM city WHERE id = :id AND scadenza > UNIX_TIMESTAMP()",
+                "SELECT id, name, coordinates, scadenza, monitor, admins_users FROM city WHERE id = :id",
                 params! {
                     "id" => city_id,
                 }
@@ -103,7 +103,7 @@ impl BotConfigs {
             };
 
             let res = conn.prep_exec(
-                    "SELECT user_id FROM utenti WHERE city_id = :id AND expire > UNIX_TIMESTAMP()",
+                    "SELECT user_id FROM utenti WHERE city_id = :id",
                     params! {
                         "id" => city_id
                     }

@@ -188,7 +188,7 @@ async fn load_grunts() -> Result<(), ()> {
 
 async fn load_cities() -> Result<(), ()> {
     let conn =MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-    let res = conn.query("SELECT id, name, coordinates, scadenza, monitor, admins_users FROM city WHERE scadenza > UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL query error: {}", e))?;
+    let res = conn.query("SELECT id, name, coordinates, scadenza, monitor, admins_users FROM city").await.map_err(|e| error!("MySQL query error: {}", e))?;
 
     let mut cities = CITIES.write().await;
     cities.clear();
