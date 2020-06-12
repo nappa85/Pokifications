@@ -212,12 +212,12 @@ async fn load_parks() -> Result<(), ()> {
         let coords = row.take::<String, _>("coordinates").expect("MySQL city_parks.coordinates encoding error");
         let coords = coords.replace(char::is_whitespace, "");
 
-        let poly: Vec<Point<f64>> = if coords.is_empty() {
+        let poly: Vec<Point<f64>> = if coords.len() < 2 {
             error!("Park {} has empty coordinates", id);
             Vec::new()
         }
         else {
-            (&coords[1..(coords.len() - 2)]).split("),(")
+            (&coords[1..(coords.len() - 1)]).split("),(")
                 .map(|s| {
                     let x_y: Vec<f64> = s.split(",")
                         .map(|s| s.parse::<f64>().map_err(|e| error!("Error parsing \"{}\" as a float: {}", s, e)).ok())
