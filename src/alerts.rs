@@ -29,7 +29,7 @@ pub fn init() {
                             None => continue,
                         };
 
-                        if city.scadenza < now {
+                        if city.scadenza < timestamp {
                             continue;
                         }
 
