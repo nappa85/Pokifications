@@ -93,7 +93,7 @@ pub trait Message {
             Ok(_) => {
                 let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
                 let query = format!("UPDATE utenti_config_bot SET sent = sent + 1 WHERE user_id = {}", chat_id);
-                self.update_stats(conn).await?.query(query).await.map_err(|e| error!("MySQL query error: {}", e))?;
+                self.update_stats(conn).await?.query(query).await.map_err(|e| error!("MySQL query error: increment sent count\n{}", e))?;
                 Ok(())
             },
             Err(CallResult::Body((_, body))) => {
@@ -103,7 +103,7 @@ pub trait Message {
                 if json["description"] == "Forbidden: bot was blocked by the user" {
                     let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
                     let query = format!("UPDATE utenti_config_bot SET enabled = 0 WHERE user_id = {}", chat_id);
-                    conn.query(query).await.map_err(|e| error!("MySQL query error: {}", e))?;
+                    conn.query(query).await.map_err(|e| error!("MySQL query error: disable bot\n{}", e))?;
                     // apply
                     BotConfigs::reload(vec![chat_id.to_owned()]).await
                 }
@@ -517,7 +517,7 @@ impl Message for PokemonMessage {
 
     async fn update_stats(&self, conn: Conn) -> Result<Conn, ()> {
         let query = format!("INSERT INTO bot_sent_pkmn (pokemon_id, sent) VALUES ({}, 1) ON DUPLICATE KEY UPDATE sent = sent + 1", self.pokemon.pokemon_id);
-        let res = conn.query(query).await.map_err(|e| error!("MySQL query error: {}", e))?;
+        let res = conn.query(query).await.map_err(|e| error!("MySQL query error: update stats\n{}", e))?;
         res.drop_result().await.map_err(|e| error!("MySQL drop result error: {}", e))
     }
 }
@@ -730,7 +730,7 @@ impl Message for RaidMessage {
             Some(id) if id > 0 => { format!("p{}", id) },
             _ => format!("l{}", self.raid.level),
         });
-        let res = conn.query(query).await.map_err(|e| error!("MySQL query error: {}", e))?;
+        let res = conn.query(query).await.map_err(|e| error!("MySQL query error: insert sent raid\n{}", e))?;
         res.drop_result().await.map_err(|e| error!("MySQL drop result error: {}", e))
     }
 }

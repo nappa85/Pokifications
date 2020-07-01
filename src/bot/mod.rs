@@ -66,7 +66,7 @@ impl BotConfigs {
 
         {
             let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-            let res = conn.query("SELECT user_id, encounter_id, iv, latitude, longitude, expire FROM bot_weather_watches WHERE expire > UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL query error: {}", e))?;
+            let res = conn.query("SELECT user_id, encounter_id, iv, latitude, longitude, expire FROM bot_weather_watches WHERE expire > UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL query error: get weather watches\n{}", e))?;
             let mut lock = WATCHES.lock().await;
             res.for_each_and_drop(|row| {
                 let (user_id, encounter_id, iv, latitude, longitude, expire) = from_row::<(String, String, Option<u8>, f64, f64, i64)>(row);
@@ -91,7 +91,7 @@ impl BotConfigs {
                 params! {
                     "id" => city_id,
                 }
-            ).await.map_err(|e| error!("MySQL query error: {}", e))?;
+            ).await.map_err(|e| error!("MySQL query error: get city\n{}", e))?;
 
         if !res.is_empty() {
             let conn = {
@@ -107,7 +107,7 @@ impl BotConfigs {
                     params! {
                         "id" => city_id
                     }
-                ).await.map_err(|e| error!("MySQL query error: {}", e))?;
+                ).await.map_err(|e| error!("MySQL query error: get city users\n{}", e))?;
             let (_, user_ids) = res.collect_and_drop().await.map_err(|e| error!("MySQL collect error: {}", e))?;
 
             let mut lock = BOT_CONFIGS.write().await;
@@ -175,13 +175,13 @@ impl BotConfigs {
                 }).unwrap_or_else(|| String::from("b.enabled = 1 AND b.beta = 1 AND u.status != 0")));
 
         let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-        let res = conn.query(query).await.map_err(|e| error!("MySQL query error: {}", e))?;
+        let res = conn.query(query).await.map_err(|e| error!("MySQL query error: get users configs\n{}", e))?;
 
         let mut results = HashMap::new();
-        let (_, temp) = res.map_and_drop(from_row::<(u8, String, String, u8, u8, i64, u16)>).await.map_err(|e| error!("MySQL collect error: {}", e))?;
+        let (_, temp) = res.map_and_drop(from_row::<(u8, u64, String, u8, u8, i64, u16)>).await.map_err(|e| error!("MySQL collect error: {}", e))?;
         for (enabled, user_id, config, beta, status, scadenza, city_id) in temp {
-            let result = Self::load_user(configs, enabled, user_id.clone(), config, beta, status, city_id, scadenza).await.unwrap_or_else(|_| LoadResult::Error);
-            results.insert(user_id, result);
+            let result = Self::load_user(configs, enabled, user_id.to_string(), config, beta, status, city_id, scadenza).await.unwrap_or_else(|_| LoadResult::Error);
+            results.insert(user_id.to_string(), result);
         }
 
         Ok(results)
@@ -190,7 +190,7 @@ impl BotConfigs {
     async fn load_user(configs: &mut HashMap<String, config::BotConfig>, enabled: u8, user_id: String, config: String, beta: u8, status: u8, city_id: u16, scadenza: i64) -> Result<LoadResult, ()> {
         if enabled > 0 && beta > 0 && status > 0 {
             let mut config: config::BotConfig = serde_json::from_str(&config).map_err(|e| error!("MySQL utenti_config_bot.config decoding error for user_id {}: {}", user_id, e))?;
-            if config.validate(&user_id, city_id).await {
+            if config.validate(&user_id, city_id).await? {
                 config.scadenza = Some(scadenza);
                 configs.insert(user_id, config);
 
@@ -234,7 +234,7 @@ impl BotConfigs {
                             "longitude" => watch.point.y(),
                             "expire" => watch.expire,
                         }
-                    ).await.map_err(|e| error!("MySQL insert error: {}", e))?;
+                    ).await.map_err(|e| error!("MySQL insert error: insert weather watch\n{}", e))?;
 
                 lock.push(watch);
             }
@@ -389,7 +389,7 @@ impl BotConfigs {
                                             "encounter_id" => encounter_id.as_str(),
                                             "pokemon_id" => pokemon_id,
                                         }).await
-                                        .map_err(|e| error!("MySQL query error: {}", e)).ok();
+                                        .map_err(|e| error!("MySQL query error: insert park stat\n{}", e)).ok();
                                 },
                                 Err(_) => {},
                             }

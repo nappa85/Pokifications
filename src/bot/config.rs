@@ -7,6 +7,8 @@ use serde_json::Value as JsonValue;
 
 use chrono::{Local, DateTime};
 
+use mysql_async::{prelude::Queryable, params};
+
 use geo::Point;
 
 use geo_raycasting::RayCasting;
@@ -18,6 +20,7 @@ use log::info;
 // use crate::lists::COMMON;
 use crate::entities::{Pokemon, Pokestop, Raid, Request, Gender, Quest};
 use crate::lists::CITIES;
+use crate::db::MYSQL;
 // use crate::telegram::Image;
 
 use super::message::{Message, PokemonMessage, RaidMessage, InvasionMessage, QuestMessage};
@@ -40,12 +43,12 @@ pub struct BotConfig {
 }
 
 impl BotConfig {
-    pub async fn validate(&self, user_id: &str, city_id: u16) -> bool {
+    pub async fn validate(&self, user_id: &str, city_id: u16) -> Result<bool, ()> {
         let polygon = match CITIES.read().await.get(&city_id) {
             Some(c) => c.coordinates.clone(),
             None => {
                 info!("{} is associated to disabled city {}", user_id, city_id);
-                return false;
+                return Ok(false);
             },
         };
 
@@ -54,7 +57,7 @@ impl BotConfig {
         //         let p: Point<f64> = (x, y).into();
         //         if !polygon.within(&p) {
         //             info!("{} has home pointer out of city {}", user_id, city_id);
-        //             return false;
+        //             return Ok(false);
         //         }
         //     },
         //     _ => {},
@@ -65,7 +68,7 @@ impl BotConfig {
                 let p: Point<f64> = (x, y).into();
                 if !polygon.within(&p) {
                     info!("{} has pokemon pointer out of city {}", user_id, city_id);
-                    return false;
+                    return Ok(false);
                 }
             },
             _ => {},
@@ -76,7 +79,7 @@ impl BotConfig {
                 let p: Point<f64> = (x, y).into();
                 if !polygon.within(&p) {
                     info!("{} has raid pointer out of city {}", user_id, city_id);
-                    return false;
+                    return Ok(false);
                 }
             },
             _ => {},
@@ -88,7 +91,7 @@ impl BotConfig {
                     let p: Point<f64> = (x, y).into();
                     if !polygon.within(&p) {
                         info!("{} has pokestop pointer out of city {}", user_id, city_id);
-                        return false;
+                        return Ok(false);
                     }
                 },
                 _ => {},
@@ -102,15 +105,29 @@ impl BotConfig {
                 (Ok(x), Ok(y)) => {
                     let p: Point<f64> = (x, y).into();
                     let mut not_found = true;
-                    for (_, city) in CITIES.read().await.iter() {
+                    let mut city_id: u16 = 0;
+                    for (id, city) in CITIES.read().await.iter() {
                         if city.coordinates.within(&p) {
                             not_found = false;
+                            city_id = *id;
                             break;
                         }
                     }
                     if not_found {
                         info!("{} has temp pokemon pointer out of any city", user_id);
-                        return false;
+                        return Ok(false);
+                    }
+                    else {
+                        // update city_id on temp pos log
+                        let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+                        conn.drop_exec(
+                            "UPDATE utenti_temp_pos SET city_id = :city_id WHERE user_id = :user_id AND pos_type IN ('a', 'p') AND start_time < :now AND end_time > :now",
+                            params! {
+                                "city_id" => city_id,
+                                "user_id" => user_id,
+                                "now" => now,
+                            }
+                        ).await.map_err(|e| error!("MySQL query error: update pokemon temp pos\n{}", e))?;
                     }
                 },
                 _ => {},
@@ -122,15 +139,29 @@ impl BotConfig {
                 (Ok(x), Ok(y)) => {
                     let p: Point<f64> = (x, y).into();
                     let mut not_found = true;
-                    for (_, city) in CITIES.read().await.iter() {
+                    let mut city_id: u16 = 0;
+                    for (id, city) in CITIES.read().await.iter() {
                         if city.coordinates.within(&p) {
                             not_found = false;
+                            city_id = *id;
                             break;
                         }
                     }
                     if not_found {
                         info!("{} has temp raid pointer out of any city", user_id);
-                        return false;
+                        return Ok(false);
+                    }
+                    else {
+                        // update city_id on temp pos log
+                        let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+                        conn.drop_exec(
+                            "UPDATE utenti_temp_pos SET city_id = :city_id WHERE user_id = :user_id AND pos_type IN ('a', 'r') AND start_time < :now AND end_time > :now",
+                            params! {
+                                "city_id" => city_id,
+                                "user_id" => user_id,
+                                "now" => now,
+                            }
+                        ).await.map_err(|e| error!("MySQL query error: update raid temp pos\n{}", e))?;
                     }
                 },
                 _ => {},
@@ -143,15 +174,29 @@ impl BotConfig {
                     (Ok(x), Ok(y)) => {
                         let p: Point<f64> = (x, y).into();
                         let mut not_found = true;
-                        for (_, city) in CITIES.read().await.iter() {
+                        let mut city_id: u16 = 0;
+                        for (id, city) in CITIES.read().await.iter() {
                             if city.coordinates.within(&p) {
                                 not_found = false;
+                                city_id = *id;
                                 break;
                             }
                         }
                         if not_found {
                             info!("{} has temp pokestop pointer out of any city", user_id);
-                            return false;
+                            return Ok(false);
+                        }
+                        else {
+                            // update city_id on temp pos log
+                            let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+                            conn.drop_exec(
+                                "UPDATE utenti_temp_pos SET city_id = :city_id WHERE user_id = :user_id AND pos_type IN ('a', 'i') AND start_time < :now AND end_time > :now",
+                                params! {
+                                    "city_id" => city_id,
+                                    "user_id" => user_id,
+                                    "now" => now,
+                                }
+                            ).await.map_err(|e| error!("MySQL query error: update pokestop temp pos\n{}", e))?;
                         }
                     },
                     _ => {},
@@ -159,7 +204,7 @@ impl BotConfig {
             }
         }
 
-        true
+        Ok(true)
     }
 
     pub fn submit(&self, now: &DateTime<Local>, input: &Request) -> Result<Box<dyn Message + Send + Sync>, ()> {
