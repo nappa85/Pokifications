@@ -108,7 +108,8 @@ impl BotConfigs {
                         "id" => city_id
                     }
                 ).await.map_err(|e| error!("MySQL query error: get city users\n{}", e))?;
-            let (_, user_ids) = res.collect_and_drop().await.map_err(|e| error!("MySQL collect error: {}", e))?;
+            // let (_, user_ids) = res.collect_and_drop().await.map_err(|e| error!("MySQL collect error: {}", e))?;
+            let (_, user_ids) = res.map_and_drop(|mut row| row.take::<u64, _>("user_id").map(|i| i.to_string()).unwrap_or_else(String::new)).await.map_err(|e| error!("MySQL collect error: {}", e))?;
 
             let mut lock = BOT_CONFIGS.write().await;
             Self::load(&mut lock, Some(user_ids)).await?;
