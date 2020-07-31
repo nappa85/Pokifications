@@ -121,7 +121,7 @@ impl BotConfig {
                         // update city_id on temp pos log
                         let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
                         conn.drop_exec(
-                            "UPDATE utenti_temp_pos SET city_id = :city_id WHERE user_id = :user_id AND pos_type IN ('a', 'p') AND start_time < :now AND end_time > :now",
+                            "UPDATE utenti_temp_pos SET city_id = :city_id WHERE user_id = :user_id AND pos_type IN ('a', 'p') AND start_time <= :now AND end_time > :now",
                             params! {
                                 "city_id" => city_id,
                                 "user_id" => user_id,
@@ -155,7 +155,7 @@ impl BotConfig {
                         // update city_id on temp pos log
                         let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
                         conn.drop_exec(
-                            "UPDATE utenti_temp_pos SET city_id = :city_id WHERE user_id = :user_id AND pos_type IN ('a', 'r') AND start_time < :now AND end_time > :now",
+                            "UPDATE utenti_temp_pos SET city_id = :city_id WHERE user_id = :user_id AND pos_type IN ('a', 'r') AND start_time <= :now AND end_time > :now",
                             params! {
                                 "city_id" => city_id,
                                 "user_id" => user_id,
@@ -190,7 +190,7 @@ impl BotConfig {
                             // update city_id on temp pos log
                             let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
                             conn.drop_exec(
-                                "UPDATE utenti_temp_pos SET city_id = :city_id WHERE user_id = :user_id AND pos_type IN ('a', 'i') AND start_time < :now AND end_time > :now",
+                                "UPDATE utenti_temp_pos SET city_id = :city_id WHERE user_id = :user_id AND pos_type IN ('a', 'i') AND start_time <= :now AND end_time > :now",
                                 params! {
                                     "city_id" => city_id,
                                     "user_id" => user_id,
