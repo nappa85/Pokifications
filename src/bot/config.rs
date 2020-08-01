@@ -376,7 +376,7 @@ impl BotConfig {
         else {
             match input.pokemon_id {
                 Some(pkmn_id) if pkmn_id > 0 => {
-                    if !self.raid.p.contains(&pkmn_id) {
+                    if !self.raid.p.contains(&(pkmn_id as i16)) && !self.raid.p.contains(&((input.level as i16) * -1)) {
                         #[cfg(test)]
                         info!("Raid discarded for disabled raidboss: raidboss {} config {:?}", pkmn_id, self.raid.p);
 
@@ -655,7 +655,7 @@ pub struct BotRaid {
     pub u: u8,
     pub s: u8,
     pub l: Vec<u8>,
-    pub p: Vec<u16>,
+    pub p: Vec<i16>,
     pub x: Option<u8>,
 }
 
@@ -807,6 +807,7 @@ impl BotPkmn {
      * 13: def value
      * 14: sta filter (1: <, 2: =, 3: >)
      * 15: sta value
+     * 16: bypass 100%
      */
     fn advanced_filters(filter: &[u8], input: &Box<Pokemon>) -> bool {
         match filter.get(9) {
@@ -828,9 +829,10 @@ impl BotPkmn {
             }
         }
 
-        filter_iv(filter.get(10), filter.get(11), input.individual_attack.as_ref()) &&
+        (filter_iv(filter.get(10), filter.get(11), input.individual_attack.as_ref()) &&
             filter_iv(filter.get(12), filter.get(13), input.individual_defense.as_ref()) &&
-            filter_iv(filter.get(14), filter.get(15), input.individual_stamina.as_ref())
+            filter_iv(filter.get(14), filter.get(15), input.individual_stamina.as_ref())) ||
+            (filter.get(16) == Some(&1) && input.individual_attack == Some(15) && input.individual_defense == Some(15) && input.individual_stamina == Some(15))
     }
 }
 
