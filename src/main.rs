@@ -27,6 +27,8 @@ use tokio::spawn;
 
 use chrono::{DateTime, Local};
 
+use serde_json::value::Value;
+
 use log::{info, error};
 
 // async fn log_webhook(bytes: &[u8]) -> Result<(), ()> {
@@ -44,8 +46,20 @@ async fn parse(now: DateTime<Local>, bytes: Vec<u8>) -> Result<(), ()> {
     // });
 
     let body = String::from_utf8(bytes).map_err(|e| error!("encoding error: {}", e))?;
-    let configs = serde_json::from_str(&body).map_err(|e| error!("deserialize error: {}\n{}", e, body))?;
-    bot::BotConfigs::submit(now, configs).await;
+    // split the serialization in two passes, this way a single error doesn't break the entire block
+    let configs: Vec<Value> = serde_json::from_str(&body).map_err(|e| error!("deserialize error: {}\n{}", e, body))?;
+    bot::BotConfigs::submit(
+        now, 
+        configs.into_iter()
+            .map(|v|
+                // this is a bit of a waste of memory, but there is no other way around
+                serde_json::from_value(v.clone())
+                    .map_err(|e| error!("deserialize error: {}\n{}", e, v))
+            )
+            .filter(Result::is_ok)
+            .map(Result::unwrap)
+            .collect()
+        ).await;
     Ok(())
 }
 
