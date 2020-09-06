@@ -562,13 +562,19 @@ impl Message for RaidMessage {
             // $t_corpo .= "RAID " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]) . " iniziato\n";
             // $t_corpo .= "\xf0\x9f\x93\x8d " . (strlen($gym_name) > 36 ? substr($gym_name, 0, 35) . ".." : $gym_name) . "\n";
             // $t_corpo .= "\xf0\x9f\x95\x92 Termina: " . date("H:i:s", $t_msg["time_end"]);
-            format!("{} RAID {}{} iniziato\n{} {}\n{} Termina: {}",//debug
+            format!("{} RAID {}{}{} iniziato\n{} {}\n{} Termina: {}",//debug
                 icon,
                 LIST.read().await.get(&pokemon_id).map(|p| p.name.to_uppercase()).unwrap_or_else(String::new),
                 match self.raid.form {
                     Some(id) => FORMS.read().await.get(&id).map(|s| format!(" ({})", s)),
                     None => None,
                 }.unwrap_or_else(String::new),
+                match self.raid.evolution {
+                    Some(id) if id == 1 => " (Mega)",
+                    Some(id) if id == 2 => " (Mega X)",
+                    Some(id) if id == 3 => " (Mega Y)",
+                    _ => "",
+                },
                 String::from_utf8(if self.raid.ex_raid_eligible { vec![0xE2, 0x9B, 0xB3] } else { vec![0xf0, 0x9f, 0x93, 0x8d] }).map_err(|e| error!("error parsing POI icon: {}", e))?,
                 self.raid.gym_name,
                 String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92]).map_err(|e| error!("error parsing clock icon: {}", e))?,
@@ -626,13 +632,48 @@ impl Message for RaidMessage {
                 let path = format!("{}images/msg-bgs/msg-raid-big-t{}{}.png", CONFIG.images.sender, self.raid.team_id.get_id(), if self.raid.ex_raid_eligible { "-ex" } else { "" });
                 let mut background = open_image(&path).await?;
 
+                let evo = match self.raid.evolution {
+                    Some(1) => "_mega",
+                    Some(2) => "_megax",
+                    Some(3) => "_megay",
+                    _ => "",
+                };
+
                 // $mPoke = imagecreatefrompng("../../assets/img/pkmns/shuffle/" . $v_pkmnid . ".png");
                 let pokemon = match self.raid.form {
                     Some(form) if form > 0 => {
-                        let image = format!("{}img/pkmns/shuffle/{}-{}.png",
+                        let image = format!("{}img/pkmns/shuffle/{}-{}{}.png",
                             CONFIG.images.assets,
                             pkmn_id,
-                            form
+                            form,
+                            evo
+                        );
+                        match open_image(&image).await {
+                            Ok(img) => img,
+                            Err(_) => {
+                                let image = format!("{}img/pkmns/shuffle/{}{}.png",
+                                    CONFIG.images.assets,
+                                    pkmn_id,
+                                    evo
+                                );
+                                match open_image(&image).await {
+                                    Ok(img) => img,
+                                    Err(_) => {
+                                        let image = format!("{}img/pkmns/shuffle/{}.png",
+                                            CONFIG.images.assets,
+                                            pkmn_id
+                                        );
+                                        open_image(&image).await?
+                                    }
+                                }
+                            },
+                        }
+                    },
+                    _ => {
+                        let image = format!("{}img/pkmns/shuffle/{}{}.png",
+                            CONFIG.images.assets,
+                            pkmn_id,
+                            evo
                         );
                         match open_image(&image).await {
                             Ok(img) => img,
@@ -642,15 +683,8 @@ impl Message for RaidMessage {
                                     pkmn_id
                                 );
                                 open_image(&image).await?
-                            },
+                            }
                         }
-                    },
-                    _ => {
-                        let image = format!("{}img/pkmns/shuffle/{}.png",
-                            CONFIG.images.assets,
-                            pkmn_id
-                        );
-                        open_image(&image).await?
                     },
                 };
 
@@ -687,7 +721,12 @@ impl Message for RaidMessage {
                 if let Some(id) = self.raid.form {
                     if let Some(form_name) = FORMS.read().await.get(&id) {
                         let dm = get_text_width(&f_cal2, scale18, &name);
-                        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 73 + dm as u32, 7, scale11, &f_cal2, &format!("({})", form_name));
+                        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 73 + dm as u32, 7, scale11, &f_cal2, &format!("({}){}", form_name, match self.raid.evolution {
+                            Some(1) => " (Mega)",
+                            Some(2) => " (Mega X)",
+                            Some(3) => " (Mega Y)",
+                            _ => "",
+                        }));
                     }
                 }
 
