@@ -156,7 +156,7 @@ async fn load_moves() -> Result<(), ()> {
 
 async fn load_forms() -> Result<(), ()> {
     let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-    let res = conn.query("SELECT * FROM pokemon_forms").await.map_err(|e| error!("MySQL query error: get pokemon forms\n{}", e))?;
+    let res = conn.query("SELECT * FROM pokemon_forms WHERE hidden = 0").await.map_err(|e| error!("MySQL query error: get pokemon forms\n{}", e))?;
 
     let mut forms = FORMS.write().await;
     forms.clear();

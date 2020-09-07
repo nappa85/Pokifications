@@ -86,6 +86,15 @@ fn meteo_icon(meteo: u8) -> Result<String, ()> {
     }).map_err(|e| error!("error converting meteo icon: {}", e))?))
 }
 
+fn get_mega_desc(evo: &Option<u8>) -> &str {
+    match evo {
+        Some(1) => "(Mega)",
+        Some(2) => "(Mega X)",
+        Some(3) => "(Mega Y)",
+        _ => "",
+    }
+}
+
 #[async_trait]
 pub trait Message {
     async fn send(&self, chat_id: &str, image: Image, map_type: &str) -> Result<(), ()> {
@@ -718,16 +727,17 @@ impl Message for RaidMessage {
                 // imagettftext($mBg, 18, 0, 63, 25, 0x00000000, $f_cal2, $p_name);
                 let name = LIST.read().await.get(&pkmn_id).map(|p| p.name.to_uppercase()).unwrap_or_else(String::new);
                 imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale18, &f_cal2, &name);
+                let mut has_form = false;
                 if let Some(id) = self.raid.form {
                     if let Some(form_name) = FORMS.read().await.get(&id) {
+                        has_form = true;
                         let dm = get_text_width(&f_cal2, scale18, &name);
-                        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 73 + dm as u32, 7, scale11, &f_cal2, &format!("({}){}", form_name, match self.raid.evolution {
-                            Some(1) => " (Mega)",
-                            Some(2) => " (Mega X)",
-                            Some(3) => " (Mega Y)",
-                            _ => "",
-                        }));
+                        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 73 + dm as u32, 7, scale11, &f_cal2, &format!("({}) {}", form_name, get_mega_desc(&self.raid.evolution)));
                     }
+                }
+                if !has_form && self.raid.evolution.is_some() {
+                    let dm = get_text_width(&f_cal2, scale18, &name);
+                    imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 73 + dm as u32, 7, scale11, &f_cal2, &format!("{}", get_mega_desc(&self.raid.evolution)));
                 }
 
                 (background, pokemon)
