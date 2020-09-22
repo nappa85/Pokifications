@@ -547,6 +547,7 @@ pub struct Account {
 pub struct Watch {
     pub user_id: String,
     pub encounter_id: String,
+    pub pokemon_id: u16,
     pub iv: Option<u8>,
     pub point: Point<f64>,
     pub expire: i64,
@@ -559,6 +560,7 @@ impl PartialEq for Watch {
     fn eq(&self, other: &Watch) -> bool {
         self.user_id == other.user_id &&
             self.encounter_id == other.encounter_id &&
+            self.pokemon_id == other.pokemon_id &&
             self.iv == other.iv &&
             self.point == other.point &&
             self.expire == other.expire

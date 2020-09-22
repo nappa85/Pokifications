@@ -66,13 +66,14 @@ impl BotConfigs {
 
         {
             let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-            let res = conn.query("SELECT user_id, encounter_id, iv, latitude, longitude, expire FROM bot_weather_watches WHERE expire > UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL query error: get weather watches\n{}", e))?;
+            let res = conn.query("SELECT user_id, encounter_id, pokemon_id, iv, latitude, longitude, expire FROM bot_weather_watches WHERE expire > UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL query error: get weather watches\n{}", e))?;
             let mut lock = WATCHES.lock().await;
             res.for_each_and_drop(|row| {
-                let (user_id, encounter_id, iv, latitude, longitude, expire) = from_row::<(String, String, Option<u8>, f64, f64, i64)>(row);
+                let (user_id, encounter_id, pokemon_id, iv, latitude, longitude, expire) = from_row::<(String, String, u16, Option<u8>, f64, f64, i64)>(row);
                 lock.push(Watch {
                     user_id,
                     encounter_id,
+                    pokemon_id,
                     iv,
                     point: (latitude, longitude).into(),
                     expire,
@@ -226,10 +227,11 @@ impl BotConfigs {
                 let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
                 conn.drop_query("DELETE FROM bot_weather_watches WHERE expire < UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL delete error: {}", e))?
                     .drop_exec(
-                        "INSERT INTO bot_weather_watches (user_id, encounter_id, iv, latitude, longitude, expire) VALUES (:user_id, :encounter_id, :iv, :latitude, :longitude, :expire)",
+                        "INSERT INTO bot_weather_watches (user_id, encounter_id, pokemon_id, iv, latitude, longitude, expire) VALUES (:user_id, :encounter_id, :iv, :latitude, :longitude, :expire)",
                         params! {
                             "user_id" => watch.user_id.clone(),
                             "encounter_id" => watch.encounter_id.clone(),
+                            "pokemon_id" => watch.pokemon_id,
                             "iv" => watch.iv,
                             "latitude" => watch.point.x(),
                             "longitude" => watch.point.y(),

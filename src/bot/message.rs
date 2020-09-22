@@ -335,7 +335,7 @@ impl Message for PokemonMessage {
 
     async fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
         let timestamp = Local.timestamp(self.pokemon.disappear_time, 0);
-        let img_path_str = format!("{}img_sent/poke_{}_{}_{}.png", CONFIG.images.bot, timestamp.format("%Y%m%d%H").to_string(), self.pokemon.encounter_id, self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new));
+        let img_path_str = format!("{}img_sent/poke_{}_{}_{}_{}.png", CONFIG.images.bot, timestamp.format("%Y%m%d%H").to_string(), self.pokemon.encounter_id, self.pokemon.pokemon_id, self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new));
 
         let img_path = Path::new(&img_path_str);
         if img_path.exists() {
@@ -514,7 +514,7 @@ impl Message for PokemonMessage {
                 (Some(_), Some(_), Some(_), Some(a)) => {
                     a.push(json!([{
                         "text": format!("{} Avvia tracciamento Meteo", String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?),
-                        "callback_data": format!("watch|{:.3}|{:.3}|{}|{}|{}", lat, lon, self.pokemon.disappear_time, self.pokemon.encounter_id, self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new))
+                        "callback_data": format!("watch|{:.3}|{:.3}|{}|{}|{}|{}", lat, lon, self.pokemon.disappear_time, self.pokemon.encounter_id, self.pokemon.pokemon_id, self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new))
                     }]));
                 },
                 _ => {},
@@ -957,7 +957,7 @@ impl Message for WeatherMessage {
 
     async fn get_image(&self, _: image::DynamicImage) -> Result<Vec<u8>, ()> {
         let timestamp = Local.timestamp(self.watch.expire, 0);
-        let img_path_str = format!("{}img_sent/poke_{}_{}_{}.png", CONFIG.images.bot, timestamp.format("%Y%m%d%H").to_string(), self.watch.encounter_id, self.watch.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new));
+        let img_path_str = format!("{}img_sent/poke_{}_{}_{}_{}.png", CONFIG.images.bot, timestamp.format("%Y%m%d%H").to_string(), self.watch.encounter_id, self.watch.pokemon_id, self.watch.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new));
 
         let img_path = Path::new(&img_path_str);
         if img_path.exists() {
