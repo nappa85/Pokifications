@@ -507,7 +507,7 @@ impl Message for PokemonMessage {
                     "url": maplink
                 }]]
             });
-// if chat_id == "25900594" || chat_id == "112086777" || chat_id == "9862788" || chat_id == "82417031" {//DEBUG
+
         // watch button available only on crossing-hour spawns
         if Local::now().hour() != Local.timestamp(self.pokemon.disappear_time, 0).hour() {
             match (self.pokemon.individual_attack, self.pokemon.individual_defense, self.pokemon.individual_stamina, keyboard["inline_keyboard"].as_array_mut()) {
@@ -520,7 +520,7 @@ impl Message for PokemonMessage {
                 _ => {},
             }
         }
-// }//DEBUG
+
         Ok(keyboard)
     }
 
@@ -943,16 +943,14 @@ impl Message for WeatherMessage {
 
     async fn get_caption(&self) -> Result<String, ()> {
         let old = self.watch.reference_weather.as_ref().ok_or_else(|| error!("reference_weather is None"))?;
-        if old == &self.actual_weather {
-            Ok(format!("{} Meteo invariato nella cella",
-                String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?))
-        }
-        else {
-            Ok(format!("{} Meteo cambiato nella cella!",
-                String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?//,
-                //old.diff(&self.actual_weather)
-                ))
-        }
+        let caption = format!("{} Meteo {} nella cella",
+            String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?,
+            if old == &self.actual_weather { "invariato" } else { "cambiato" }
+        );
+        Ok(match &self.debug {
+            Some(time) => format!("{}\n\nScansione avvenuta alle{}\n{}", caption, time, old.diff(&self.actual_weather)),
+            _ => caption,
+        })
     }
 
     async fn get_image(&self, _: image::DynamicImage) -> Result<Vec<u8>, ()> {
@@ -970,6 +968,41 @@ impl Message for WeatherMessage {
             error!("pokemon image {} not found", img_path_str);
             Err(())
         }
+    }
+
+    fn message_button(&self, _chat_id: &str, mtype: &str) -> Result<Value, ()> {
+        let lat = self.get_latitude();
+        let lon = self.get_longitude();
+
+        let maplink = match mtype {
+            "g" => format!("https://maps.google.it/maps/?q={},{}", lat, lon),
+            "g2" => format!("https://www.google.it/maps/place/{},{}", lat, lon),
+            "g3" => format!("https://www.google.com/maps/search/?api=1&query={},{}", lat, lon),
+            "gd" => format!("https://www.google.com/maps/dir/?api=1&destination={},{}", lat, lon),
+            "a" => format!("http://maps.apple.com/?ll={},{}", lat, lon),
+            "w" => format!("https://waze.com/ul?ll={},{}", lat, lon),
+            _ => format!("https://maps.google.it/maps/?q={},{}", lat, lon),
+        };
+        let title = format!("{} Mappa", String::from_utf8(vec![0xf0, 0x9f, 0x8c, 0x8e]).map_err(|e| error!("error encoding map icon: {}", e))?);
+
+        let mut keyboard = json!({
+                "inline_keyboard": [[{
+                    "text": title,
+                    "url": maplink
+                }]]
+            });
+
+        // watch button available only on crossing-hour spawns
+        if self.debug.is_some() {
+            if let Some(a) = keyboard["inline_keyboard"].as_array_mut() {
+                a.push(json!([{
+                    "text": format!("{} Ferma tracciamento Meteo", String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?),
+                    "callback_data": format!("stop|{:.3}|{:.3}|{}|{}|{}|{}", lat, lon, self.watch.expire, self.watch.encounter_id, self.watch.pokemon_id, self.watch.iv.map(|iv| iv.to_string()).unwrap_or_else(String::new))
+                }]));
+            }
+        }
+
+        Ok(keyboard)
     }
 
     async fn update_stats(&self, conn: Conn) -> Result<Conn, ()> {

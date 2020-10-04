@@ -207,12 +207,44 @@ impl BotConfigs {
         }
     }
 
-    async fn add_watches(watch: Watch) -> Result<(), ()> {
-        let mut lock = WATCHES.lock().await;
+    async fn remove_watches(watch: Watch) -> Result<(), ()> {
         let now = Local::now().timestamp();
 
         // remove expired watches
         let mut remove = Vec::new();
+        let mut lock = WATCHES.lock().await;
+        for (index, w) in lock.iter().enumerate() {
+            if w.expire < now || w == &watch {
+                remove.push(index);
+            }
+        }
+        for index in remove.into_iter().rev() {
+            lock.remove(index);
+        }
+
+        let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+        conn.drop_exec(
+            "DELETE FROM bot_weather_watches WHERE expire < UNIX_TIMESTAMP() OR (user_id = :user_id AND encounter_id = :encounter_id AND pokemon_id = :pokemon_id AND iv = :iv AND latitude = :latitude AND longitude = :longitude AND expire = :expire)",
+            params! {
+                "user_id" => watch.user_id.clone(),
+                "encounter_id" => watch.encounter_id.clone(),
+                "pokemon_id" => watch.pokemon_id,
+                "iv" => watch.iv,
+                "latitude" => watch.point.x(),
+                "longitude" => watch.point.y(),
+                "expire" => watch.expire,
+            }
+        ).await.map_err(|e| error!("MySQL delete error: {}", e))?;
+
+        Ok(())
+    }
+
+    async fn add_watches(watch: Watch) -> Result<(), ()> {
+        let now = Local::now().timestamp();
+
+        // remove expired watches
+        let mut remove = Vec::new();
+        let mut lock = WATCHES.lock().await;
         for (index, watch) in lock.iter().enumerate() {
             if watch.expire < now {
                 remove.push(index);
@@ -227,7 +259,7 @@ impl BotConfigs {
                 let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
                 conn.drop_query("DELETE FROM bot_weather_watches WHERE expire < UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL delete error: {}", e))?
                     .drop_exec(
-                        "INSERT INTO bot_weather_watches (user_id, encounter_id, pokemon_id, iv, latitude, longitude, expire) VALUES (:user_id, :encounter_id, :iv, :latitude, :longitude, :expire)",
+                        "INSERT INTO bot_weather_watches (user_id, encounter_id, pokemon_id, iv, latitude, longitude, expire) VALUES (:user_id, :encounter_id, :pokemon_id, :iv, :latitude, :longitude, :expire)",
                         params! {
                             "user_id" => watch.user_id.clone(),
                             "encounter_id" => watch.encounter_id.clone(),
@@ -246,14 +278,15 @@ impl BotConfigs {
         Ok(())
     }
 
-    async fn submit_weather(weather: Weather) {
-        let mut lock = WATCHES.lock().await;
-        let now = Local::now();
+    async fn submit_weather(weather: Weather, now: DateTime<Local>) {
         let timestamp = now.timestamp();
         let hour = now.hour();
+        let time = now.format("%T").to_string();
 
         let mut remove = Vec::new();
         let mut fire = Vec::new();
+        let mut lock = WATCHES.lock().await;
+        let users = BOT_CONFIGS.read().await;
         for (index, watch) in lock.iter_mut().enumerate() {
             if watch.expire < timestamp {
                 remove.push(index);
@@ -272,17 +305,21 @@ impl BotConfigs {
                 }
 
                 if hour == Local.timestamp(watch.expire, 0).hour() {
-                    fire.push(index);
-                    remove.push(index);
+                    if let Some(debug) = users.get(&watch.user_id).and_then(|c| c.debug) {
+                        fire.push((index, debug));
+                        if !debug {
+                            remove.push(index);
+                        }
+                    }
                 }
             }
         }
 
-        for index in fire.into_iter() {
+        for (index, debug) in fire.into_iter() {
             let message = WeatherMessage {
                 watch: lock[index].clone(),
                 actual_weather: weather.clone(),
-                debug: None,
+                debug: if debug { Some(time.clone()) } else { None },
             };
 
             spawn(async move {
@@ -318,15 +355,22 @@ impl BotConfigs {
                     });
                     continue;
                 },
-                Request::Watch(watches) => {
+                Request::StartWatch(watches) => {
                     spawn(async {
                         BotConfigs::add_watches(watches).await.ok();
                     });
                     continue;
                 },
-                Request::Weather(weather) => {
+                Request::StopWatch(watches) => {
                     spawn(async {
-                        BotConfigs::submit_weather(weather).await;
+                        BotConfigs::remove_watches(watches).await.ok();
+                    });
+                    continue;
+                },
+                Request::Weather(weather) => {
+                    let now = now.clone();
+                    spawn(async move {
+                        BotConfigs::submit_weather(weather, now).await;
                     });
                     continue;
                 },
