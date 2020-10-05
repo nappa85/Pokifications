@@ -101,15 +101,21 @@ pub trait Message {
         match send_photo(&CONFIG.telegram.bot_token, chat_id, image, Some(&self.get_caption().await?), None, None, None, Some(self.message_button(chat_id, map_type)?)).await {
             Ok(_) => {
                 let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+
                 let query = format!("UPDATE utenti_config_bot SET sent = sent + 1 WHERE user_id = {}", chat_id);
-                self.update_stats(conn).await?.query(query).await.map_err(|e| error!("MySQL query error: increment sent count\n{}", e))?;
+                let res = self.update_stats(conn).await?.query(query).await.map_err(|e| error!("MySQL query error: increment sent count\n{}", e))?;
+                let conn = res.drop_result().await.map_err(|e| error!("MySQL drop result error: {}", e))?;
+
+                let query = format!("INSERT INTO utenti_bot_stats (user_id, day, sent) VALUES ({}, CURDATE(), 1) ON DUPLICATE KEY UPDATE sent = sent + 1", chat_id);
+                conn.query(query).await.map_err(|e| error!("MySQL query error: increment daily sent count\n{}", e))?;
+
                 Ok(())
             },
             Err(CallResult::Body((_, body))) => {
                 let json: Value = serde_json::from_str(&body).map_err(|e| error!("error while decoding {}: {}", body, e))?;
 
-                // blocked, disable bot
-                if json["description"] == "Forbidden: bot was blocked by the user" {
+                // blocked or deactivated, disable bot
+                if json["description"] == "Forbidden: bot was blocked by the user" || json["description"] == "Forbidden: user is deactivated" {
                     let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
                     let query = format!("UPDATE utenti_config_bot SET enabled = 0 WHERE user_id = {}", chat_id);
                     conn.query(query).await.map_err(|e| error!("MySQL query error: disable bot\n{}", e))?;

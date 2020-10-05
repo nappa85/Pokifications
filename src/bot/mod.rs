@@ -35,9 +35,12 @@ use crate::telegram::send_message;
 static BOT_CONFIGS: Lazy<Arc<RwLock<HashMap<String, config::BotConfig>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 static WATCHES: Lazy<Arc<Mutex<Vec<Watch>>>> = Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
 
+const MAX_NOTIFICATIONS_PER_HOUR: u32 = 500;
+
 enum LoadResult {
     Ok,
     Disabled,
+    Flood,
     Invalid,
     Error,
 }
@@ -134,6 +137,11 @@ impl BotConfigs {
                     format!("{} <b>Impostazioni modificate!</b>\n<code>      ───────</code>\nLe modifiche sono state applicate.",
                         String::from_utf8(vec![0xe2, 0x84, 0xb9, 0xef, 0xb8, 0x8f]).map_err(|e| error!("error converting info icon: {}", e))?)
                 },
+                LoadResult::Flood => {
+                    warn!("User {} if flooding", user_id);
+                    format!("{} <b>Troppe notifiche!</b>\n<code>      ───────</code>\nLe tue configurazioni generano troppe notifiche, rivedile per limitarne il numero. ",
+                        String::from_utf8(vec![0xE2, 0x9A, 0xA0]).map_err(|e| error!("error converting warning icon: {}", e))?)
+                },
                 LoadResult::Invalid => {
                     warn!("User {} has invalid configs", user_id);
                     format!("{} <b>Impostazioni non valide!</b>\n<code>      ───────</code>\nControlla che i tuoi cursori siano all'interno della tua città di appartenenza.\nSe hai bisogno di spostarti temporaneamente, invia la tua nuova posizione al bot per usarla come posizione temporanea.",
@@ -166,9 +174,11 @@ impl BotConfigs {
             }
         }
 
-        let query = format!("SELECT b.enabled, b.user_id, b.config, b.beta, u.status, c.scadenza, u.city_id FROM utenti_config_bot b
+        let query = format!("SELECT b.enabled, b.user_id, b.config, b.beta, u.status, c.scadenza, u.city_id, IFNULL(s.sent, 0) / (HOUR(NOW()) + 1)
+            FROM utenti_config_bot b
             INNER JOIN utenti u ON u.user_id = b.user_id
             INNER JOIN city c ON c.id = u.city_id AND c.scadenza > UNIX_TIMESTAMP()
+            LEFT JOIN utenti_bot_stats s ON s.user_id = b.user_id AND s.day = CURDATE()
             WHERE {}", user_ids.and_then(|v| if v.is_empty() {
                     None
                 }
@@ -180,26 +190,31 @@ impl BotConfigs {
         let res = conn.query(query).await.map_err(|e| error!("MySQL query error: get users configs\n{}", e))?;
 
         let mut results = HashMap::new();
-        let (_, temp) = res.map_and_drop(from_row::<(u8, u64, String, u8, u8, i64, u16)>).await.map_err(|e| error!("MySQL collect error: {}", e))?;
-        for (enabled, user_id, config, beta, status, scadenza, city_id) in temp {
-            let result = Self::load_user(configs, enabled, user_id.to_string(), config, beta, status, city_id, scadenza).await.unwrap_or_else(|_| LoadResult::Error);
+        let (_, temp) = res.map_and_drop(from_row::<(u8, u64, String, u8, u8, i64, u16, u32)>).await.map_err(|e| error!("MySQL collect error: {}", e))?;
+        for (enabled, user_id, config, beta, status, scadenza, city_id, sent) in temp {
+            let result = Self::load_user(configs, enabled, user_id.to_string(), config, beta, status, city_id, scadenza, sent).await.unwrap_or_else(|_| LoadResult::Error);
             results.insert(user_id.to_string(), result);
         }
 
         Ok(results)
     }
 
-    async fn load_user(configs: &mut HashMap<String, config::BotConfig>, enabled: u8, user_id: String, config: String, beta: u8, status: u8, city_id: u16, scadenza: i64) -> Result<LoadResult, ()> {
+    async fn load_user(configs: &mut HashMap<String, config::BotConfig>, enabled: u8, user_id: String, config: String, beta: u8, status: u8, city_id: u16, scadenza: i64, sent: u32) -> Result<LoadResult, ()> {
         if enabled > 0 && beta > 0 && status > 0 {
-            let mut config: config::BotConfig = serde_json::from_str(&config).map_err(|e| error!("MySQL utenti_config_bot.config decoding error for user_id {}: {}", user_id, e))?;
-            if config.validate(&user_id, city_id).await? {
-                config.scadenza = Some(scadenza);
-                configs.insert(user_id, config);
+            if sent < MAX_NOTIFICATIONS_PER_HOUR {
+                let mut config: config::BotConfig = serde_json::from_str(&config).map_err(|e| error!("MySQL utenti_config_bot.config decoding error for user_id {}: {}", user_id, e))?;
+                if config.validate(&user_id, city_id).await? {
+                    config.scadenza = Some(scadenza);
+                    configs.insert(user_id, config);
 
-                Ok(LoadResult::Ok)
+                    Ok(LoadResult::Ok)
+                }
+                else {
+                    Ok(LoadResult::Invalid)
+                }
             }
             else {
-                Ok(LoadResult::Invalid)
+                Ok(LoadResult::Flood)
             }
         }
         else {
