@@ -19,8 +19,7 @@ use log::{error, warn};
 
 use crate::config::CONFIG;
 
-pub static COUNT: Lazy<RwLock<usize>> = Lazy::new(|| RwLock::new(0));
-pub static CHATS: Lazy<RwLock<Vec<String>>> = Lazy::new(|| RwLock::new(Vec::new()));
+pub static RATE_LIMITER: Lazy<RwLock<(usize, Vec<String>)>> = Lazy::new(|| RwLock::new((0, Vec::new())));
 
 const TELEGRAM_MESSAGES_PER_SECOND: usize = 30;
 
@@ -28,30 +27,19 @@ const TELEGRAM_MESSAGES_PER_SECOND: usize = 30;
 async fn wall(chat_id: String) {
     let mut delays: usize = 0;
     loop {
-        let mut skip = false;
         // check with read lock, to make a write lock only if necessary
-        if *(COUNT.read().await) >= TELEGRAM_MESSAGES_PER_SECOND || CHATS.read().await.contains(&chat_id) {
-            skip = true;
-        }
-        else {
-            {// first check one message per second, to not increment the messages count on not sent messages
-                let mut chats = CHATS.write().await;
-                if chats.contains(&chat_id) {
-                    skip = true;
-                }
-                else {
-                    chats.push(chat_id.clone());
-                }
+        let mut skip = {
+            let rt = RATE_LIMITER.read().await;
+            rt.0 >= TELEGRAM_MESSAGES_PER_SECOND || rt.1.contains(&chat_id)
+        };
+        if !skip {
+            let mut rt = RATE_LIMITER.write().await;
+            if rt.0 >= TELEGRAM_MESSAGES_PER_SECOND || rt.1.contains(&chat_id) {
+                skip = true;
             }
-
-            if !skip {
-                let mut count = COUNT.write().await;
-                if *count >= TELEGRAM_MESSAGES_PER_SECOND {
-                    skip = true
-                }
-                else {
-                    *count += 1;
-                }
+            else {
+                rt.0 += 1;
+                rt.1.push(chat_id.clone());
             }
         }
         if skip {
@@ -208,10 +196,9 @@ pub fn init() {
         let now = Local::now();
         interval_at(Instant::now() + Duration::from_nanos(1_000_000_000_u64 - (now.timestamp_subsec_nanos() as u64)), Duration::from_secs(1))
             .for_each(|_| async {
-                let mut count = COUNT.write().await;
-                *count = 0;
-                let mut chats = CHATS.write().await;
-                chats.clear();
+                let mut rt = RATE_LIMITER.write().await;
+                rt.0 = 0;
+                rt.1.clear();
             }).await;
     });
 }
