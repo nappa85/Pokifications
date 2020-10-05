@@ -34,23 +34,23 @@ async fn wall(chat_id: String) {
             skip = true;
         }
         else {
-            {
-                let mut count = COUNT.write().await;
-                if *count >= TELEGRAM_MESSAGES_PER_SECOND {
-                    skip = true
-                }
-                else {
-                    *count += 1;
-                }
-            }
-
-            if !skip {
+            {// first check one message per second, to not increment the messages count on not sent messages
                 let mut chats = CHATS.write().await;
                 if chats.contains(&chat_id) {
                     skip = true;
                 }
                 else {
                     chats.push(chat_id.clone());
+                }
+            }
+
+            if !skip {
+                let mut count = COUNT.write().await;
+                if *count >= TELEGRAM_MESSAGES_PER_SECOND {
+                    skip = true
+                }
+                else {
+                    *count += 1;
                 }
             }
         }
