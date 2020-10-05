@@ -174,7 +174,7 @@ impl BotConfigs {
             }
         }
 
-        let query = format!("SELECT b.enabled, b.user_id, b.config, b.beta, u.status, c.scadenza, u.city_id, IFNULL(s.sent, 0) / (HOUR(NOW()) + 1)
+        let query = format!("SELECT b.enabled, b.user_id, b.config, b.beta, u.status, c.scadenza, u.city_id, CAST(IFNULL(s.sent, 0) / (HOUR(NOW()) + 1) AS UNSIGNED)
             FROM utenti_config_bot b
             INNER JOIN utenti u ON u.user_id = b.user_id
             INNER JOIN city c ON c.id = u.city_id AND c.scadenza > UNIX_TIMESTAMP()
