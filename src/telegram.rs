@@ -52,7 +52,7 @@ async fn wall(chat_id: String) {
         }
     }
     if delays > 0 {
-        warn!("Too many Telegram messages, message delayed {} times", delays);
+        warn!("Too many Telegram messages for user {}, message delayed {} times", chat_id, delays);
     }
 }
 
