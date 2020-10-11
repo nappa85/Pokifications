@@ -16,7 +16,7 @@ use log::error;
 
 use super::BotConfigs;
 
-use crate::entities::{Pokemon, Raid, Pokestop, Gender, Weather, Quest, Watch};
+use crate::entities::{Pokemon, Raid, Pokestop, Gender, /*Weather,*/ Quest, Watch};
 use crate::lists::{LIST, MOVES, FORMS, GRUNTS};
 use crate::config::CONFIG;
 use crate::db::MYSQL;
@@ -933,7 +933,7 @@ impl Message for InvasionMessage {
 #[derive(Debug)]
 pub struct WeatherMessage {
     pub watch: Watch,
-    pub actual_weather: Weather,
+    // pub actual_weather: Weather,
     pub debug: Option<String>,
 }
 
@@ -948,13 +948,13 @@ impl Message for WeatherMessage {
     }
 
     async fn get_caption(&self) -> Result<String, ()> {
-        let old = self.watch.reference_weather.as_ref().ok_or_else(|| error!("reference_weather is None"))?;
-        let caption = format!("{} Meteo {} nella cella",
+        // let old = self.watch.reference_weather.as_ref().ok_or_else(|| error!("reference_weather is None"))?;
+        let caption = format!("{} Meteo cambiato nella cella",
             String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?,
-            if old == &self.actual_weather { "invariato" } else { "cambiato" }
+            // if old == &self.actual_weather { "invariato" } else { "cambiato" }
         );
         Ok(match &self.debug {
-            Some(time) => format!("{}\n\nScansione avvenuta alle{}\n{}", caption, time, old.diff(&self.actual_weather)),
+            Some(time) => format!("{}\n\nScansione avvenuta alle{}", caption, time),//, old.diff(&self.actual_weather)),
             _ => caption,
         })
     }

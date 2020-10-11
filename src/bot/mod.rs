@@ -80,7 +80,7 @@ impl BotConfigs {
                     iv,
                     point: (latitude, longitude).into(),
                     expire,
-                    reference_weather: None,
+                    // reference_weather: None,
                 });
             }).await.map_err(|e| error!("MySQL collect error: {}", e))?;
         }
@@ -260,8 +260,8 @@ impl BotConfigs {
         // remove expired watches
         let mut remove = Vec::new();
         let mut lock = WATCHES.lock().await;
-        for (index, watch) in lock.iter().enumerate() {
-            if watch.expire < now {
+        for (index, w) in lock.iter().enumerate() {
+            if w.expire < now {
                 remove.push(index);
             }
         }
@@ -295,7 +295,6 @@ impl BotConfigs {
 
     async fn submit_weather(weather: Weather, now: DateTime<Local>) {
         let timestamp = now.timestamp();
-        let hour = now.hour();
         let time = now.format("%T").to_string();
 
         let mut remove = Vec::new();
@@ -309,32 +308,16 @@ impl BotConfigs {
             }
 
             if weather.polygon.within(&watch.point) {
-                if watch.reference_weather.is_none() {
-                    if hour != Local.timestamp(watch.expire, 0).hour() {
-                        watch.reference_weather = Some(weather.clone());
-                    }
-                    else {
-                        remove.push(index);
-                    }
-                    continue;
-                }
-
-                if hour == Local.timestamp(watch.expire, 0).hour() {
-                    if let Some(debug) = users.get(&watch.user_id).and_then(|c| c.debug) {
-                        fire.push((index, debug));
-                        if !debug {
-                            remove.push(index);
-                        }
-                    }
-                }
+                let debug = users.get(&watch.user_id).and_then(|c| c.debug);
+                fire.push((index, debug));
             }
         }
 
         for (index, debug) in fire.into_iter() {
             let message = WeatherMessage {
                 watch: lock[index].clone(),
-                actual_weather: weather.clone(),
-                debug: if debug { Some(time.clone()) } else { None },
+                // actual_weather: weather.clone(),
+                debug: if debug == Some(true) { Some(time.clone()) } else { None },
             };
 
             spawn(async move {
