@@ -68,8 +68,8 @@ impl BotConfigs {
         }
 
         {
-            let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-            let res = conn.query("SELECT user_id, encounter_id, pokemon_id, iv, latitude, longitude, expire FROM bot_weather_watches WHERE expire > UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL query error: get weather watches\n{}", e))?;
+            let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+            let res = conn.query_iter("SELECT user_id, encounter_id, pokemon_id, iv, latitude, longitude, expire FROM bot_weather_watches WHERE expire > UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL query error: get weather watches\n{}", e))?;
             let mut lock = WATCHES.lock().await;
             res.for_each_and_drop(|row| {
                 let (user_id, encounter_id, pokemon_id, iv, latitude, longitude, expire) = from_row::<(String, String, u16, Option<u8>, f64, f64, i64)>(row);
@@ -89,8 +89,8 @@ impl BotConfigs {
     }
 
     async fn reload_city(city_id: u16) -> Result<(), ()> {
-        let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-        let res = conn.prep_exec(
+        let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+        let res = conn.exec_iter(
                 "SELECT id, name, coordinates, scadenza, monitor, admins_users FROM city WHERE id = :id",
                 params! {
                     "id" => city_id,
@@ -98,22 +98,22 @@ impl BotConfigs {
             ).await.map_err(|e| error!("MySQL query error: get city\n{}", e))?;
 
         if !res.is_empty() {
-            let conn = {
+            {
                 let mut cities = CITIES.write().await;
                 res.for_each_and_drop(|row| {
                     let city: City = row.into();
                     cities.insert(city.id, city);
                 }).await.map_err(|e| error!("MySQL for_each error: {}", e))?
-            };
+            }
 
-            let res = conn.prep_exec(
+            let res = conn.exec_iter(
                     "SELECT user_id FROM utenti WHERE city_id = :id",
                     params! {
                         "id" => city_id
                     }
                 ).await.map_err(|e| error!("MySQL query error: get city users\n{}", e))?;
             // let (_, user_ids) = res.collect_and_drop().await.map_err(|e| error!("MySQL collect error: {}", e))?;
-            let (_, user_ids) = res.map_and_drop(|mut row| row.take::<u64, _>("user_id").map(|i| i.to_string()).unwrap_or_else(String::new)).await.map_err(|e| error!("MySQL collect error: {}", e))?;
+            let user_ids = res.map_and_drop(|mut row| row.take::<u64, _>("user_id").map(|i| i.to_string()).unwrap_or_else(String::new)).await.map_err(|e| error!("MySQL collect error: {}", e))?;
 
             let mut lock = BOT_CONFIGS.write().await;
             Self::load(&mut lock, Some(user_ids)).await?;
@@ -186,11 +186,11 @@ impl BotConfigs {
                     Some(format!("b.user_id IN ({})", v.join(", ")))
                 }).unwrap_or_else(|| String::from("b.enabled = 1 AND b.beta = 1 AND u.status != 0")));
 
-        let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-        let res = conn.query(query).await.map_err(|e| error!("MySQL query error: get users configs\n{}", e))?;
+        let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+        let res = conn.query_iter(query).await.map_err(|e| error!("MySQL query error: get users configs\n{}", e))?;
 
         let mut results = HashMap::new();
-        let (_, temp) = res.map_and_drop(from_row::<(u8, u64, String, u8, u8, i64, u16, u32)>).await.map_err(|e| error!("MySQL collect error: {}", e))?;
+        let temp = res.map_and_drop(from_row::<(u8, u64, String, u8, u8, i64, u16, u32)>).await.map_err(|e| error!("MySQL collect error: {}", e))?;
         for (enabled, user_id, config, beta, status, scadenza, city_id, sent) in temp {
             let result = Self::load_user(configs, enabled, user_id.to_string(), config, beta, status, city_id, scadenza, sent).await.unwrap_or_else(|_| LoadResult::Error);
             results.insert(user_id.to_string(), result);
@@ -237,8 +237,8 @@ impl BotConfigs {
             lock.remove(index);
         }
 
-        let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-        conn.drop_exec(
+        let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+        conn.exec_drop(
             "DELETE FROM bot_weather_watches WHERE expire < UNIX_TIMESTAMP() OR (user_id = :user_id AND encounter_id = :encounter_id AND pokemon_id = :pokemon_id AND iv = :iv AND latitude = :latitude AND longitude = :longitude AND expire = :expire)",
             params! {
                 "user_id" => watch.user_id.clone(),
@@ -271,20 +271,20 @@ impl BotConfigs {
 
         if watch.expire > now && Local::now().hour() != Local.timestamp(watch.expire, 0).hour() {
             if !lock.contains(&watch) {
-                let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-                conn.drop_query("DELETE FROM bot_weather_watches WHERE expire < UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL delete error: {}", e))?
-                    .drop_exec(
-                        "INSERT INTO bot_weather_watches (user_id, encounter_id, pokemon_id, iv, latitude, longitude, expire) VALUES (:user_id, :encounter_id, :pokemon_id, :iv, :latitude, :longitude, :expire)",
-                        params! {
-                            "user_id" => watch.user_id.clone(),
-                            "encounter_id" => watch.encounter_id.clone(),
-                            "pokemon_id" => watch.pokemon_id,
-                            "iv" => watch.iv,
-                            "latitude" => watch.point.x(),
-                            "longitude" => watch.point.y(),
-                            "expire" => watch.expire,
-                        }
-                    ).await.map_err(|e| error!("MySQL insert error: insert weather watch\n{}", e))?;
+                let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+                conn.query_drop("DELETE FROM bot_weather_watches WHERE expire < UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL delete error: {}", e))?;
+                conn.exec_drop(
+                    "INSERT INTO bot_weather_watches (user_id, encounter_id, pokemon_id, iv, latitude, longitude, expire) VALUES (:user_id, :encounter_id, :pokemon_id, :iv, :latitude, :longitude, :expire)",
+                    params! {
+                        "user_id" => watch.user_id.clone(),
+                        "encounter_id" => watch.encounter_id.clone(),
+                        "pokemon_id" => watch.pokemon_id,
+                        "iv" => watch.iv,
+                        "latitude" => watch.point.x(),
+                        "longitude" => watch.point.y(),
+                        "expire" => watch.expire,
+                    }
+                ).await.map_err(|e| error!("MySQL insert error: insert weather watch\n{}", e))?;
 
                 lock.push(watch);
             }
@@ -427,16 +427,16 @@ impl BotConfigs {
                 if let Some(parks) = lock.get(&city_id) {
                     for park in parks {
                         if park.coordinates.within(&point) {
-                            match MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e)) {
-                                Ok(conn) => {
-                                    conn.drop_exec("REPLACE INTO city_park_stats (park_id, encounter_id, pokemon_id) VALUES (:park_id, :encounter_id, :pokemon_id)", params! {
+                            match MYSQL.get_conn().await {
+                                Ok(mut conn) => {
+                                    conn.exec_drop("REPLACE INTO city_park_stats (park_id, encounter_id, pokemon_id) VALUES (:park_id, :encounter_id, :pokemon_id)", params! {
                                             "park_id" => park.id,
                                             "encounter_id" => encounter_id.as_str(),
                                             "pokemon_id" => pokemon_id,
                                         }).await
                                         .map_err(|e| error!("MySQL query error: insert park stat\n{}", e)).ok();
                                 },
-                                Err(_) => {},
+                                Err(e) => error!("MySQL retrieve connection error: {}", e),
                             }
                         }
                     }

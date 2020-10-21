@@ -120,8 +120,8 @@ pub struct CityPark {
 }
 
 async fn load_pokemons() -> Result<(), ()> {
-    let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-    let res = conn.query("SELECT * FROM pokemon_list").await.map_err(|e| error!("MySQL query error: get pokemon list\n{}", e))?;
+    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let res = conn.query_iter("SELECT * FROM pokemon_list").await.map_err(|e| error!("MySQL query error: get pokemon list\n{}", e))?;
 
     let mut list = LIST.write().await;
     list.clear();
@@ -142,8 +142,8 @@ async fn load_pokemons() -> Result<(), ()> {
 }
 
 async fn load_moves() -> Result<(), ()> {
-    let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-    let res = conn.query("SELECT * FROM pokemon_moves").await.map_err(|e| error!("MySQL query error: get pokemon moves\n{}", e))?;
+    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let res = conn.query_iter("SELECT * FROM pokemon_moves").await.map_err(|e| error!("MySQL query error: get pokemon moves\n{}", e))?;
 
     let mut moves = MOVES.write().await;
     moves.clear();
@@ -155,8 +155,8 @@ async fn load_moves() -> Result<(), ()> {
 }
 
 async fn load_forms() -> Result<(), ()> {
-    let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-    let res = conn.query("SELECT * FROM pokemon_forms WHERE hidden = 0").await.map_err(|e| error!("MySQL query error: get pokemon forms\n{}", e))?;
+    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let res = conn.query_iter("SELECT * FROM pokemon_forms WHERE hidden = 0").await.map_err(|e| error!("MySQL query error: get pokemon forms\n{}", e))?;
 
     let mut forms = FORMS.write().await;
     forms.clear();
@@ -168,8 +168,8 @@ async fn load_forms() -> Result<(), ()> {
 }
 
 async fn load_grunts() -> Result<(), ()> {
-    let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-    let res = conn.query("SELECT * FROM grunt_types").await.map_err(|e| error!("MySQL query error: get grunt types\n{}", e))?;
+    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let res = conn.query_iter("SELECT * FROM grunt_types").await.map_err(|e| error!("MySQL query error: get grunt types\n{}", e))?;
 
     let mut grunts = GRUNTS.write().await;
     grunts.clear();
@@ -187,8 +187,8 @@ async fn load_grunts() -> Result<(), ()> {
 }
 
 async fn load_cities() -> Result<(), ()> {
-    let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-    let res = conn.query("SELECT id, name, coordinates, scadenza, monitor, admins_users FROM city").await.map_err(|e| error!("MySQL query error: get cities\n{}", e))?;
+    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let res = conn.query_iter("SELECT id, name, coordinates, scadenza, monitor, admins_users FROM city").await.map_err(|e| error!("MySQL query error: get cities\n{}", e))?;
 
     let mut cities = CITIES.write().await;
     cities.clear();
@@ -201,8 +201,8 @@ async fn load_cities() -> Result<(), ()> {
 }
 
 async fn load_parks() -> Result<(), ()> {
-    let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-    let res = conn.query("SELECT id, city_id, coordinates FROM city_parks").await.map_err(|e| error!("MySQL query error: get city parks\n{}", e))?;
+    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let res = conn.query_iter("SELECT id, city_id, coordinates FROM city_parks").await.map_err(|e| error!("MySQL query error: get city parks\n{}", e))?;
 
     let mut parks = CITYPARKS.write().await;
     parks.clear();

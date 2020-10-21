@@ -41,19 +41,19 @@ async fn open_font(path: &str) -> Result<rusttype::Font<'static>, ()> {
     let mut file = File::open(path).await.map_err(|e| error!("error opening font {}: {}", path, e))?;
     let mut data = Vec::new();
     file.read_to_end(&mut data).await.map_err(|e| error!("error reading font {}: {}", path, e))?;
-    rusttype::Font::from_bytes(data).map_err(|e| error!("error decoding font {}: {}", path, e))
+    rusttype::Font::try_from_vec(data).ok_or_else(|| error!("error decoding font {}", path))
 }
 
 async fn open_image(path: &str) -> Result<image::DynamicImage, ()> {
     let mut file = File::open(path).await.map_err(|e| error!("error opening image {}: {}", path, e))?;
     let mut data = Vec::new();
     file.read_to_end(&mut data).await.map_err(|e| error!("error reading image {}: {}", path, e))?;
-    image::load_from_memory_with_format(&data, image::ImageFormat::PNG).map_err(|e| error!("error opening image {}: {}", path, e))
+    image::load_from_memory_with_format(&data, image::ImageFormat::Png).map_err(|e| error!("error opening image {}: {}", path, e))
 }
 
 async fn save_image(img: &image::DynamicImage, path: &str) -> Result<Vec<u8>, ()> {
     let mut out = Vec::new();
-    img.write_to(&mut out, image::ImageOutputFormat::PNG).map_err(|e| error!("error converting image {}: {}", path, e))?;
+    img.write_to(&mut out, image::ImageOutputFormat::Png).map_err(|e| error!("error converting image {}: {}", path, e))?;
 
     let mut file = OpenOptions::new()
         .write(true)
@@ -100,14 +100,14 @@ pub trait Message {
     async fn send(&self, chat_id: &str, image: Image, map_type: &str) -> Result<(), ()> {
         match send_photo(&CONFIG.telegram.bot_token, chat_id, image, Some(&self.get_caption().await?), None, None, None, Some(self.message_button(chat_id, map_type)?)).await {
             Ok(_) => {
-                let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+                let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+                self.update_stats(&mut conn).await?;
 
                 let query = format!("UPDATE utenti_config_bot SET sent = sent + 1 WHERE user_id = {}", chat_id);
-                let res = self.update_stats(conn).await?.query(query).await.map_err(|e| error!("MySQL query error: increment sent count\n{}", e))?;
-                let conn = res.drop_result().await.map_err(|e| error!("MySQL drop result error: {}", e))?;
+                conn.query_drop(query).await.map_err(|e| error!("MySQL query error: increment sent count\n{}", e))?;
 
                 let query = format!("INSERT INTO utenti_bot_stats (user_id, day, sent) VALUES ({}, CURDATE(), 1) ON DUPLICATE KEY UPDATE sent = sent + 1", chat_id);
-                conn.query(query).await.map_err(|e| error!("MySQL query error: increment daily sent count\n{}", e))?;
+                conn.query_drop(query).await.map_err(|e| error!("MySQL query error: increment daily sent count\n{}", e))?;
 
                 Ok(())
             },
@@ -116,9 +116,9 @@ pub trait Message {
 
                 // blocked or deactivated, disable bot
                 if json["description"] == "Forbidden: bot was blocked by the user" || json["description"] == "Forbidden: user is deactivated" {
-                    let conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+                    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
                     let query = format!("UPDATE utenti_config_bot SET enabled = 0 WHERE user_id = {}", chat_id);
-                    conn.query(query).await.map_err(|e| error!("MySQL query error: disable bot\n{}", e))?;
+                    conn.query_drop(query).await.map_err(|e| error!("MySQL query error: disable bot\n{}", e))?;
                     // apply
                     BotConfigs::reload(vec![chat_id.to_owned()]).await
                 }
@@ -230,7 +230,9 @@ pub trait Message {
 
     async fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()>;
 
-    async fn update_stats(&self, conn: Conn) -> Result<Conn, ()>;
+    async fn update_stats(&self, _: &mut Conn) -> Result<(), ()> {
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -530,10 +532,10 @@ impl Message for PokemonMessage {
         Ok(keyboard)
     }
 
-    async fn update_stats(&self, conn: Conn) -> Result<Conn, ()> {
+    async fn update_stats(&self, conn: &mut Conn) -> Result<(), ()> {
         let query = format!("INSERT INTO bot_sent_pkmn (pokemon_id, sent) VALUES ({}, 1) ON DUPLICATE KEY UPDATE sent = sent + 1", self.pokemon.pokemon_id);
-        let res = conn.query(query).await.map_err(|e| error!("MySQL query error: update stats\n{}", e))?;
-        res.drop_result().await.map_err(|e| error!("MySQL drop result error: {}", e))
+        conn.query_drop(query).await.map_err(|e| error!("MySQL query error: update stats\n{}", e))?;
+        Ok(())
     }
 }
 
@@ -780,13 +782,13 @@ impl Message for RaidMessage {
         save_image(&background, &img_path_str).await
     }
 
-    async fn update_stats(&self, conn: Conn) -> Result<Conn, ()> {
+    async fn update_stats(&self, conn: &mut Conn) -> Result<(), ()> {
         let query = format!("INSERT INTO bot_sent_raid (raid_id, sent) VALUES ('{}', 1) ON DUPLICATE KEY UPDATE sent = sent + 1", match self.raid.pokemon_id {
             Some(id) if id > 0 => { format!("p{}", id) },
             _ => format!("l{}", self.raid.level),
         });
-        let res = conn.query(query).await.map_err(|e| error!("MySQL query error: insert sent raid\n{}", e))?;
-        res.drop_result().await.map_err(|e| error!("MySQL drop result error: {}", e))
+        conn.query_drop(query).await.map_err(|e| error!("MySQL query error: insert sent raid\n{}", e))?;
+        Ok(())
     }
 }
 
@@ -812,11 +814,6 @@ impl Message for QuestMessage {
 
     async fn get_image(&self, _map: image::DynamicImage) -> Result<Vec<u8>, ()> {
         Err(())
-    }
-
-    async fn update_stats(&self, conn: Conn) -> Result<Conn, ()> {
-        // TODO: impl quest stats
-        Ok(conn)
     }
 }
 
@@ -906,7 +903,7 @@ impl Message for InvasionMessage {
                         let path = format!("{}img/pkmns/types/{}{}.png", CONFIG.images.assets, &element[0..1].to_uppercase(), &element[1..]);
                         open_image(&path).await?
                     };
-                    let icon = image::DynamicImage::ImageRgba8(image::imageops::resize(&icon, 24, 24, image::FilterType::Triangle));
+                    let icon = image::DynamicImage::ImageRgba8(image::imageops::resize(&icon, 24, 24, image::imageops::FilterType::Triangle));
                     image::imageops::overlay(&mut background, &icon, 32, 32);
                 }
             }
@@ -922,11 +919,6 @@ impl Message for InvasionMessage {
         image::imageops::overlay(&mut background, &map, 0, 58);
 
         save_image(&background, &img_path_str).await
-    }
-
-    async fn update_stats(&self, conn: Conn) -> Result<Conn, ()> {
-        // TODO: impl invasions stats
-        Ok(conn)
     }
 }
 
@@ -1010,9 +1002,4 @@ impl Message for WeatherMessage {
 
     //     Ok(keyboard)
     // }
-
-    async fn update_stats(&self, conn: Conn) -> Result<Conn, ()> {
-        // TODO: impl weather changes stats
-        Ok(conn)
-    }
 }
