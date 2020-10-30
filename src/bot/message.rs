@@ -208,7 +208,7 @@ pub trait Message {
             "g2" => format!("https://www.google.it/maps/place/{},{}", lat, lon),
             "g3" => format!("https://www.google.com/maps/search/?api=1&query={},{}", lat, lon),
             "gd" => format!("https://www.google.com/maps/dir/?api=1&destination={},{}", lat, lon),
-            "a" => format!("http://maps.apple.com/?ll={},{}", lat, lon),
+            "a" => format!("http://maps.apple.com/?address={},{}", lat, lon),
             "w" => format!("https://waze.com/ul?ll={},{}", lat, lon),
             _ => format!("https://maps.google.it/maps/?q={},{}", lat, lon),
         };
