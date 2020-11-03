@@ -57,7 +57,7 @@ pub struct City {
     pub coordinates: Polygon<f64>,
     pub scadenza: i64,
     pub scan_iv: u8,
-    pub admins_users: String,
+    pub admins_users: Vec<String>,
 }
 
 impl From<Row> for City {
@@ -99,7 +99,11 @@ impl From<Row> for City {
             coordinates: Polygon::new(poly.into(), vec![]),
             scadenza: row.take("scadenza").expect("MySQL city.scadenza error"),
             scan_iv: row.take("monitor").expect("MySQL city.monitor error"),
-            admins_users: row.take("admins_users").expect("MySQL city.admins_users error"),
+            admins_users: row.take::<String, _>("admins_users")
+                .expect("MySQL city.admins_users error")
+                .split_whitespace()
+                .map(|s| s.to_owned())
+                .collect(),
         }
     }
 }

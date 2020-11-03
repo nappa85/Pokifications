@@ -45,7 +45,7 @@ pub fn init() {
                         check_timestamp(&stats.last_quest, timestamp - 86400, "Quest", &mut city_alerts);
 
                         if !city_alerts.is_empty() {
-                            alerts.push(format!("@{} la zona {} non ha scansioni:\n{}", city.admins_users, city.name, city_alerts.join("\n")));
+                            alerts.push(format!("@{} la zona {} non ha scansioni:\n{}", city.admins_users.join(", @"), city.name, city_alerts.join("\n")));
                         }
                     }
 
