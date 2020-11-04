@@ -29,7 +29,8 @@ pub fn init() {
                             None => continue,
                         };
 
-                        if city.scadenza < timestamp {
+                        // if the quest scanner is active, other scans are obviously unactive
+                        if city.scadenza < timestamp || stats.last_quest > Some(timestamp - 60) {
                             continue;
                         }
 
