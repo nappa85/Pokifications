@@ -21,6 +21,8 @@ use hyper::service::{make_service_fn, service_fn};
 
 use futures_util::TryStreamExt;
 
+use mysql_async::prelude::Queryable;
+
 use tokio::spawn;
 // use tokio::fs::File;
 // use tokio::prelude::*;
@@ -30,6 +32,8 @@ use chrono::{DateTime, Local};
 use serde_json::value::Value;
 
 use log::{info, error};
+
+use crate::db::MYSQL;
 
 // async fn log_webhook(bytes: &[u8]) -> Result<(), ()> {
 //     let filename = format!("{}log/{}.log", config::CONFIG.images.bot, Local::now().format("%Y%m%d%H%M%S%f").to_string());
@@ -48,6 +52,16 @@ async fn parse(now: DateTime<Local>, bytes: Vec<u8>) -> Result<(), ()> {
     let body = String::from_utf8(bytes).map_err(|e| error!("encoding error: {}", e))?;
     // split the serialization in two passes, this way a single error doesn't break the entire block
     let configs: Vec<Value> = serde_json::from_str(&body).map_err(|e| error!("deserialize error: {}\n{}", e, body))?;
+
+    let count = configs.len();
+    spawn(async move {
+        if let Some(mut conn) = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e)).ok() {
+            conn.query_drop(format!("INSERT INTO bot_stats (day, events) VALUES (CURDATE(), {0}) ON DUPLICATE KEY UPDATE events = events + {0}", count)).await
+                .map_err(|e| error!("MySQL update bot stats error: {}", e))
+                .ok();
+        }
+    });
+
     bot::BotConfigs::submit(
         now, 
         configs.into_iter()
