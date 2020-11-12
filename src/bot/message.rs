@@ -3,10 +3,12 @@ use std::path::Path;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use mysql_async::{prelude::Queryable, Conn};
+use mysql_async::{prelude::Queryable, Conn, params};
 
 use chrono::{Local, DateTime, Timelike};
 use chrono::offset::TimeZone;
+
+use qrcode::{QrCode, Version, EcLevel};
 
 use serde_json::{json, value::Value};
 
@@ -16,7 +18,7 @@ use log::error;
 
 use super::BotConfigs;
 
-use crate::entities::{Pokemon, Raid, Pokestop, Gender, /*Weather,*/ Quest, Watch};
+use crate::entities::{Pokemon, Raid, Pokestop, Gender, /*Weather,*/ Quest, Watch, DeviceTier};
 use crate::lists::{LIST, MOVES, FORMS, GRUNTS};
 use crate::config::CONFIG;
 use crate::db::MYSQL;
@@ -1002,4 +1004,66 @@ impl Message for WeatherMessage {
 
     //     Ok(keyboard)
     // }
+}
+
+#[derive(Debug)]
+pub struct DeviceTierMessage<'a> {
+    pub tier: &'a DeviceTier,
+}
+
+#[async_trait]
+impl<'a> Message for DeviceTierMessage<'a> {
+    async fn send(&self, chat_id: &str, image: Image, _: &str) -> Result<(), ()> {
+        send_photo(CONFIG.telegram.alert_bot_token.as_ref().ok_or_else(|| error!("Telegram alert bot token not configured"))?, chat_id, image, Some(&self.get_caption().await?), None, None, None, None)
+            .await
+            .map(|_| ())
+            .map_err(|_| ())
+    }
+
+    fn get_latitude(&self) -> f64 {
+        0_f64
+    }
+
+    fn get_longitude(&self) -> f64 {
+        0_f64
+    }
+
+    async fn get_caption(&self) -> Result<String, ()> {
+        let name = if self.tier.name.is_some() {
+            None
+        }
+        else {
+            let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+            let res: Option<(String,)> = conn.exec_first("SELECT name FROM device_tier WHERE id = :id", params! { "id" => self.tier.id })
+                .await
+                .map_err(|e| error!("MySQL query error: select device tier\n{}", e))?;
+            res.map(|(s,)| s)
+        };
+
+        Ok(format!(
+            "{} - V{} API {}\n\n{}\n\nLINK PER INSTALLAZIONE: {}\nCome sempre l’app non funziona sui dispositivi non autorizzati.",
+            self.tier.release_date.format("%d/%m/%Y"),
+            self.tier.app_version,
+            self.tier.api_version,
+            self.tier.name.as_ref().or(name.as_ref()).ok_or_else(|| error!("Can't find device tier {}", self.tier.id))?,
+            self.tier.url
+        ))
+    }
+
+    async fn get_image(&self, _: image::DynamicImage) -> Result<Vec<u8>, ()> {
+        let mut image: image::RgbaImage = QrCode::with_version(self.tier.url.as_bytes(), Version::Normal(5), EcLevel::M).unwrap()
+            .render::<image::Rgba<u8>>()
+            .quiet_zone(false)
+            .min_dimensions(400, 400)
+            .max_dimensions(400, 400)
+            .build();
+
+        let logo = open_image(&format!("{}img/logo.png", CONFIG.images.assets)).await?;
+
+        image::imageops::overlay(&mut image, &logo, 150, 150);
+
+        let mut out = Vec::new();
+        image::DynamicImage::ImageRgba8(image).write_to(&mut out, image::ImageOutputFormat::Png).map_err(|e| error!("error converting qrcode image: {}", e))?;
+        Ok(out)
+    }
 }

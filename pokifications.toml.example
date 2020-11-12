@@ -19,5 +19,6 @@ timeout = 1
 bot_token = ""
 alert_bot_token = ""
 alert_chat = ""
+version_chat = ""
 timeout = 1
 cache_chat = ""

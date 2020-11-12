@@ -24,9 +24,9 @@ mod config;
 mod message;
 mod map;
 
-use message::{Message, WeatherMessage};
+use message::{Message, WeatherMessage, DeviceTierMessage};
 
-use crate::entities::{Request, Weather, Watch};
+use crate::entities::{Request, Weather, Watch, DeviceTier};
 use crate::lists::{CITIES, CITYSTATS, CITYPARKS, City, CityStats};
 use crate::config::CONFIG;
 use crate::db::MYSQL;
@@ -380,6 +380,12 @@ impl BotConfigs {
                 Request::Raid(_) | Request::Invasion(_) | Request::Quest(_) => {
                     BotConfigs::update_city_stats(&input, now.timestamp());
                 },
+                Request::DeviceTier(dt) => {
+                    spawn(async move {
+                        BotConfigs::update_device_tier(&dt, now).await.ok();
+                    });
+                    continue;
+                },
                 _ => debug!("Unmanaged webhook: {:?}", input),
             }
 
@@ -546,6 +552,45 @@ impl BotConfigs {
             },
             _ => {},
         }
+    }
+
+    async fn update_device_tier(dt: &DeviceTier, now: DateTime<Local>) -> Result<(), ()> {
+        let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+        if let Some(name) = &dt.name {
+            conn.exec_drop(
+                    "REPLACE INTO device_tier (id, name, url, release_date, app_version, api_version) VALUES (:id, :name, :url, :release_date, :app_version, :api_version)",
+                    params! {
+                        "id" => dt.id,
+                        "name" => name,
+                        "url" => &dt.url,
+                        "release_date" => dt.release_date,
+                        "app_version" => &dt.app_version,
+                        "uapi_versionrl" => &dt.api_version,
+                    }
+                )
+        }
+        else {
+            conn.exec_drop(
+                    "UPDATE device_tier SET url = :url, release_date = :release_date, app_version = :app_version, api_version = :api_version WHERE id = :id",
+                    params! {
+                        "id" => dt.id,
+                        "url" => &dt.url,
+                        "release_date" => dt.release_date,
+                        "app_version" => &dt.app_version,
+                        "uapi_versionrl" => &dt.api_version,
+                    }
+                )
+        }.await.map_err(|e| error!("MySQL query error: update device tier\n{}", e))?;
+
+        if let Some(version_chat) = &CONFIG.telegram.version_chat {
+            let message = DeviceTierMessage {
+                tier: dt,
+            };
+            let image = message.prepare(now).await?;
+            message.send(version_chat, image, "").await?;
+        }
+
+        Ok(())
     }
 }
 

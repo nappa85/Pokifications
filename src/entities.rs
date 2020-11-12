@@ -3,6 +3,8 @@ use serde::{Deserialize, Deserializer};
 
 use serde_json::value::Value;
 
+use chrono::{NaiveDate, Local};
+
 use geo::{LineString, Polygon, Point};
 
 #[derive(Clone, Debug, Deserialize)]
@@ -39,6 +41,8 @@ pub enum Request {
     StartWatch(Watch),
     #[serde(rename = "stop")]
     StopWatch(Watch),
+    #[serde(rename = "device_tier")]
+    DeviceTier(DeviceTier),
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -568,6 +572,21 @@ pub struct Watch {
 //             self.expire == other.expire
 //     }
 // }
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct DeviceTier {
+    pub id: u32,
+    pub name: Option<String>,
+    pub url: String,
+    #[serde(default = "today")]
+    pub release_date: NaiveDate,
+    pub app_version: String,
+    pub api_version: String,
+}
+
+fn today() -> NaiveDate {
+    Local::today().naive_local()
+}
 
 #[cfg(test)]
 mod tests {
