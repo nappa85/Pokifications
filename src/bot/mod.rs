@@ -558,7 +558,7 @@ impl BotConfigs {
         let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
         if let Some(name) = &dt.name {
             conn.exec_drop(
-                    "REPLACE INTO device_tier (id, name, url, release_date, app_version, api_version) VALUES (:id, :name, :url, :release_date, :app_version, :api_version)",
+                    "REPLACE INTO device_tier (id, name, url, release_date, app_version, api_version, reboot, uninstall) VALUES (:id, :name, :url, :release_date, :app_version, :api_version, :reboot, :uninstall)",
                     params! {
                         "id" => dt.id,
                         "name" => name,
@@ -566,18 +566,22 @@ impl BotConfigs {
                         "release_date" => dt.release_date,
                         "app_version" => &dt.app_version,
                         "uapi_versionrl" => &dt.api_version,
+                        "reboot" => dt.reboot,
+                        "uninstall" => dt.uninstall,
                     }
                 )
         }
         else {
             conn.exec_drop(
-                    "UPDATE device_tier SET url = :url, release_date = :release_date, app_version = :app_version, api_version = :api_version WHERE id = :id",
+                    "UPDATE device_tier SET url = :url, release_date = :release_date, app_version = :app_version, api_version = :api_version, reboot = :reboot, uninstall = :uninstall WHERE id = :id",
                     params! {
                         "id" => dt.id,
                         "url" => &dt.url,
                         "release_date" => dt.release_date,
                         "app_version" => &dt.app_version,
                         "uapi_versionrl" => &dt.api_version,
+                        "reboot" => dt.reboot,
+                        "uninstall" => dt.uninstall,
                     }
                 )
         }.await.map_err(|e| error!("MySQL query error: update device tier\n{}", e))?;

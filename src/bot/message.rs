@@ -1041,12 +1041,18 @@ impl<'a> Message for DeviceTierMessage<'a> {
         };
 
         Ok(format!(
-            "{} - V{} API {}\n\n{}\n\nLINK PER INSTALLAZIONE: {}\nCome sempre l’app non funziona sui dispositivi non autorizzati.",
+            "{} - V{} API {}\n\n{}\n\n{}\n\nLINK PER INSTALLAZIONE: {}\nCome sempre l’app non funziona sui dispositivi non autorizzati.",
             self.tier.release_date.format("%d/%m/%Y"),
             self.tier.app_version,
             self.tier.api_version,
             self.tier.name.as_ref().or(name.as_ref()).ok_or_else(|| error!("Can't find device tier {}", self.tier.id))?,
-            self.tier.url
+            match (self.tier.reboot, self.tier.uninstall) {
+                (true, true) => "Per installare l’app di scansione, É NECESSARIO DISINSTALLARE LA VECCHIA VERSIONE E RIAVVIARE IL TELEFONO, prima di installare questa versione.",
+                (true, false) => "Per installare l’app di scansione, É NECESSARIO RIAVVIARE IL TELEFONO, prima di installare questa versione (Non è necessario disinstallare prima la vecchia app).",
+                (false, true) => "Per installare l’app di scansione, É NECESSARIO DISINSTALLARE LA VECCHIA VERSIONE, prima di installare questa versione (Non è necessario riavviare il device).",
+                (false, false) => "Per installare l’app di scansione, è sufficiente sovrainstallare questa versione (non è necessario disinstallare la vecchia app o riavviare il device).",
+            },
+            self.tier.url,
         ))
     }
 

@@ -582,6 +582,8 @@ pub struct DeviceTier {
     pub release_date: NaiveDate,
     pub app_version: String,
     pub api_version: String,
+    pub reboot: bool,
+    pub uninstall: bool,
 }
 
 fn today() -> NaiveDate {
