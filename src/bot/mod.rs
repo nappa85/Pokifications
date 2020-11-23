@@ -565,7 +565,7 @@ impl BotConfigs {
                         "url" => &dt.url,
                         "release_date" => dt.release_date,
                         "app_version" => &dt.app_version,
-                        "uapi_versionrl" => &dt.api_version,
+                        "api_version" => &dt.api_version,
                         "reboot" => dt.reboot,
                         "uninstall" => dt.uninstall,
                     }
@@ -579,7 +579,7 @@ impl BotConfigs {
                         "url" => &dt.url,
                         "release_date" => dt.release_date,
                         "app_version" => &dt.app_version,
-                        "uapi_versionrl" => &dt.api_version,
+                        "api_version" => &dt.api_version,
                         "reboot" => dt.reboot,
                         "uninstall" => dt.uninstall,
                     }
