@@ -1057,9 +1057,8 @@ impl<'a> Message for DeviceTierMessage<'a> {
     }
 
     async fn get_image(&self, _: image::DynamicImage) -> Result<Vec<u8>, ()> {
-        let mut image: image::RgbaImage = QrCode::with_version(self.tier.url.as_bytes(), Version::Normal(5), EcLevel::M).unwrap()
+        let mut image: image::RgbaImage = QrCode::with_version(self.tier.url.as_bytes(), Version::Normal(5), EcLevel::H).unwrap()
             .render::<image::Rgba<u8>>()
-            .quiet_zone(false)
             .min_dimensions(400, 400)
             .max_dimensions(400, 400)
             .build();
