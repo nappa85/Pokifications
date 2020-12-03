@@ -808,6 +808,8 @@ impl BotPkmn {
      * 14: sta filter (1: <, 2: =, 3: >)
      * 15: sta value
      * 16: bypass 100%
+     * 17: form (first byte)
+     * 18: form (second byte)
      */
     fn advanced_filters(filter: &[u8], input: &Box<Pokemon>) -> bool {
         match filter.get(9) {
@@ -829,7 +831,14 @@ impl BotPkmn {
             }
         }
 
-        (filter_iv(filter.get(10), filter.get(11), input.individual_attack.as_ref()) &&
+        let mut form = filter.get(17).map(|i| *i as u16);
+        if let Some(i) = filter.get(18) {
+            if let Some(ref mut f) = form {
+                *f += (*i as u16) * 8;
+            }
+        }
+        ((form.is_none() || form == input.form) &&
+            filter_iv(filter.get(10), filter.get(11), input.individual_attack.as_ref()) &&
             filter_iv(filter.get(12), filter.get(13), input.individual_defense.as_ref()) &&
             filter_iv(filter.get(14), filter.get(15), input.individual_stamina.as_ref())) ||
             (filter.get(16) == Some(&1) && input.individual_attack == Some(15) && input.individual_defense == Some(15) && input.individual_stamina == Some(15))
