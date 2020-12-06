@@ -392,11 +392,11 @@ impl BotConfigs {
             let mut messages = Vec::new();
             {
                 let lock = BOT_CONFIGS.read().await;
-                lock.iter().for_each(|(chat_id, config)| {
-                    if let Ok(message) = config.submit(&now, &input) {
+                for (chat_id, config) in lock.iter() {
+                    if let Ok(message) = config.submit(&now, &input).await {
                         messages.push((chat_id.clone(), message, config.more.l.clone()));
                     }
-                });
+                }
             }
 
             if !messages.is_empty() {

@@ -19,7 +19,7 @@ use log::info;
 
 // use crate::lists::COMMON;
 use crate::entities::{Pokemon, Pokestop, Raid, Request, Gender, Quest, PvpRanking};
-use crate::lists::CITIES;
+use crate::lists::{CITIES, FORMS};
 use crate::db::MYSQL;
 // use crate::telegram::Image;
 
@@ -207,7 +207,7 @@ impl BotConfig {
         Ok(true)
     }
 
-    pub fn submit(&self, now: &DateTime<Local>, input: &Request) -> Result<Box<dyn Message + Send + Sync>, ()> {
+    pub async fn submit(&self, now: &DateTime<Local>, input: &Request) -> Result<Box<dyn Message + Send + Sync>, ()> {
         if !self.time.is_active()? && self.time.fi[0] == 0 && self.time.fl[0] == 0 {
             #[cfg(test)]
             info!("Webhook discarded for time configs");
@@ -216,16 +216,16 @@ impl BotConfig {
         }
         else {
             match input {
-                Request::Pokemon(p) => Ok(Box::new(self.submit_pokemon(now, p)?)),
-                Request::Raid(r) => Ok(Box::new(self.submit_raid(now, r)?)),
-                Request::Quest(q) => Ok(Box::new(self.submit_quest(now, q)?)),
-                Request::Invasion(i) => Ok(Box::new(self.submit_invasion(now, i)?)),
+                Request::Pokemon(p) => Ok(Box::new(self.submit_pokemon(now, p).await?)),
+                Request::Raid(r) => Ok(Box::new(self.submit_raid(now, r).await?)),
+                Request::Quest(q) => Ok(Box::new(self.submit_quest(now, q).await?)),
+                Request::Invasion(i) => Ok(Box::new(self.submit_invasion(now, i).await?)),
                 _ => Err(()),
             }
         }
     }
 
-    fn submit_pokemon(&self, now: &DateTime<Local>, input: &Box<Pokemon>) -> Result<PokemonMessage, ()> {
+    async fn submit_pokemon(&self, now: &DateTime<Local>, input: &Box<Pokemon>) -> Result<PokemonMessage, ()> {
         let pokemon_id = input.pokemon_id.to_string();
         let filter = self.pkmn.l.get(&pokemon_id).ok_or_else(|| ())?;
         if filter.get(0) == Some(&0) {
@@ -313,11 +313,16 @@ impl BotConfig {
             }
         }
 
-        if !badge && !BotPkmn::advanced_filters(filter, input) {
-            #[cfg(test)]
-            info!("Pokémon discarded for Advanced Filters config");
+        if !badge {
+            if let Some(dbg) = BotPkmn::advanced_filters(filter, input).await {
+                debug.push_str(&dbg);
+            }
+            else {
+                #[cfg(test)]
+                info!("Pokémon discarded for Advanced Filters config");
 
-            return Err(());
+                return Err(());
+            }
         }
 
         Ok(PokemonMessage {
@@ -329,7 +334,7 @@ impl BotConfig {
         })
     }
 
-    fn submit_raid(&self, now: &DateTime<Local>, input: &Raid) -> Result<RaidMessage, ()> {
+    async fn submit_raid(&self, now: &DateTime<Local>, input: &Raid) -> Result<RaidMessage, ()> {
         let pokemon_id = input.pokemon_id.and_then(|id| if id > 0 { Some(id.to_string()) } else { None });
         let loc = self.locs.get_raid_settings()?;
         let pos = (input.latitude, input.longitude);
@@ -407,7 +412,7 @@ impl BotConfig {
         })
     }
 
-    fn submit_quest(&self, now: &DateTime<Local>, input: &Quest) -> Result<QuestMessage, ()> {
+    async fn submit_quest(&self, now: &DateTime<Local>, input: &Quest) -> Result<QuestMessage, ()> {
         self._submit_quest(now, input).map(|debug| {
             QuestMessage {
                 quest: input.clone(),
@@ -478,7 +483,7 @@ impl BotConfig {
         Err(())
     }
 
-    fn submit_invasion(&self, now: &DateTime<Local>, input: &Pokestop) -> Result<InvasionMessage, ()> {
+    async fn submit_invasion(&self, now: &DateTime<Local>, input: &Pokestop) -> Result<InvasionMessage, ()> {
         let invs = self.invs.as_ref().ok_or_else(|| ())?;
         if invs.n == 0 {
             return Err(());
@@ -815,13 +820,21 @@ impl BotPkmn {
      * 21: ultra check
      * 22: ultra perf
      */
-    fn advanced_filters(filter: &[u8], input: &Box<Pokemon>) -> bool {
+    async fn advanced_filters(filter: &[u8], input: &Box<Pokemon>) -> Option<String> {
+        let mut dbg = String::new();
+
         match filter.get(9) {
             Some(&1) => if input.gender != Gender::Male {
-                return false;
+                return None;
+            }
+            else {
+                dbg.push_str("\nFiltro avanzato: Sesso maschio");
             },
             Some(&2) => if input.gender != Gender::Female {
-                return false;
+                return None;
+            }
+            else {
+                dbg.push_str("\nFiltro avanzato: Sesso femmina");
             },
             _ => {},
         }
@@ -832,40 +845,45 @@ impl BotPkmn {
                 f += (*i as u16) * 8;
             }
             if Some(f) != input.form {
-                return false;
+                return None;
+            }
+            else {
+                let lock = FORMS.read().await;
+                dbg.push_str(&format!("\nFiltro avanzato: Forma {}", lock.get(&f).map(|s| s.as_str()).unwrap_or_else(|| "<sconosciuta>")));
             }
         }
 
-        fn filter_rank(check: Option<&u8>, filter: Option<&u8>, pvp: Option<&Vec<PvpRanking>>) -> Option<bool> {
+        fn filter_rank(check: Option<&u8>, filter: Option<&u8>, pvp: Option<&Vec<PvpRanking>>) -> Option<(bool, f64)> {
             if check != Some(&1) {
                 return None;
             }
 
             if let Some(perf) = filter {
-                if perf == &0 {
-                    return Some(true);
-                }
-
                 if let Some(ranks) = pvp {
                     let perf = (*perf as f64) / 100_f64;
                     for rank in ranks {
-                        if rank.percentage.map(|p| p >= perf) == Some(true) {
-                            return Some(true);
+                        if let Some(p) = rank.percentage {
+                            if p >= perf {
+                                return Some((true, p * 100_f64));
+                            }
                         }
                     }
                 }
             }
 
-            Some(false)
+            Some((false, 0_f64))
         }
 
         // rank filter are in OR condition with None being a non-bloking state
         match (filter_rank(filter.get(19), filter.get(20), input.pvp_rankings_great_league.as_ref()),
             filter_rank(filter.get(21), filter.get(22), input.pvp_rankings_ultra_league.as_ref())) {
-            (Some(false), Some(false)) => { return false; },
-            (Some(false), None) => { return false; },
-            (None, Some(false)) => { return false; },
-            _ => {},
+            (Some((false, _)), Some((false, _))) => { return None; },
+            (Some((false, _)), None) => { return None; },
+            (None, Some((false, _))) => { return None; },
+            (Some((true, mega)), Some((true, ultra))) => { dbg.push_str(&format!("\nFiltro avanzato: Mega Perf {:.0}%\nFiltro avanzato: Ultra Perf {:.0}%", mega, ultra)); },
+            (Some((true, mega)), _) => { dbg.push_str(&format!("\nFiltro avanzato: Mega Perf {:.0}%", mega)); },
+            (_, Some((true, ultra))) => { dbg.push_str(&format!("\nFiltro avanzato: Ultra Perf {:.0}%", ultra)); },
+            (None, None) => {},
         }
 
         fn filter_iv(filter: Option<&u8>, filter_value: Option<&u8>, value: Option<&u8>) -> bool {
@@ -877,10 +895,17 @@ impl BotPkmn {
             }
         }
 
-        (filter_iv(filter.get(10), filter.get(11), input.individual_attack.as_ref()) &&
+        match ((filter_iv(filter.get(10), filter.get(11), input.individual_attack.as_ref()) &&
             filter_iv(filter.get(12), filter.get(13), input.individual_defense.as_ref()) &&
-            filter_iv(filter.get(14), filter.get(15), input.individual_stamina.as_ref())) ||
-            (filter.get(16) == Some(&1) && input.individual_attack == Some(15) && input.individual_defense == Some(15) && input.individual_stamina == Some(15))
+            filter_iv(filter.get(14), filter.get(15), input.individual_stamina.as_ref())),
+            (filter.get(16) == Some(&1) && input.individual_attack == Some(15) && input.individual_defense == Some(15) && input.individual_stamina == Some(15))){
+            (true, true) => { dbg.push_str(&format!("\nFiltro avanzato: IV ATK {} DEF {} STA {}\nFiltro avanzato: 100%", input.individual_attack.unwrap_or_else(|| 0), input.individual_defense.unwrap_or_else(|| 0), input.individual_stamina.unwrap_or_else(|| 0))); },
+            (true, false) => { dbg.push_str(&format!("\nFiltro avanzato: IV ATK {} DEF {} STA {}", input.individual_attack.unwrap_or_else(|| 0), input.individual_defense.unwrap_or_else(|| 0), input.individual_stamina.unwrap_or_else(|| 0))); },
+            (false, true) => { dbg.push_str("\nFiltro avanzato: 100%"); },
+            (false, false) => { return None; }
+        }
+
+        Some(dbg)
     }
 }
 
@@ -1051,10 +1076,10 @@ mod tests {
         }
     }
 
-    #[test]
-    fn notification() {
+    #[tokio::test]
+    async fn notification() {
         let config = serde_json::from_str::<BotConfig>(r#"{"locs":{"h":["45.577350","12.367318"],"p":["45.576508","12.367384","10"],"r":["45.576989","12.366138","10"],"i":["45.575699","12.362555","10"],"t_p":["0","0","0"],"t_r":["0","0","0"],"t_i":["","",""]},"raid":{"u":1,"s":0,"x":0,"l":[5],"p":[599,403,129,639]},"pkmn":{"l":{"1":[1,1,94,0,0,0,0,1],"4":[1,1,94,0,0,0,0,1],"7":[1,1,94,0,0,0,0,1],"60":[1,1,94,0,0,0,0,1],"63":[1,1,94,0,0,0,0,1],"66":[1,1,94,0,0,0,0,1],"74":[1,1,94,0,0,0,0,1],"81":[1,1,94,0,0,0,0,1],"111":[1,1,94,0,0,0,0,1],"116":[1,1,94,0,0,0,0,1],"123":[1,1,94,0,0,0,0,1],"125":[1,1,94,0,0,0,0,1],"126":[1,1,94,0,0,0,0,1],"129":[1,1,94,0,0,0,0,1],"147":[1,1,94,0,0,0,0,1],"152":[1,1,94,0,0,0,0,1],"155":[1,1,94,0,0,0,0,1],"158":[1,1,94,0,0,0,0,1],"228":[1,1,95,0,0,0,0,1],"246":[1,1,94,0,0,0,0,1],"252":[1,1,94,0,0,0,0,1],"255":[1,1,94,0,0,0,0,1],"258":[1,1,94,0,0,0,0,1],"270":[1,1,94,0,0,0,0,1],"273":[1,1,94,0,0,0,0,1],"280":[1,1,94,0,0,0,0,1],"296":[1,1,94,0,0,0,0,1],"304":[1,1,94,0,0,0,0,1],"315":[1,1,95,0,0,0,0,1],"328":[1,1,94,0,0,0,0,1],"333":[1,1,94,0,0,0,0,1],"355":[1,1,94,0,0,0,0,1],"371":[1,1,94,0,0,0,0,1],"374":[1,1,94,0,0,0,0,1],"387":[1,1,94,0,0,0,0,1],"390":[1,1,94,0,0,0,0,1],"393":[1,1,94,0,0,0,0,1],"408":[1,1,94,0,0,0,0,1],"436":[1,1,94,0,0,0,0,1],"495":[1,1,94,0,0,0,0,1],"498":[1,1,94,0,0,0,0,1],"501":[1,1,94,0,0,0,0,1],"633":[1,1,94,0,0,0,0,1]}},"time":{"fi":[0,90],"fl":[0,30],"fc":0,"w1":[0,1,10,11,12,13,14,15,16,17,18,19,20,21,22,23],"w2":[0,9,10,11,14,15,16,17,18,19,20,21,22,23]},"qest":{"n":0,"l":[]},"invs":{"n":0,"f":0,"l":[]},"more":{"l":"g"}}"#).unwrap();
         let input: Pokemon = serde_json::from_str(r#"{"pokestop_id":"3d716717cc65421490684ef9b213a382.16","disappear_time":1571079918,"cp":null,"form":0,"move_1":null,"longitude":12.19398,"costume":0,"pokemon_id":280,"disappear_time_verified":false,"gender":1,"individual_attack":9,"spawnpoint_id":"None","latitude":45.35340,"pokemon_level":15,"move_2":null,"individual_defense":3,"weight":null,"encounter_id":"12661125248363616471","height":null,"weather":1,"first_seen":1571078718,"individual_stamina":15,"last_modified_time":1571078718}"#).unwrap();
-        assert!(config.submit(&Local::now(), &Request::Pokemon(Box::new(input))).is_err());
+        assert!(config.submit(&Local::now(), &Request::Pokemon(Box::new(input))).await.is_err());
     }
 }
