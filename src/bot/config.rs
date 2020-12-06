@@ -18,7 +18,7 @@ use log::error;
 use log::info;
 
 // use crate::lists::COMMON;
-use crate::entities::{Pokemon, Pokestop, Raid, Request, Gender, Quest};
+use crate::entities::{Pokemon, Pokestop, Raid, Request, Gender, Quest, PvpRanking};
 use crate::lists::CITIES;
 use crate::db::MYSQL;
 // use crate::telegram::Image;
@@ -810,6 +810,10 @@ impl BotPkmn {
      * 16: bypass 100%
      * 17: form (first byte)
      * 18: form (second byte)
+     * 19: mega check
+     * 20: mega perf
+     * 21: ultra check
+     * 22: ultra perf
      */
     fn advanced_filters(filter: &[u8], input: &Box<Pokemon>) -> bool {
         match filter.get(9) {
@@ -822,6 +826,48 @@ impl BotPkmn {
             _ => {},
         }
 
+        if let Some(f) = filter.get(17) {
+            let mut f = *f as u16;
+            if let Some(i) = filter.get(18) {
+                f += (*i as u16) * 8;
+            }
+            if Some(f) != input.form {
+                return false;
+            }
+        }
+
+        fn filter_rank(check: Option<&u8>, filter: Option<&u8>, pvp: Option<&Vec<PvpRanking>>) -> Option<bool> {
+            if check != Some(&1) {
+                return None;
+            }
+
+            if let Some(perf) = filter {
+                if perf == &0 {
+                    return Some(true);
+                }
+
+                if let Some(ranks) = pvp {
+                    let perf = (*perf as f64) / 100_f64;
+                    for rank in ranks {
+                        if rank.percentage.map(|p| p >= perf) == Some(true) {
+                            return Some(true);
+                        }
+                    }
+                }
+            }
+
+            Some(false)
+        }
+
+        // rank filter are in OR condition with None being a non-bloking state
+        match (filter_rank(filter.get(19), filter.get(20), input.pvp_rankings_great_league.as_ref()),
+            filter_rank(filter.get(21), filter.get(22), input.pvp_rankings_ultra_league.as_ref())) {
+            (Some(false), Some(false)) => { return false; },
+            (Some(false), None) => { return false; },
+            (None, Some(false)) => { return false; },
+            _ => {},
+        }
+
         fn filter_iv(filter: Option<&u8>, filter_value: Option<&u8>, value: Option<&u8>) -> bool {
             match filter {
                 Some(&1) => value < filter_value,
@@ -831,14 +877,7 @@ impl BotPkmn {
             }
         }
 
-        let mut form = filter.get(17).map(|i| *i as u16);
-        if let Some(i) = filter.get(18) {
-            if let Some(ref mut f) = form {
-                *f += (*i as u16) * 8;
-            }
-        }
-        ((form.is_none() || form == input.form) &&
-            filter_iv(filter.get(10), filter.get(11), input.individual_attack.as_ref()) &&
+        (filter_iv(filter.get(10), filter.get(11), input.individual_attack.as_ref()) &&
             filter_iv(filter.get(12), filter.get(13), input.individual_defense.as_ref()) &&
             filter_iv(filter.get(14), filter.get(15), input.individual_stamina.as_ref())) ||
             (filter.get(16) == Some(&1) && input.individual_attack == Some(15) && input.individual_defense == Some(15) && input.individual_stamina == Some(15))
