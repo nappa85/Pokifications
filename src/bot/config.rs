@@ -844,12 +844,14 @@ impl BotPkmn {
             if let Some(i) = filter.get(18) {
                 f += (*i as u16) * 8;
             }
-            if Some(f) != input.form {
-                return None;
-            }
-            else {
-                let lock = FORMS.read().await;
-                dbg.push_str(&format!("\nFiltro avanzato: Forma {}", lock.get(&f).map(|s| s.as_str()).unwrap_or_else(|| "<sconosciuta>")));
+            if f > 0 {
+                if Some(f) != input.form {
+                    return None;
+                }
+                else {
+                    let lock = FORMS.read().await;
+                    dbg.push_str(&format!("\nFiltro avanzato: Forma {}", lock.get(&f).map(|s| s.as_str()).unwrap_or_else(|| "<sconosciuta>")));
+                }
             }
         }
 
