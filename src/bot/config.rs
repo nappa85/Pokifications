@@ -940,7 +940,7 @@ impl BotPkmn {
 
         match ((filter_iv(filter.get(10), filter.get(11), filter.get(12), filter.get(13), filter.get(14), filter.get(15), input.individual_attack.as_ref(), input.individual_defense.as_ref(), input.individual_stamina.as_ref())),
             (filter.get(16) == Some(&1) && input.individual_attack == Some(15) && input.individual_defense == Some(15) && input.individual_stamina == Some(15))){
-            (Some(s), true) => if s.is_empty() { dbg.push_str(&format!("\nFiltro avanzato: IV{}", s)); } else { dbg.push_str(&format!("\nFiltro avanzato: IV{}\nFiltro avanzato: 100%", s)); },
+            (Some(s), true) => if s.is_empty() { dbg.push_str("\nFiltro avanzato: 100%"); } else { dbg.push_str(&format!("\nFiltro avanzato: IV{}\nFiltro avanzato: 100%", s)); },
             (Some(s), false) => if !s.is_empty() { dbg.push_str(&format!("\nFiltro avanzato: IV{}", s)); },
             (None, true) => { dbg.push_str("\nFiltro avanzato: 100%"); },
             (None, false) => { return None; }
