@@ -883,8 +883,10 @@ impl BotPkmn {
                 res.push_str(&format!(" pokémon {}", lock.get(&r.pokemon).map(|s| s.name.as_str()).unwrap_or_else(|| "<sconosciuto>")));
             }
             if let Some(v) = &r.form {
-                let lock = FORMS.read().await;
-                res.push_str(&format!(" forma {}", lock.get(v).map(|s| s.as_str()).unwrap_or_else(|| "<sconosciuta>")));
+                if v > &0 {
+                    let lock = FORMS.read().await;
+                    res.push_str(&format!(" forma {}", lock.get(v).map(|s| s.as_str()).unwrap_or_else(|| "<sconosciuta>")));
+                }
             }
             if let Some(v) = &r.cp {
                 res.push_str(&format!(" ps {}", v));
@@ -913,23 +915,35 @@ impl BotPkmn {
             (None, None) => {},
         }
 
-        fn filter_iv(filter: Option<&u8>, filter_value: Option<&u8>, value: Option<&u8>) -> bool {
-            match filter {
-                Some(&1) => value < filter_value,
-                Some(&2) => value == filter_value,
-                Some(&3) => value > filter_value,
-                _ => true,
+        fn filter_iv(atkf: Option<&u8>, atkv: Option<&u8>, deff: Option<&u8>, defv: Option<&u8>, staf: Option<&u8>, stav: Option<&u8>, atk: Option<&u8>, def: Option<&u8>, sta: Option<&u8>) -> Option<String> {
+            let mut res = String::new();
+            match atkf {
+                Some(&1) => if atkv < atk { res.push_str(&format!(" ATK {} < {}", atkv.unwrap_or_else(|| &0), atk.unwrap_or_else(|| &0))); } else { return None; },
+                Some(&2) => if atkv == atk { res.push_str(&format!(" ATK {} = {}", atkv.unwrap_or_else(|| &0), atk.unwrap_or_else(|| &0))); } else { return None; },
+                Some(&3) => if atkv > atk { res.push_str(&format!(" ATK {} > {}", atkv.unwrap_or_else(|| &0), atk.unwrap_or_else(|| &0))); } else { return None; },
+                _ => {},
             }
+            match deff {
+                Some(&1) => if defv < def { res.push_str(&format!(" DEF {} < {}", defv.unwrap_or_else(|| &0), def.unwrap_or_else(|| &0))); } else { return None; },
+                Some(&2) => if defv == def { res.push_str(&format!(" DEF {} = {}", defv.unwrap_or_else(|| &0), def.unwrap_or_else(|| &0))); } else { return None; },
+                Some(&3) => if defv > def { res.push_str(&format!(" DEF {} > {}", defv.unwrap_or_else(|| &0), def.unwrap_or_else(|| &0))); } else { return None; },
+                _ => {},
+            }
+            match staf {
+                Some(&1) => if stav < sta { res.push_str(&format!(" STA {} < {}", stav.unwrap_or_else(|| &0), sta.unwrap_or_else(|| &0))); } else { return None; },
+                Some(&2) => if stav == sta { res.push_str(&format!(" STA {} = {}", stav.unwrap_or_else(|| &0), sta.unwrap_or_else(|| &0))); } else { return None; },
+                Some(&3) => if stav > sta { res.push_str(&format!(" STA {} > {}", stav.unwrap_or_else(|| &0), sta.unwrap_or_else(|| &0))); } else { return None; },
+                _ => {},
+            }
+            Some(res)
         }
 
-        match ((filter_iv(filter.get(10), filter.get(11), input.individual_attack.as_ref()) &&
-            filter_iv(filter.get(12), filter.get(13), input.individual_defense.as_ref()) &&
-            filter_iv(filter.get(14), filter.get(15), input.individual_stamina.as_ref())),
+        match ((filter_iv(filter.get(10), filter.get(11), filter.get(12), filter.get(13), filter.get(14), filter.get(15), input.individual_attack.as_ref(), input.individual_defense.as_ref(), input.individual_stamina.as_ref())),
             (filter.get(16) == Some(&1) && input.individual_attack == Some(15) && input.individual_defense == Some(15) && input.individual_stamina == Some(15))){
-            (true, true) => { dbg.push_str(&format!("\nFiltro avanzato: IV ATK {} DEF {} STA {}\nFiltro avanzato: 100%", input.individual_attack.unwrap_or_else(|| 0), input.individual_defense.unwrap_or_else(|| 0), input.individual_stamina.unwrap_or_else(|| 0))); },
-            (true, false) => { dbg.push_str(&format!("\nFiltro avanzato: IV ATK {} DEF {} STA {}", input.individual_attack.unwrap_or_else(|| 0), input.individual_defense.unwrap_or_else(|| 0), input.individual_stamina.unwrap_or_else(|| 0))); },
-            (false, true) => { dbg.push_str("\nFiltro avanzato: 100%"); },
-            (false, false) => { return None; }
+            (Some(s), true) => if s.is_empty() { dbg.push_str(&format!("\nFiltro avanzato: IV{}", s)); } else { dbg.push_str(&format!("\nFiltro avanzato: IV{}\nFiltro avanzato: 100%", s)); },
+            (Some(s), false) => if !s.is_empty() { dbg.push_str(&format!("\nFiltro avanzato: IV{}", s)); },
+            (None, true) => { dbg.push_str("\nFiltro avanzato: 100%"); },
+            (None, false) => { return None; }
         }
 
         Some(dbg)
