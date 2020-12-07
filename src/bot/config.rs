@@ -19,7 +19,7 @@ use log::info;
 
 // use crate::lists::COMMON;
 use crate::entities::{Pokemon, Pokestop, Raid, Request, Gender, Quest, PvpRanking};
-use crate::lists::{CITIES, FORMS};
+use crate::lists::{CITIES, LIST, FORMS};
 use crate::db::MYSQL;
 // use crate::telegram::Image;
 
@@ -855,7 +855,7 @@ impl BotPkmn {
             }
         }
 
-        fn filter_rank(check: Option<&u8>, filter: Option<&u8>, pvp: Option<&Vec<PvpRanking>>) -> Option<(bool, f64)> {
+        fn filter_rank<'a>(check: Option<&u8>, filter: Option<&u8>, pvp: Option<&'a Vec<PvpRanking>>) -> Option<Option<&'a PvpRanking>> {
             if check != Some(&1) {
                 return None;
             }
@@ -866,25 +866,50 @@ impl BotPkmn {
                     for rank in ranks {
                         if let Some(p) = rank.percentage {
                             if p >= perf {
-                                return Some((true, p * 100_f64));
+                                return Some(Some(rank));
                             }
                         }
                     }
                 }
             }
 
-            Some((false, 0_f64))
+            Some(None)
+        }
+
+        async fn rank_to_string(r: &PvpRanking) -> String {
+            let mut res = String::new();
+            {
+                let lock = LIST.read().await;
+                res.push_str(&format!(" pokémon {}", lock.get(&r.pokemon).map(|s| s.name.as_str()).unwrap_or_else(|| "<sconosciuto>")));
+            }
+            if let Some(v) = &r.form {
+                let lock = FORMS.read().await;
+                res.push_str(&format!(" forma {}", lock.get(v).map(|s| s.as_str()).unwrap_or_else(|| "<sconosciuta>")));
+            }
+            if let Some(v) = &r.cp {
+                res.push_str(&format!(" ps {}", v));
+            }
+            if let Some(v) = &r.level {
+                res.push_str(&format!(" livelo {}", v));
+            }
+            if let Some(v) = &r.rank {
+                res.push_str(&format!(" rank {}", v));
+            }
+            if let Some(v) = &r.percentage {
+                res.push_str(&format!(" percentuale {:.0}%", v * 100_f64));
+            }
+            res
         }
 
         // rank filter are in OR condition with None being a non-bloking state
         match (filter_rank(filter.get(19), filter.get(20), input.pvp_rankings_great_league.as_ref()),
             filter_rank(filter.get(21), filter.get(22), input.pvp_rankings_ultra_league.as_ref())) {
-            (Some((false, _)), Some((false, _))) => { return None; },
-            (Some((false, _)), None) => { return None; },
-            (None, Some((false, _))) => { return None; },
-            (Some((true, mega)), Some((true, ultra))) => { dbg.push_str(&format!("\nFiltro avanzato: Mega Perf {:.0}%\nFiltro avanzato: Ultra Perf {:.0}%", mega, ultra)); },
-            (Some((true, mega)), _) => { dbg.push_str(&format!("\nFiltro avanzato: Mega Perf {:.0}%", mega)); },
-            (_, Some((true, ultra))) => { dbg.push_str(&format!("\nFiltro avanzato: Ultra Perf {:.0}%", ultra)); },
+            (Some(None), Some(None)) => { return None; },
+            (Some(None), None) => { return None; },
+            (None, Some(None)) => { return None; },
+            (Some(Some(mega)), Some(Some(ultra))) => { dbg.push_str(&format!("\nFiltro avanzato: Mega Perf{}\nFiltro avanzato: Ultra Perf{}", rank_to_string(mega).await, rank_to_string(ultra).await)); },
+            (Some(Some(mega)), _) => { dbg.push_str(&format!("\nFiltro avanzato: Mega Perf{}", rank_to_string(mega).await)); },
+            (_, Some(Some(ultra))) => { dbg.push_str(&format!("\nFiltro avanzato: Ultra Perf{}", rank_to_string(ultra).await)); },
             (None, None) => {},
         }
 
