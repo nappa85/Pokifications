@@ -208,7 +208,7 @@ impl BotConfig {
     }
 
     pub async fn submit(&self, now: &DateTime<Local>, input: &Request) -> Result<Box<dyn Message + Send + Sync>, ()> {
-        if !self.time.is_active()? && self.time.fi[0] == 0 && self.time.fl[0] == 0 {
+        if !self.time.is_active(now)? && self.time.fi[0] == 0 && self.time.fl[0] == 0 {
             #[cfg(test)]
             info!("Webhook discarded for time configs");
 
@@ -287,29 +287,29 @@ impl BotConfig {
         //     }
         // }
 
-        if !self.time.is_active()? {
-            if !self.time.bypass(iv, input.pokemon_level) {
+        if !self.time.is_active(now)? {
+            if let Some (s) = self.time.bypass(iv, input.pokemon_level) {
+                debug.push_str(&format!("\nFiltro orario non attivo ma eccezione per {}", s));
+            }
+            else {
                 #[cfg(test)]
                 info!("Pokémon discarded for time config: pokemon_id {} iv {:?} level {:?}", pokemon_id, iv, input.pokemon_level);
 
                 return Err(());
-            }
-            else {
-                debug.push_str(&format!("\nFiltro orario non attivo ma eccezione per {}", self.time.describe()));
             }
         }
         else {
             if badge {
                 debug.push_str("\nEccezione per medaglia");
             }
-            else if (filter.get(1) >= Some(&1) || filter.get(3) == Some(&1)) && !BotPkmn::filter(filter, iv, input.pokemon_level) {
+            else if let Some(s) = BotPkmn::filter(filter, iv, input.pokemon_level.as_ref()) {
+                debug.push_str(&format!("\nFiltro orario attivo e {}", s));
+            }
+            else {
                 #[cfg(test)]
                 info!("Pokémon discarded for IV-Level config: pokemon_id {} iv {:?} level {:?}", pokemon_id, iv, input.pokemon_level);
 
                 return Err(());
-            }
-            else {
-                debug.push_str(&format!("\nFiltro orario attivo e {}", BotPkmn::describe(filter)));
             }
         }
 
@@ -368,7 +368,7 @@ impl BotConfig {
             debug.push_str(&format!("Distanza per Raid inferiore a {:.2} km ({:.2} km)", rad, dist));
         }
 
-        if !self.time.is_active()? {
+        if !self.time.is_active(now)? {
             #[cfg(test)]
             info!("Raid discarded for time config");
 
@@ -708,77 +708,72 @@ impl BotPkmn {
      * 13: def value
      * 14: sta filter (1: <, 2: =, 3: >)
      * 15: sta value
+     * 16: bypass 100%
+     * 17: form (first byte)
+     * 18: form (second byte)
+     * 19: mega check
+     * 20: mega perf
+     * 21: ultra check
+     * 22: ultra perf
      */
-    fn describe(filter: &[u8]) -> String {
-        if filter.get(1) >= Some(&1) && filter.get(3) == Some(&1) { // IV e PL attivi
-            format!("IV >= {} {} LVL >= {}",
-                filter.get(2).unwrap_or_else(|| &0),
-                if filter.get(7) == Some(&1) { "O" } else { "E" },
-                filter.get(4).unwrap_or_else(|| &0))
-        }
-        else {
-            if filter.get(1) >= Some(&1) {
-                format!("IV >= {}", filter.get(2).unwrap_or_else(|| &0))
-            }
-            else if filter.get(3) == Some(&1) {
-                format!("LVL >= {}", filter.get(4).unwrap_or_else(|| &0))
-            }
-            else {
-                String::from("nessun filtro IV/LVL attivo")
-            }
-        }
-    }
-
-    fn filter(filter: &[u8], iv: Option<f32>, lvl: Option<u8>) -> bool {
+    fn filter(filter: &[u8], iv: Option<f32>, lvl: Option<&u8>) -> Option<String> {
         if filter.get(1) >= Some(&1) && filter.get(3) == Some(&1) { // IV e PL attivi
             if filter.get(7) == Some(&1) {
-                if iv >= filter.get(2).map(|i| f32::from(*i)).or_else(|| Some(0_f32)) {
-                    return true;
+                if iv >= filter.get(2).map(|i| f32::from(*i)) || lvl >= filter.get(4) {
+                    return Some(format!("IV >= {} O LVL >= {}", filter.get(2).unwrap_or_else(|| &0), filter.get(4).unwrap_or_else(|| &0)));
                 }
-                if lvl.as_ref() >= filter.get(4).or_else(|| Some(&0)) {
-                    return true;
-                }
-                false
             }
             else {
-                if iv.is_some() {
-                    if iv < filter.get(2).map(|i| f32::from(*i)) {
-                        return false;
-                    }
+                if iv >= filter.get(2).map(|i| f32::from(*i)) && lvl >= filter.get(4) {
+                    return Some(format!("IV >= {} E LVL >= {}", filter.get(2).unwrap_or_else(|| &0), filter.get(4).unwrap_or_else(|| &0)));
                 }
-                else {
-                    return false;
-                }
-                if lvl.is_some() {
-                    if lvl.as_ref() < filter.get(4) {
-                        return false;
-                    }
-                }
-                else {
-                    return false;
-                }
-                true
             }
+            None
         }
-        else {
+        else if filter.get(1) >= Some(&1) || filter.get(3) == Some(&1) { // IV o PL attivi
             if filter.get(1) >= Some(&1) {
-                if iv.is_some() {
-                    if iv >= filter.get(2).map(|i| f32::from(*i)) {
-                        return true;
-                    }
+                if iv >= filter.get(2).map(|i| f32::from(*i)) {
+                    return Some(format!("IV >= {}", filter.get(2).unwrap_or_else(|| &0)));
                 }
             }
             if filter.get(3) == Some(&1) {
-                if lvl.is_some() {
-                    if lvl.as_ref() >= filter.get(4) {
-                        return true;
-                    }
+                if lvl >= filter.get(4) {
+                    return Some(format!("LVL >= {}", filter.get(4).unwrap_or_else(|| &0)));
                 }
             }
-            false
+            None
+        }
+        else {
+            Some(String::from("nessun filtro IV/LVL attivo"))
         }
     }
 
+    /**
+     * [1, 1, 100, 0, 25, 0, 10, 1]
+     * 0: active
+     * 1: IV
+     * 2: IV_min
+     * 3: LVL
+     * 4: LVL_min
+     * 5: rad
+     * 6: custom_rad
+     * 7: or/and
+     * 8: badge
+     * 9: gender (1: Male, 2: Female)
+     * 10: atk filter (1: <, 2: =, 3: >)
+     * 11: atk value
+     * 12: def filter (1: <, 2: =, 3: >)
+     * 13: def value
+     * 14: sta filter (1: <, 2: =, 3: >)
+     * 15: sta value
+     * 16: bypass 100%
+     * 17: form (first byte)
+     * 18: form (second byte)
+     * 19: mega check
+     * 20: mega perf
+     * 21: ultra check
+     * 22: ultra perf
+     */
     fn check_badge(filter: &[u8], input: &Box<Pokemon>) -> bool {
         if filter.get(8) == Some(&1) {
             match input.pokemon_id {
@@ -804,7 +799,17 @@ impl BotPkmn {
         }
     }
 
-    /*
+    /**
+     * [1, 1, 100, 0, 25, 0, 10, 1]
+     * 0: active
+     * 1: IV
+     * 2: IV_min
+     * 3: LVL
+     * 4: LVL_min
+     * 5: rad
+     * 6: custom_rad
+     * 7: or/and
+     * 8: badge
      * 9: gender (1: Male, 2: Female)
      * 10: atk filter (1: <, 2: =, 3: >)
      * 11: atk value
@@ -961,8 +966,7 @@ pub struct BotTime {
 }
 
 impl BotTime {
-    fn is_active(&self) -> Result<bool, ()> {
-        let now = Local::now();
+    fn is_active(&self, now: &DateTime<Local>) -> Result<bool, ()> {
         let hour: u8 = now.format("%H").to_string().parse().map_err(|e| error!("current hour retrieve error: {}", e))?;
         Ok(match now.format("%w").to_string().as_str() {
             "0" | "6" => self.w2.contains(&hour),
@@ -970,104 +974,34 @@ impl BotTime {
         })
     }
 
-    fn describe(&self) -> String {
-        if self.fi[0] == 1 && self.fl[0] == 1 {
-            format!("IV >= {} {} LVL >= {}", self.fi[1], if self.fc == 1 { "O" } else { "E" }, self.fl[1])
-        }
-        else {
-            if self.fi[0] == 1 {
-                format!("IV >= {}", self.fi[1])
-            }
-            else if self.fl[0] == 1 {
-                format!("LVL >= {}", self.fl[1])
-            }
-            else {
-                String::from("nessun filtro IV/LVL attivo")
-            }
-        }
-    }
-
-    fn bypass(&self, iv: Option<f32>, lvl: Option<u8>) -> bool {
+    fn bypass(&self, iv: Option<f32>, lvl: Option<u8>) -> Option<String> {
         if self.fi[0] == 1 && self.fl[0] == 1 {
             if self.fc == 1 {
-                if let Some(i) = iv {
-                    if i >= f32::from(self.fi[1]) {
-                        #[cfg(test)]
-                        info!("Pokémon approved because of fi[0] == 1 && fl[0] == 1 && fc == 1 && IV >= fi[1]");
-
-                        return true;
-                    }
+                if iv >= Some(f32::from(self.fi[1])) || lvl >= Some(self.fl[1]) {
+                    return Some(format!("IV >= {} O LVL >= {}", self.fi[1], self.fl[1]));
                 }
-                if let Some(i) = lvl {
-                    if i >= self.fl[1] {
-                        #[cfg(test)]
-                        info!("Pokémon approved because of fi[0] == 1 && fl[0] == 1 && fc == 1 && LVL >= fl[1]");
-
-                        return true;
-                    }
-                }
-
-                #[cfg(test)]
-                info!("Pokémon discarded because of fi[0] == 1 && fl[0] == 1 && fc == 1 && IV < fi[1] && LVL < fl[1]");
-
-                false
+                None
             }
             else {
-                if let Some(i) = iv {
-                    if i < f32::from(self.fi[1]) {
-                        #[cfg(test)]
-                        info!("Pokémon discarded because of fi[0] == 1 && fl[0] == 1 && fc != 1 && IV < fi[1]");
-
-                        return false;
-                    }
+                if iv >= Some(f32::from(self.fi[1])) && lvl >= Some(self.fl[1]) {
+                    return Some(format!("IV >= {} E LVL >= {}", self.fi[1], self.fl[1]));
                 }
-                else {
-                    return false;
-                }
-                if let Some(i) = lvl {
-                    if i < self.fl[1] {
-                        #[cfg(test)]
-                        info!("Pokémon discarded because of fi[0] == 1 && fl[0] == 1 && fc != 1 && LVL < fl[1]");
-
-                        return false;
-                    }
-                }
-                else {
-                    return false;
-                }
-
-                #[cfg(test)]
-                info!("Pokémon approved because of fi[0] == 1 && fl[0] == 1 && fc != 1 && IV IS NULL && LVL IS NULL");
-
-                true
+                None
             }
         }
         else {
             if self.fi[0] == 1 {
-                if let Some(i) = iv {
-                    if i >= f32::from(self.fi[1]) {
-                        #[cfg(test)]
-                        info!("Pokémon approved because of fi[0] == 1 && fl[0] != 1 && IV >= fi[1]");
-
-                        return true;
-                    }
+                if iv >= Some(f32::from(self.fi[1])) {
+                    return Some(format!("IV >= {}", self.fi[1]));
                 }
             }
             if self.fl[0] == 1 {
-                if let Some(i) = lvl {
-                    if i >= self.fl[1] {
-                        #[cfg(test)]
-                        info!("Pokémon approved because of fi[0] != 1 && fl[0] == 1 && LVL >= fl[1]");
-
-                        return true;
-                    }
+                if lvl >= Some(self.fl[1]) {
+                    return Some(format!("LVL >= {}", self.fl[1]));
                 }
             }
 
-            #[cfg(test)]
-            info!("Pokémon discarded because of (fi[0] != 1 || fl[0] != 1) && IV IS NULL && LVL IS NULL");
-
-            false
+            None
         }
     }
 }
