@@ -24,7 +24,7 @@ pub static LIST: Lazy<Arc<RwLock<HashMap<u16, Pokemon>>>> = Lazy::new(|| Arc::ne
 
 pub static MOVES: Lazy<Arc<RwLock<HashMap<u16, String>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 
-pub static FORMS: Lazy<Arc<RwLock<HashMap<u16, String>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
+pub static FORMS: Lazy<Arc<RwLock<HashMap<u16, Form>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 
 pub static GRUNTS: Lazy<Arc<RwLock<HashMap<u8, GruntType>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 
@@ -42,6 +42,13 @@ pub struct Pokemon {
     pub scanned: u8,
     pub status: u8,
     pub raid: u8,
+}
+
+pub struct Form {
+    pub id: u16,
+    pub name: String,
+    pub pokemon_id: u16,
+    pub hidden: bool,
 }
 
 pub struct GruntType {
@@ -160,12 +167,18 @@ async fn load_moves() -> Result<(), ()> {
 
 async fn load_forms() -> Result<(), ()> {
     let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-    let res = conn.query_iter("SELECT * FROM pokemon_forms WHERE hidden = 0").await.map_err(|e| error!("MySQL query error: get pokemon forms\n{}", e))?;
+    let res = conn.query_iter("SELECT * FROM pokemon_forms").await.map_err(|e| error!("MySQL query error: get pokemon forms\n{}", e))?;
 
     let mut forms = FORMS.write().await;
     forms.clear();
     res.for_each_and_drop(|ref mut row| {
-        forms.insert(row.take("id").expect("MySQL pokemon_forms.id error"), row.take("name").expect("MySQL pokemon_forms.name error"));
+        let id = row.take("id").expect("MySQL pokemon_forms.id error");
+        forms.insert(id, Form {
+            id,
+            name: row.take("name").expect("MySQL pokemon_forms.name error"),
+            pokemon_id: row.take("pokemon_id").expect("MySQL pokemon_forms.pokemon_id error"),
+            hidden: row.take("hidden").expect("MySQL pokemon_forms.hidden error"),
+        });
     }).await.map_err(|e| error!("MySQL for_each error: {}", e))?;
 
     Ok(())

@@ -303,7 +303,7 @@ impl Message for PokemonMessage {
                 LIST.read().await.get(&self.pokemon.pokemon_id).map(|p| p.name.to_uppercase()).unwrap_or_else(String::new),
                 gender,
                 match self.pokemon.form {
-                    Some(id) => FORMS.read().await.get(&id).map(|s| format!(" ({})", s)),
+                    Some(id) => FORMS.read().await.get(&id).and_then(|f| if f.hidden { None } else { Some(format!(" ({})", f.name)) }),
                     None => None,
                 }.unwrap_or_else(String::new),
                 iv.round(),
@@ -327,7 +327,7 @@ impl Message for PokemonMessage {
                 LIST.read().await.get(&self.pokemon.pokemon_id).map(|p| p.name.to_uppercase()).unwrap_or_else(String::new),
                 gender,
                 match self.pokemon.form {
-                    Some(id) => FORMS.read().await.get(&id).map(|s| format!(" ({})", s)),
+                    Some(id) => FORMS.read().await.get(&id).and_then(|f| if f.hidden { None } else { Some(format!(" ({})", f.name)) }),
                     None => None,
                 }.unwrap_or_else(String::new),
                 self.pokemon.weather.and_then(|id| meteo_icon(id).ok()).unwrap_or_else(String::new),
@@ -427,7 +427,7 @@ impl Message for PokemonMessage {
         imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale18, &f_cal2, &name);
 
         if let Some(id) = self.pokemon.form {
-            if let Some(form_name) = FORMS.read().await.get(&id) {
+            if let Some(form_name) = FORMS.read().await.get(&id).and_then(|f| if f.hidden { None } else { Some(&f.name) }) {
                 let dm = get_text_width(&f_cal2, scale18, &name);
                 imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 73 + dm as u32, 7, scale11, &f_cal2, &format!("({})", form_name));
             }
@@ -585,7 +585,7 @@ impl Message for RaidMessage {
                 icon,
                 LIST.read().await.get(&pokemon_id).map(|p| p.name.to_uppercase()).unwrap_or_else(String::new),
                 match self.raid.form {
-                    Some(id) => FORMS.read().await.get(&id).map(|s| format!(" ({})", s)),
+                    Some(id) => FORMS.read().await.get(&id).and_then(|f| if f.hidden { None } else { Some(format!(" ({})", f.name)) }),
                     None => None,
                 }.unwrap_or_else(String::new),
                 match self.raid.evolution {
@@ -739,7 +739,7 @@ impl Message for RaidMessage {
                 imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale18, &f_cal2, &name);
                 let mut has_form = false;
                 if let Some(id) = self.raid.form {
-                    if let Some(form_name) = FORMS.read().await.get(&id) {
+                    if let Some(form_name) = FORMS.read().await.get(&id).and_then(|f| if f.hidden { None } else { Some(&f.name) }) {
                         has_form = true;
                         let dm = get_text_width(&f_cal2, scale18, &name);
                         imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 73 + dm as u32, 7, scale11, &f_cal2, &format!("({}) {}", form_name, get_mega_desc(&self.raid.evolution)));

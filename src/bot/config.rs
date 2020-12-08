@@ -850,7 +850,7 @@ impl BotPkmn {
                 }
                 else {
                     let lock = FORMS.read().await;
-                    dbg.push_str(&format!("\nFiltro avanzato: Forma {}", lock.get(&f).map(|s| s.as_str()).unwrap_or_else(|| "<sconosciuta>")));
+                    dbg.push_str(&format!("\nFiltro avanzato: Forma {}", lock.get(&f).map(|f| f.name.as_str()).unwrap_or_else(|| "<sconosciuta>")));
                 }
             }
         }
@@ -885,7 +885,7 @@ impl BotPkmn {
             if let Some(v) = &r.form {
                 if v > &0 {
                     let lock = FORMS.read().await;
-                    res.push_str(&format!(" forma {}", lock.get(v).map(|s| s.as_str()).unwrap_or_else(|| "<sconosciuta>")));
+                    res.push_str(&format!(" forma {}", lock.get(v).map(|f| f.name.as_str()).unwrap_or_else(|| "<sconosciuta>")));
                 }
             }
             if let Some(v) = &r.cp {
