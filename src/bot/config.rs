@@ -892,11 +892,11 @@ impl BotPkmn {
                 res.push_str(&format!(" ps {}", v));
             }
             if let Some(v) = &r.level {
-                res.push_str(&format!(" livelo {}", v));
+                res.push_str(&format!(" livello {}", v));
             }
-            if let Some(v) = &r.rank {
-                res.push_str(&format!(" rank {}", v));
-            }
+            // if let Some(v) = &r.rank {
+            //     res.push_str(&format!(" rank {}", v));
+            // }
             if let Some(v) = &r.percentage {
                 res.push_str(&format!(" percentuale {:.0}%", v * 100_f64));
             }
