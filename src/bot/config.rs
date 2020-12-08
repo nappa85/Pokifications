@@ -918,21 +918,21 @@ impl BotPkmn {
         fn filter_iv(atkf: Option<&u8>, atkv: Option<&u8>, deff: Option<&u8>, defv: Option<&u8>, staf: Option<&u8>, stav: Option<&u8>, atk: Option<&u8>, def: Option<&u8>, sta: Option<&u8>) -> Option<String> {
             let mut res = String::new();
             match atkf {
-                Some(&1) => if atkv < atk { res.push_str(&format!(" ATK {} < {}", atkv.unwrap_or_else(|| &0), atk.unwrap_or_else(|| &0))); } else { return None; },
+                Some(&1) => if atkv > atk { res.push_str(&format!(" ATK {} < {}", atkv.unwrap_or_else(|| &0), atk.unwrap_or_else(|| &0))); } else { return None; },
                 Some(&2) => if atkv == atk { res.push_str(&format!(" ATK {} = {}", atkv.unwrap_or_else(|| &0), atk.unwrap_or_else(|| &0))); } else { return None; },
-                Some(&3) => if atkv > atk { res.push_str(&format!(" ATK {} > {}", atkv.unwrap_or_else(|| &0), atk.unwrap_or_else(|| &0))); } else { return None; },
+                Some(&3) => if atkv < atk { res.push_str(&format!(" ATK {} > {}", atkv.unwrap_or_else(|| &0), atk.unwrap_or_else(|| &0))); } else { return None; },
                 _ => {},
             }
             match deff {
-                Some(&1) => if defv < def { res.push_str(&format!(" DEF {} < {}", defv.unwrap_or_else(|| &0), def.unwrap_or_else(|| &0))); } else { return None; },
+                Some(&1) => if defv > def { res.push_str(&format!(" DEF {} < {}", defv.unwrap_or_else(|| &0), def.unwrap_or_else(|| &0))); } else { return None; },
                 Some(&2) => if defv == def { res.push_str(&format!(" DEF {} = {}", defv.unwrap_or_else(|| &0), def.unwrap_or_else(|| &0))); } else { return None; },
-                Some(&3) => if defv > def { res.push_str(&format!(" DEF {} > {}", defv.unwrap_or_else(|| &0), def.unwrap_or_else(|| &0))); } else { return None; },
+                Some(&3) => if defv < def { res.push_str(&format!(" DEF {} > {}", defv.unwrap_or_else(|| &0), def.unwrap_or_else(|| &0))); } else { return None; },
                 _ => {},
             }
             match staf {
-                Some(&1) => if stav < sta { res.push_str(&format!(" STA {} < {}", stav.unwrap_or_else(|| &0), sta.unwrap_or_else(|| &0))); } else { return None; },
+                Some(&1) => if stav > sta { res.push_str(&format!(" STA {} < {}", stav.unwrap_or_else(|| &0), sta.unwrap_or_else(|| &0))); } else { return None; },
                 Some(&2) => if stav == sta { res.push_str(&format!(" STA {} = {}", stav.unwrap_or_else(|| &0), sta.unwrap_or_else(|| &0))); } else { return None; },
-                Some(&3) => if stav > sta { res.push_str(&format!(" STA {} > {}", stav.unwrap_or_else(|| &0), sta.unwrap_or_else(|| &0))); } else { return None; },
+                Some(&3) => if stav < sta { res.push_str(&format!(" STA {} > {}", stav.unwrap_or_else(|| &0), sta.unwrap_or_else(|| &0))); } else { return None; },
                 _ => {},
             }
             Some(res)
