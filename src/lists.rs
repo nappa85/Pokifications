@@ -47,7 +47,7 @@ pub struct Pokemon {
 pub struct Form {
     pub id: u16,
     pub name: String,
-    pub pokemon_id: u16,
+    pub pokemon_id: Option<u16>,
     pub hidden: bool,
 }
 
