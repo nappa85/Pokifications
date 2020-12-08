@@ -903,7 +903,7 @@ impl BotPkmn {
             //     res.push_str(&format!(" rank {}", v));
             // }
             if let Some(v) = &r.percentage {
-                res.push_str(&format!(" percentuale {:.0}%", v * 100_f64));
+                res.push_str(&format!(" percentuale {:.1}%", v * 100_f64));
             }
             res
         }
