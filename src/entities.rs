@@ -14,35 +14,35 @@ pub enum Request {
     #[serde(rename = "pokemon")]
     Pokemon(Box<Pokemon>),
     #[serde(rename = "pokestop")]
-    Pokestop(Pokestop),
+    Pokestop(Box<Pokestop>),
     #[serde(rename = "gym")]
-    Gym(Gym),
+    Gym(Box<Gym>),
     #[serde(rename = "gym_details")]
-    GymDetails(GymDetails),
+    GymDetails(Box<GymDetails>),
     #[serde(rename = "raid")]
-    Raid(Raid),
+    Raid(Box<Raid>),
     #[serde(rename = "scheduler")]
-    Scheduler(Scheduler),
+    Scheduler(Box<Scheduler>),
     #[serde(rename = "captcha")]
-    Captcha(Captcha),
+    Captcha(Box<Captcha>),
     #[serde(rename = "invasion")]
-    Invasion(Pokestop),
+    Invasion(Box<Pokestop>),
     #[serde(rename = "quest")]
-    Quest(Quest),
+    Quest(Box<Quest>),
     #[serde(rename = "weather")]
-    Weather(Weather),
+    Weather(Box<Weather>),
     #[serde(rename = "account")]
-    Account(Account),
+    Account(Box<Account>),
     #[serde(rename = "reload")]
-    Reload(Vec<String>),
+    Reload(Vec<String>),//Vec should already be a pointer to stack
     #[serde(rename = "reload_city")]
-    ReloadCity(u16),
+    ReloadCity(u16),//adding a Box is futile
     #[serde(rename = "watch")]
-    StartWatch(Watch),
+    StartWatch(Box<Watch>),
     #[serde(rename = "stop")]
-    StopWatch(Watch),
+    StopWatch(Box<Watch>),
     #[serde(rename = "device_tier")]
-    DeviceTier(DeviceTier),
+    DeviceTier(Box<DeviceTier>),
 }
 
 #[derive(Clone, Debug, Deserialize)]

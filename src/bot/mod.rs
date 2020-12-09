@@ -222,14 +222,14 @@ impl BotConfigs {
         }
     }
 
-    async fn remove_watches(watch: Watch) -> Result<(), ()> {
+    async fn remove_watches(watch: Box<Watch>) -> Result<(), ()> {
         let now = Local::now().timestamp();
 
         // remove expired watches
         let mut remove = Vec::new();
         let mut lock = WATCHES.lock().await;
         for (index, w) in lock.iter().enumerate() {
-            if w.expire < now || w == &watch {
+            if w.expire < now || w == &*watch {
                 remove.push(index);
             }
         }
@@ -254,7 +254,7 @@ impl BotConfigs {
         Ok(())
     }
 
-    async fn add_watches(watch: Watch) -> Result<(), ()> {
+    async fn add_watches(watch: Box<Watch>) -> Result<(), ()> {
         let now = Local::now().timestamp();
 
         // remove expired watches
@@ -286,14 +286,14 @@ impl BotConfigs {
                     }
                 ).await.map_err(|e| error!("MySQL insert error: insert weather watch\n{}", e))?;
 
-                lock.push(watch);
+                lock.push(*watch);
             }
         }
 
         Ok(())
     }
 
-    async fn submit_weather(weather: Weather, now: DateTime<Local>) {
+    async fn submit_weather(weather: Box<Weather>, now: DateTime<Local>) {
         let timestamp = now.timestamp();
         let time = now.format("%T").to_string();
 
