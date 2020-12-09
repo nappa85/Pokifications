@@ -932,23 +932,23 @@ impl BotPkmn {
             res
         }
 
-        fn filter_iv(atkf: Option<&u8>, atkv: Option<&u8>, deff: Option<&u8>, defv: Option<&u8>, staf: Option<&u8>, stav: Option<&u8>, atk: Option<&u8>, def: Option<&u8>, sta: Option<&u8>) -> Option<String> {
+        fn filter_iv(atkf: Option<&u8>, atkv: Option<&u8>, deff: Option<&u8>, defv: Option<&u8>, staf: Option<&u8>, stav: Option<&u8>, atk: Option<&u8>, def: Option<&u8>, sta: Option<&u8>) -> Option<Option<String>> {
             let mut res = String::new();
             match atkf {
                 Some(&1) => if atkv > atk {
                         res.push_str(&format!(" ATK {} < {}", atkv.unwrap_or_else(|| &0), atk.unwrap_or_else(|| &0)));
                     } else {
-                        return None;
+                        return Some(None);
                     },
                 Some(&2) => if atkv == atk {
                         res.push_str(&format!(" ATK {} = {}", atkv.unwrap_or_else(|| &0), atk.unwrap_or_else(|| &0)));
                     } else {
-                        return None;
+                        return Some(None);
                     },
                 Some(&3) => if atkv < atk {
                         res.push_str(&format!(" ATK {} > {}", atkv.unwrap_or_else(|| &0), atk.unwrap_or_else(|| &0)));
                     } else {
-                        return None;
+                        return Some(None);
                     },
                 _ => {},
             }
@@ -956,17 +956,17 @@ impl BotPkmn {
                 Some(&1) => if defv > def {
                         res.push_str(&format!(" DEF {} < {}", defv.unwrap_or_else(|| &0), def.unwrap_or_else(|| &0)));
                     } else {
-                        return None;
+                        return Some(None);
                     },
                 Some(&2) => if defv == def {
                         res.push_str(&format!(" DEF {} = {}", defv.unwrap_or_else(|| &0), def.unwrap_or_else(|| &0)));
                     } else {
-                        return None;
+                        return Some(None);
                     },
                 Some(&3) => if defv < def {
                         res.push_str(&format!(" DEF {} > {}", defv.unwrap_or_else(|| &0), def.unwrap_or_else(|| &0)));
                     } else {
-                        return None;
+                        return Some(None);
                     },
                 _ => {},
             }
@@ -974,96 +974,92 @@ impl BotPkmn {
                 Some(&1) => if stav > sta {
                         res.push_str(&format!(" STA {} < {}", stav.unwrap_or_else(|| &0), sta.unwrap_or_else(|| &0)));
                     } else {
-                        return None;
+                        return Some(None);
                     },
                 Some(&2) => if stav == sta {
                         res.push_str(&format!(" STA {} = {}", stav.unwrap_or_else(|| &0), sta.unwrap_or_else(|| &0)));
                     } else {
-                        return None;
+                        return Some(None);
                     },
                 Some(&3) => if stav < sta {
                         res.push_str(&format!(" STA {} > {}", stav.unwrap_or_else(|| &0), sta.unwrap_or_else(|| &0)));
                     } else {
-                        return None;
+                        return Some(None);
                     },
                 _ => {},
             }
-            Some(res)
+            if res.is_empty() {
+                None
+            }
+            else {
+                Some(Some(res))
+            }
         }
 
         // filters are in OR condition
-        // rank None => not checked
-        // rank Some(None) => check failed
-        // rank Some(Some(s)) => check passed
-        // iv None => check failed
-        // iv Some("") => not checked
-        // iv Some("blabla") => check passed
+        // None => not checked
+        // Some(None) => check failed
+        // Some(Some(s)) => check passed
         match (filter_rank(filter.get(19), filter.get(20), input.pvp_rankings_great_league.as_ref()),
             filter_rank(filter.get(21), filter.get(22), input.pvp_rankings_ultra_league.as_ref()),
             filter_iv(filter.get(10), filter.get(11), filter.get(12), filter.get(13), filter.get(14), filter.get(15), input.individual_attack.as_ref(), input.individual_defense.as_ref(), input.individual_stamina.as_ref())) {
-            (Some(None), Some(None), None) => {
-                #[cfg(test)]
-                info!("Pokémon discarded for Advanced Filters config: both ranks and IV");
-
-                return None;
-            },
-            (Some(None), None, None) => {
-                #[cfg(test)]
-                info!("Pokémon discarded for Advanced Filters config: rank mega and IV");
-
-                return None;
-            },
+            (Some(None), Some(None), Some(None)) |
+            (Some(None), Some(None), None) |
+            (Some(None), None, Some(None)) |
+            (Some(None), None, None) |
+            (None, Some(None), Some(None)) |
+            (None, None, Some(None)) |
             (None, Some(None), None) => {
                 #[cfg(test)]
-                info!("Pokémon discarded for Advanced Filters config: rank ultra and IV");
+                info!("Pokémon discarded for Advanced Filters config");
 
                 return None;
             },
-            (Some(Some(mega)), Some(Some(ultra)), None) => {
-                dbg.push_str(&format!("\nFiltro avanzato: Mega Perf{}\nFiltro avanzato: Ultra Perf{}", rank_to_string(mega).await, rank_to_string(ultra).await));
-            },
-            (Some(Some(mega)), Some(Some(ultra)), Some(s)) => {
+            (Some(Some(mega)), Some(Some(ultra)), Some(Some(s))) => {
                 dbg.push_str(&format!(
-                    "\nFiltro avanzato: Mega Perf{}\nFiltro avanzato: Ultra Perf{}{}{}",
+                    "\nFiltro avanzato: Mega Perf{}\nFiltro avanzato: Ultra Perf{}\nFiltro avanzato: IV{}",
                     rank_to_string(mega).await,
                     rank_to_string(ultra).await,
-                    if !s.is_empty() { "\nFiltro avanzato: IV" } else { "" },
-                    s
+                    s,
                 ));
             },
-            (Some(Some(mega)), _, None) => {
-                dbg.push_str(&format!("\nFiltro avanzato: Mega Perf{}", rank_to_string(mega).await));
-            },
-            (Some(Some(mega)), _, Some(s)) => {
+            (Some(Some(mega)), Some(Some(ultra)), _) => {
                 dbg.push_str(&format!(
-                    "\nFiltro avanzato: Mega Perf{}{}{}",
+                    "\nFiltro avanzato: Mega Perf{}\nFiltro avanzato: Ultra Perf{}",
                     rank_to_string(mega).await,
-                    if !s.is_empty() { "\nFiltro avanzato: IV" } else { "" },
-                    s
-                ));
-            },
-            (_, Some(Some(ultra)), None) => {
-                dbg.push_str(&format!("\nFiltro avanzato: Ultra Perf{}", rank_to_string(ultra).await));
-            },
-            (_, Some(Some(ultra)), Some(s)) => {
-                dbg.push_str(&format!(
-                    "\nFiltro avanzato: Ultra Perf{}{}{}",
                     rank_to_string(ultra).await,
-                    if !s.is_empty() { "\nFiltro avanzato: IV" } else { "" },
-                    s
                 ));
             },
-            (_, _, Some(s)) => {
-                if !s.is_empty() {
-                    dbg.push_str(&format!("\nFiltro avanzato: IV{}", s));
-                }
+            (Some(Some(mega)), _, Some(Some(s))) => {
+                dbg.push_str(&format!(
+                    "\nFiltro avanzato: Mega Perf{}\nFiltro avanzato: IV{}",
+                    rank_to_string(mega).await,
+                    s,
+                ));
             },
-            (None, None, None) => {
-                #[cfg(test)]
-                info!("Pokémon discarded for Advanced Filters config: IV");
-
-                return None;
+            (Some(Some(mega)), _, _) => {
+                dbg.push_str(&format!(
+                    "\nFiltro avanzato: Mega Perf{}",
+                    rank_to_string(mega).await,
+                ));
             },
+            (_, Some(Some(ultra)), Some(Some(s))) => {
+                dbg.push_str(&format!(
+                    "\nFiltro avanzato: Ultra Perf{}\nFiltro avanzato: IV{}",
+                    rank_to_string(ultra).await,
+                    s,
+                ));
+            },
+            (_, Some(Some(ultra)), _) => {
+                dbg.push_str(&format!(
+                    "\nFiltro avanzato: Ultra Perf{}",
+                    rank_to_string(ultra).await,
+                ));
+            },
+            (_, _, Some(Some(s))) => {
+                dbg.push_str(&format!("\nFiltro avanzato: IV{}", s));
+            },
+            (None, None, None) => {},
         }
 
         Some(dbg)
