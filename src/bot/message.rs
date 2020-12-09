@@ -239,7 +239,7 @@ pub trait Message {
 
 #[derive(Debug)]
 pub struct PokemonMessage {
-    pub pokemon: Box<Pokemon>,
+    pub pokemon: Pokemon,
     pub iv: Option<f32>,
     pub distance: f64,
     pub direction: String,
