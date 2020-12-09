@@ -1003,18 +1003,6 @@ impl BotPkmn {
         match (filter_rank(filter.get(19), filter.get(20), input.pvp_rankings_great_league.as_ref()),
             filter_rank(filter.get(21), filter.get(22), input.pvp_rankings_ultra_league.as_ref()),
             filter_iv(filter.get(10), filter.get(11), filter.get(12), filter.get(13), filter.get(14), filter.get(15), input.individual_attack.as_ref(), input.individual_defense.as_ref(), input.individual_stamina.as_ref())) {
-            (Some(None), Some(None), Some(None)) |
-            (Some(None), Some(None), None) |
-            (Some(None), None, Some(None)) |
-            (Some(None), None, None) |
-            (None, Some(None), Some(None)) |
-            (None, None, Some(None)) |
-            (None, Some(None), None) => {
-                #[cfg(test)]
-                info!("Pokémon discarded for Advanced Filters config");
-
-                return None;
-            },
             (Some(Some(mega)), Some(Some(ultra)), Some(Some(s))) => {
                 dbg.push_str(&format!(
                     "\nFiltro avanzato: Mega Perf{}\nFiltro avanzato: Ultra Perf{}\nFiltro avanzato: IV{}",
@@ -1060,6 +1048,14 @@ impl BotPkmn {
                 dbg.push_str(&format!("\nFiltro avanzato: IV{}", s));
             },
             (None, None, None) => {},
+            (Some(None), _, _) |
+            (_, Some(None), _) |
+            (_, _, Some(None)) => {
+                #[cfg(test)]
+                info!("Pokémon discarded for Advanced Filters config");
+
+                return None;
+            },
         }
 
         Some(dbg)
