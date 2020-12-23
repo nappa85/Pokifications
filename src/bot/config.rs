@@ -18,12 +18,12 @@ use log::error;
 use log::info;
 
 // use crate::lists::COMMON;
-use crate::entities::{Pokemon, Pokestop, Raid, Request, Gender, Quest, PvpRanking};
+use crate::entities::{Pokemon, Pokestop, Raid, Request, Gender, PvpRanking};
 use crate::lists::{CITIES, LIST, FORMS};
 use crate::db::MYSQL;
 // use crate::telegram::Image;
 
-use super::message::{Message, PokemonMessage, RaidMessage, InvasionMessage, QuestMessage};
+use super::message::{Message, PokemonMessage, RaidMessage, InvasionMessage, LureMessage};
 
 const MAX_DISTANCE: f64 = 15f64;
 // const MIN_IV_LIMIT: f32 = 36f32;
@@ -38,7 +38,8 @@ pub struct BotConfig {
     pub pkmn: BotPkmn,
     pub time: BotTime,
     pub qest: Option<BotQest>,
-    pub invs: Option<BotInvs>,
+    pub lure: Option<BotPkst>,
+    pub invs: Option<BotPkst>,
     pub more: BotMore,
 }
 
@@ -218,7 +219,7 @@ impl BotConfig {
             match input {
                 Request::Pokemon(p) => Ok(Box::new(self.submit_pokemon(now, p).await?)),
                 Request::Raid(r) => Ok(Box::new(self.submit_raid(now, r).await?)),
-                Request::Quest(q) => Ok(Box::new(self.submit_quest(now, q).await?)),
+                Request::Pokestop(i) => Ok(Box::new(self.submit_pokestop(now, i).await?)),
                 Request::Invasion(i) => Ok(Box::new(self.submit_invasion(now, i).await?)),
                 _ => Err(()),
             }
@@ -242,8 +243,28 @@ impl BotConfig {
 
         let loc = self.locs.get_pokemon_settings();
         let pos = (input.latitude, input.longitude);
-
+        let iv = match (input.individual_attack, input.individual_defense, input.individual_stamina) {
+            (Some(atk), Some(def), Some(sta)) => Some((f32::from(atk + def + sta) / 45f32) * 100f32),
+            _ => None,
+        };
         let mut debug = format!("Scansione avvenuta alle {}\n", now.format("%T").to_string());
+
+        if (self.pkmn.p1 == Some(1) && iv == Some(100_f32)) || (self.pkmn.p0 == Some(1) && iv == Some(0_f32)) {
+            let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &self.locs.p[2]))?).max(0.1);
+            let dist = BotLocs::calc_dist(loc, pos)?;
+            if dist <= rad {
+                debug.push_str(&format!("Bypass IV {:.0}%", iv.unwrap_or_default()));
+
+                return Ok(PokemonMessage {
+                    pokemon: input.clone(),
+                    iv,
+                    distance: BotLocs::calc_dist(&self.locs.h, pos)?,
+                    direction: BotLocs::get_direction(&self.locs.h, pos)?,
+                    debug: if self.debug == Some(true) { Some(debug) } else { None },
+                });
+            }
+        }
+
         let rad = if filter.get(5) == Some(&1) {
             // $pkmn_rad = ValMinMax($filter[6], 0.1, MAX_DISTANCE);
             let rad = MAX_DISTANCE.min(f64::from(*(filter.get(6).ok_or_else(|| {
@@ -272,11 +293,6 @@ impl BotConfig {
         else {
             debug.push_str(&format!(" ({:.2} km)", dist));
         }
-
-        let iv = match (input.individual_attack, input.individual_defense, input.individual_stamina) {
-            (Some(atk), Some(def), Some(sta)) => Some((f32::from(atk + def + sta) / 45f32) * 100f32),
-            _ => None,
-        };
 
         let badge = BotPkmn::check_badge(filter, input);
 
@@ -422,18 +438,9 @@ impl BotConfig {
         })
     }
 
-    async fn submit_quest(&self, now: &DateTime<Local>, input: &Quest) -> Result<QuestMessage, ()> {
-        self._submit_quest(now, input).map(|debug| {
-            QuestMessage {
-                quest: input.clone(),
-                debug: if self.debug == Some(true) { Some(debug) } else { None },
-            }
-        })
-    }
-
-    fn _submit_quest(&self, now: &DateTime<Local>, input: &Quest) -> Result<String, ()> {
-        let qest = self.qest.as_ref().ok_or_else(|| ())?;
-        if qest.n == 0 {
+    async fn submit_pokestop(&self, now: &DateTime<Local>, input: &Pokestop) -> Result<LureMessage, ()> {
+        let lure = self.lure.as_ref().ok_or_else(|| ())?;
+        if lure.n == 0 || input.lure_id == 0 || input.lure_expiration <= Some(now.timestamp()) {
             return Err(());
         }
 
@@ -451,46 +458,22 @@ impl BotConfig {
             debug.push_str(&format!("Distanza per Pokéstop inferiore a {:.2} km ({:.2} km)", rad, dist));
         }
 
-        for s in &qest.l {
-            let parts: Vec<&str> = s.split('-').collect();
-            match parts.len() {
-                3 => {
-                    if input.template == parts[1] && input.target.to_string().as_str() == parts[2] {
-                        return Ok(debug);
-                    }
-                },
-                2 => {
-                    // lures, invasions, etc...
-                    // not managed by the bot
-                },
-                _ => {
-                    let group: Vec<&str> = parts[0].split('/').collect();
-                    match group[0] {
-                        "pkmns" => {
-                            // [{"type":7,"info":{"gender_id":0,"shiny":false,"costume_id":0,"pokemon_id":215,"form_id":0}}]
-                            if input.rewards[0]["type"].as_u64() == Some(7) && input.rewards[0]["info"]["pokemon_id"].as_u64().map(|i| i.to_string()).as_ref().map(|s| s.as_str()) == Some(group[2]) {
-                                return Ok(debug);
-                            }
-                        },
-                        "items" => {
-                            if parts[1] == "0" {
-                                if input.rewards[0]["type"].as_u64() == Some(3) {
-                                    return Ok(debug);
-                                }
-                            }
-                            else {
-                                if input.rewards[0]["type"].as_u64() == Some(2) && input.rewards[0]["info"]["item_id"].as_u64().map(|i| i.to_string()).as_ref().map(|s| s.as_str()) == Some(group[1]) {
-                                    return Ok(debug);
-                                }
-                            }
-                        },
-                        _ => {},
-                    }
-                }
+        if lure.f == 1 {
+            if !lure.l.contains(&((input.lure_id - 500) as u8)) {
+                return Err(());
+            }
+            else {
+                debug.push_str("\nEsca presente nella lista delle esche abilitate");
             }
         }
+        else {
+            debug.push_str("\nNessun filtro esche attivo");
+        }
 
-        Err(())
+        Ok(LureMessage {
+            pokestop: input.clone(),
+            debug: if self.debug == Some(true) { Some(debug) } else { None },
+        })
     }
 
     async fn submit_invasion(&self, now: &DateTime<Local>, input: &Pokestop) -> Result<InvasionMessage, ()> {
@@ -510,7 +493,7 @@ impl BotConfig {
             return Err(());
         }
         else {
-            debug.push_str(&format!("Distanza per Invasioni inferiore a {:.2} km ({:.2} km)", rad, dist));
+            debug.push_str(&format!("Distanza per Pokéstop inferiore a {:.2} km ({:.2} km)", rad, dist));
         }
 
         if invs.f == 1 {
@@ -680,6 +663,8 @@ pub struct BotRaid {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BotPkmn {
+    pub p1: Option<u8>,
+    pub p0: Option<u8>,
     #[serde(deserialize_with = "deserialize_list")]
     pub l: HashMap<String, Vec<u8>>,
 }
@@ -1122,7 +1107,7 @@ pub struct BotQest {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct BotInvs {
+pub struct BotPkst {
     pub n: u8,
     pub f: u8,
     pub l: Vec<u8>,

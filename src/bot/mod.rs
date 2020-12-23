@@ -386,6 +386,7 @@ impl BotConfigs {
                     });
                     continue;
                 },
+                Request::Pokestop(_) => {},
                 _ => debug!("Unmanaged webhook: {:?}", input),
             }
 

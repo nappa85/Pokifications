@@ -18,7 +18,7 @@ use log::error;
 
 use super::BotConfigs;
 
-use crate::entities::{Pokemon, Raid, Pokestop, Gender, /*Weather,*/ Quest, Watch, DeviceTier};
+use crate::entities::{Pokemon, Raid, Pokestop, Gender, /*Weather,*/ Watch, DeviceTier};
 use crate::lists::{LIST, MOVES, FORMS, GRUNTS};
 use crate::config::CONFIG;
 use crate::db::MYSQL;
@@ -795,27 +795,106 @@ impl Message for RaidMessage {
 }
 
 #[derive(Debug)]
-pub struct QuestMessage {
-    pub quest: Quest,
+pub struct LureMessage {
+    pub pokestop: Pokestop,
     pub debug: Option<String>,
 }
 
 #[async_trait]
-impl Message for QuestMessage {
+impl Message for LureMessage {
     fn get_latitude(&self) -> f64 {
-        self.quest.latitude
+        self.pokestop.latitude
     }
 
     fn get_longitude(&self) -> f64 {
-        self.quest.longitude
+        self.pokestop.longitude
     }
 
+    /**
+     * 501 => "Modulo Esca",
+     * 502 => "Modulo Esca Glaciale",
+     * 503 => "Modulo Esca Silvestre",
+     * 504 => "Modulo Esca Magnetico",
+     */
     async fn get_caption(&self) -> Result<String, ()> {
-        Err(())
+        if let Some(timestamp) = self.pokestop.lure_expiration {
+            let caption = format!("{} {}\n{} {}\n{} {}",
+                match self.pokestop.lure_id {
+                    501 => String::from_utf8(vec![0xE2, 0x98, 0xA2]).map_err(|e| error!("error parsing lure icon: {}", e))?,
+                    502 => String::from_utf8(vec![0xE2, 0x9D, 0x84]).map_err(|e| error!("error parsing glacial lure icon: {}", e))?,
+                    503 => String::from_utf8(vec![0xF0, 0x9F, 0x8D, 0x83]).map_err(|e| error!("error parsing mossy lure icon: {}", e))?,
+                    504 => String::from_utf8(vec![0xF0, 0x9F, 0xA7, 0xB2]).map_err(|e| error!("error parsing magnetic lure icon: {}", e))?,
+                    _ => String::new(),
+                },
+                match self.pokestop.lure_id {
+                    501 => "Modulo Esca",
+                    502 => "Modulo Esca Glaciale",
+                    503 => "Modulo Esca Silvestre",
+                    504 => "Modulo Esca Magnetico",
+                    _ => "",
+                },
+                String::from_utf8(vec![0xf0, 0x9f, 0x93, 0x8d]).map_err(|e| error!("error parsing POI icon: {}", e))?,
+                self.pokestop.name,
+                String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92]).map_err(|e| error!("error parsing clock icon: {}", e))?,
+                Local.timestamp(timestamp, 0).format("%T").to_string()
+            );
+
+            Ok(match self.debug {
+                Some(ref s) => format!("{}\n\n{}", caption, s),
+                None => caption,
+            })
+        }
+        else {
+            Err(())
+        }
     }
 
-    async fn get_image(&self, _map: image::DynamicImage) -> Result<Vec<u8>, ()> {
-        Err(())
+    async fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
+        let now = Local::now();
+        let img_path_str = format!("{}img_sent/lure_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.pokestop.pokestop_id, self.pokestop.lure_id);
+        let img_path = Path::new(&img_path_str);
+
+        if img_path.exists() {
+            let mut image = File::open(&img_path).await.map_err(|e| error!("error opening invasion image {}: {}", img_path_str, e))?;
+            let mut bytes = Vec::new();
+            image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading invasion image {}: {}", img_path_str, e))?;
+            return Ok(bytes);
+        }
+
+        // let f_cal1 = {
+        //     let font = format!("{}fonts/calibri.ttf", CONFIG.images.sender);
+        //     open_font(&font).await?
+        // };
+        let f_cal2 = {
+            let font = format!("{}fonts/calibrib.ttf", CONFIG.images.sender);
+            open_font(&font).await?
+        };
+        // let scale11 = rusttype::Scale::uniform(16f32);
+        let scale12 = rusttype::Scale::uniform(17f32);
+        let scale13 = rusttype::Scale::uniform(18f32);
+        // let scale18 = rusttype::Scale::uniform(23f32);
+
+        let mut background = {
+            let path = format!("{}images/msg-bgs/msg-lure.png", CONFIG.images.sender);
+            open_image(&path).await?
+        };
+
+        let icon = {
+            let path = format!("{}img/items/{}.png", CONFIG.images.assets, self.pokestop.lure_id);
+            open_image(&path).await?
+        };
+        image::imageops::overlay(&mut background, &icon, 5, 5);
+
+        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale13, &f_cal2, &truncate_str(&self.pokestop.name, 25, '-'));
+
+        if let Some(timestamp) = self.pokestop.lure_expiration {
+            let v_exit = Local.timestamp(timestamp, 0);
+            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 82, 34, scale12, &f_cal2, &v_exit.format("%T").to_string());
+        }
+
+        image::imageops::overlay(&mut background, &map, 0, 58);
+
+        save_image(&background, &img_path_str).await
     }
 }
 
