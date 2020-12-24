@@ -227,20 +227,6 @@ impl BotConfig {
     }
 
     async fn submit_pokemon(&self, now: &DateTime<Local>, input: &Pokemon) -> Result<PokemonMessage, ()> {
-        let pokemon_id = input.pokemon_id.to_string();
-        let filter = self.pkmn.l.get(&pokemon_id).ok_or_else(|| {
-            #[cfg(test)]
-            info!("Pokémon not configured");
-
-            ()
-        })?;
-        if filter.get(0) == Some(&0) {
-            #[cfg(test)]
-            info!("Pokémon disabled");
-
-            return Err(());
-        }
-
         let loc = self.locs.get_pokemon_settings();
         let pos = (input.latitude, input.longitude);
         let iv = match (input.individual_attack, input.individual_defense, input.individual_stamina) {
@@ -263,6 +249,20 @@ impl BotConfig {
                     debug: if self.debug == Some(true) { Some(debug) } else { None },
                 });
             }
+        }
+
+        let pokemon_id = input.pokemon_id.to_string();
+        let filter = self.pkmn.l.get(&pokemon_id).ok_or_else(|| {
+            #[cfg(test)]
+            info!("Pokémon not configured");
+
+            ()
+        })?;
+        if filter.get(0) == Some(&0) {
+            #[cfg(test)]
+            info!("Pokémon disabled");
+
+            return Err(());
         }
 
         let rad = if filter.get(5) == Some(&1) {
