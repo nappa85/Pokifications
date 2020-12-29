@@ -156,7 +156,7 @@ impl<'a> Map<'a> {
     async fn get_tile(&self, x: i64, y: i64) -> Result<image::DynamicImage, ()> {
         let tile_url = self.tile_url.replace("{s}", {
                 use rand::Rng;
-                match rand::thread_rng().gen_range(0, 3) {
+                match rand::thread_rng().gen_range(0..3) {
                     0 => "a",
                     1 => "b",
                     _ => "c",

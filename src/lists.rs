@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use futures_util::{future::join_all, stream::StreamExt};
+use futures_util::future::join_all;
 
 use geo::{Point, Polygon};
 
@@ -284,7 +284,10 @@ pub async fn init() {
     load().await;
     spawn(async {
         let period = Duration::from_secs(1800);
-        interval_at(Instant::now() + period, period)
-            .for_each(|_| load()).await;
+        let mut interval = interval_at(Instant::now() + period, period);
+        loop {
+            interval.tick().await;
+            load().await;
+        }
     });
 }

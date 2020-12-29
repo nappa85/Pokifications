@@ -1,7 +1,5 @@
 use std::time::Duration;
 
-use futures_util::stream::StreamExt;
-
 use tokio::time::interval;
 use tokio::spawn;
 
@@ -16,44 +14,46 @@ const INTERVAL: i64 = 900;
 pub fn init() {
     spawn(async {
         if let (Some(bot_token), Some(chat_id)) = (CONFIG.telegram.alert_bot_token.as_ref(), CONFIG.telegram.alert_chat.as_ref()) {
-            interval(Duration::from_secs(INTERVAL as u64))
-                .for_each(|_| async {
-                    let now = Local::now();
-                    let timestamp = now.timestamp();
+            let mut interval = interval(Duration::from_secs(INTERVAL as u64));
+            loop {
+                interval.tick().await;
 
-                    let mut alerts = Vec::new();
-                    for (city_id, stats) in CITYSTATS.read().await.iter() {
-                        let lock = CITIES.read().await;
-                        let city = match lock.get(city_id) {
-                            Some(c) => c,
-                            None => continue,
-                        };
+                let now = Local::now();
+                let timestamp = now.timestamp();
 
-                        // if the quest scanner is active, other scans are obviously unactive
-                        if city.scadenza < timestamp || stats.last_quest > Some(timestamp - 60) {
-                            continue;
-                        }
+                let mut alerts = Vec::new();
+                for (city_id, stats) in CITYSTATS.read().await.iter() {
+                    let lock = CITIES.read().await;
+                    let city = match lock.get(city_id) {
+                        Some(c) => c,
+                        None => continue,
+                    };
 
-                        let mut city_alerts = Vec::new();
-                        check_timestamp(&stats.last_pokemon, timestamp, "Pokémon", &mut city_alerts);
-                        if city.scan_iv > 0 {
-                            check_timestamp(&stats.last_iv, timestamp, "IV", &mut city_alerts);
-                        }
-                        // if now.hour() >= 6 && now.hour() <= 20 {
-                        //     check_timestamp(&stats.last_raid, timestamp, "Raid", &mut city_alerts);
-                        //     check_timestamp(&stats.last_invasion, timestamp, "Invasioni", &mut city_alerts);
-                        // }
-                        check_timestamp(&stats.last_quest, timestamp - 86400, "Quest", &mut city_alerts);
-
-                        if !city_alerts.is_empty() {
-                            alerts.push(format!("@{} la zona {} non ha scansioni:\n{}", city.admins_users.join(", @"), city.name, city_alerts.join("\n")));
-                        }
+                    // if the quest scanner is active, other scans are obviously unactive
+                    if city.scadenza < timestamp || stats.last_quest > Some(timestamp - 60) {
+                        continue;
                     }
 
-                    if !alerts.is_empty() {
-                        send_message(bot_token, chat_id, &alerts.join("\n\n"), None, None, None, None, None).await.ok();
+                    let mut city_alerts = Vec::new();
+                    check_timestamp(&stats.last_pokemon, timestamp, "Pokémon", &mut city_alerts);
+                    if city.scan_iv > 0 {
+                        check_timestamp(&stats.last_iv, timestamp, "IV", &mut city_alerts);
                     }
-                }).await
+                    // if now.hour() >= 6 && now.hour() <= 20 {
+                    //     check_timestamp(&stats.last_raid, timestamp, "Raid", &mut city_alerts);
+                    //     check_timestamp(&stats.last_invasion, timestamp, "Invasioni", &mut city_alerts);
+                    // }
+                    check_timestamp(&stats.last_quest, timestamp - 86400, "Quest", &mut city_alerts);
+
+                    if !city_alerts.is_empty() {
+                        alerts.push(format!("@{} la zona {} non ha scansioni:\n{}", city.admins_users.join(", @"), city.name, city_alerts.join("\n")));
+                    }
+                }
+
+                if !alerts.is_empty() {
+                    send_message(bot_token, chat_id, &alerts.join("\n\n"), None, None, None, None, None).await.ok();
+                }
+            }
         }
     });
 }

@@ -7,9 +7,7 @@ use serde_json::{json, value::Value};
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
 
-use futures_util::stream::StreamExt;
-
-use tokio::{spawn, time::{Duration, Instant, interval_at, delay_for}};
+use tokio::{spawn, time::{Duration, Instant, interval_at, sleep}};
 
 use chrono::offset::Local;
 
@@ -45,7 +43,7 @@ async fn wall(chat_id: String) {
         if skip {
             delays += 1;
             let now = Local::now();
-            delay_for(Duration::from_nanos(1_000_000_000_u64 - (now.timestamp_subsec_nanos() as u64))).await;
+            sleep(Duration::from_nanos(1_000_000_000_u64 - (now.timestamp_subsec_nanos() as u64))).await;
         }
         else {
             break;
@@ -150,6 +148,7 @@ pub async fn send_photo(bot_token: &str, chat_id: &str, photo: Image, caption: O
     let boundary: String = thread_rng()
         .sample_iter(&Alphanumeric)
         .take(30)
+        .map(char::from)
         .collect();
 
     let mut form = Form::new()
@@ -194,11 +193,13 @@ pub fn init() {
     spawn(async {
         // start next leap second
         let now = Local::now();
-        interval_at(Instant::now() + Duration::from_nanos(1_000_000_000_u64 - (now.timestamp_subsec_nanos() as u64)), Duration::from_secs(1))
-            .for_each(|_| async {
-                let mut rt = RATE_LIMITER.write().await;
-                rt.0 = 0;
-                rt.1.clear();
-            }).await;
+        let mut interval = interval_at(Instant::now() + Duration::from_nanos(1_000_000_000_u64 - (now.timestamp_subsec_nanos() as u64)), Duration::from_secs(1));
+        loop {
+            interval.tick().await;
+
+            let mut rt = RATE_LIMITER.write().await;
+            rt.0 = 0;
+            rt.1.clear();
+        }
     });
 }
