@@ -150,6 +150,7 @@ pub async fn send_photo(bot_token: &str, chat_id: &str, photo: Image, caption: O
     let boundary: String = thread_rng()
         .sample_iter(&Alphanumeric)
         .take(30)
+        .map(char::from)
         .collect();
 
     let mut form = Form::new()
