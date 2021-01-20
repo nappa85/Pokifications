@@ -1,0 +1,32 @@
+[service]
+address = "0.0.0.0"#0.0.0.0 accepts from any address
+port = 8199
+safeword = "1GR1HdMdgpUxncoc7m1W"
+
+# [threads]
+# min = 12
+# max = 12
+
+[database]
+url = "mysql://pokespawn_www:2xe7VxMJHOtAnrz7@92.222.193.140/pokespawn_www"
+
+[images]
+bot = "/var/www/html/www/data/bot/"
+sender = "/var/www/html/www/wh/sender/"
+assets  = "/var/www/html/www/assets/"
+
+[google]
+maps_key = "AIzaSyBg4cwb863e3j0izWYA6C8mgPBIDKdZsLk"
+# timeout = 1
+
+[osm]
+tile_url = "https://api.mapbox.com/styles/v1/mapbox/streets-v11/tiles/256/{z}/{x}/{y}?access_token=pk.eyJ1Ijoic2FtYW4iLCJhIjoiS1ptdnd0VSJ9.19qza-F_vXkgpnh80oZJww"
+# timeout = 1
+
+[telegram]
+bot_token = "405263313:AAH8qCvdDqhMdjoEkBHAfsqRU_mUfGKB_Ng"
+alert_bot_token = "1023955064:AAFnoJ7FzIZyvArJ7mJKP3gg1-wcLguxu30"
+alert_chat = "-1001468285067"
+version_chat = "-1001302274072"
+# timeout = 1
+# cache_chat = "-374241778"

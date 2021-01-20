@@ -4,8 +4,6 @@ use std::time::Duration;
 
 use async_std::sync::{RwLock, Mutex};
 
-use futures_util::stream::StreamExt;
-
 use tokio::{spawn, time::interval};
 
 use mysql_async::{from_row, prelude::Queryable, params};
@@ -53,7 +51,10 @@ impl BotConfigs {
             let mut res = BOT_CONFIGS.write().await;
             Self::load(&mut res, None).await?;
             spawn(async {
-                interval(Duration::from_secs(60)).for_each(|_| async {
+                let mut interval = interval(Duration::from_secs(60));
+                loop {
+                    interval.tick().await;
+
                     let user_ids = {
                         let lock = BOT_CONFIGS.read().await;
                         let now = Some(Local::now().timestamp());
@@ -63,7 +64,7 @@ impl BotConfigs {
                         let mut res = BOT_CONFIGS.write().await;
                         Self::load(&mut res, Some(user_ids)).await.ok();
                     }
-                }).await;
+                }
             });
         }
 
