@@ -16,6 +16,8 @@ mod lists;
 mod telegram;
 mod alerts;
 
+use std::net::SocketAddr;
+
 use hyper::{Body, Request, Response, Server};
 use hyper::service::{make_service_fn, service_fn};
 
@@ -105,7 +107,7 @@ async fn main() -> Result<(), ()> {
     env_logger::init();
 
     //retrieve address and port, defaulting if not configured
-    let addr = format!(
+    let addr: SocketAddr = format!(
             "{}:{}",
             config::CONFIG.service.address.as_ref().map(|s| s.as_str()).unwrap_or_else(|| "0.0.0.0"),
             config::CONFIG.service.port.unwrap_or_else(|| 80)
