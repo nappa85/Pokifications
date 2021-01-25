@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use futures_util::future::join_all;
 
@@ -17,22 +16,22 @@ use log::error;
 
 use crate::db::MYSQL;
 
-pub static LIST: Lazy<Arc<RwLock<HashMap<u16, Pokemon>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
+pub static LIST: Lazy<RwLock<HashMap<u16, Pokemon>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 // pub static SCANNED: Lazy<Vec<u16>> = Lazy::new(|| LIST.iter().filter(|(_, p)| p.scanned == 1).map(|(id, _)| *id).collect());
 // pub static COMMON: Lazy<Vec<u16>> = Lazy::new(|| LIST.iter().filter(|(_, p)| p.rarity < 2).map(|(id, _)| *id).collect());
 // pub static RARES: Lazy<Vec<u16>> = Lazy::new(|| LIST.iter().filter(|(_, p)| p.rarity >= 2).map(|(id, _)| *id).collect());
 
-pub static MOVES: Lazy<Arc<RwLock<HashMap<u16, String>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
+pub static MOVES: Lazy<RwLock<HashMap<u16, String>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 
-pub static FORMS: Lazy<Arc<RwLock<HashMap<u16, Form>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
+pub static FORMS: Lazy<RwLock<HashMap<u16, Form>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 
-pub static GRUNTS: Lazy<Arc<RwLock<HashMap<u8, GruntType>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
+pub static GRUNTS: Lazy<RwLock<HashMap<u8, GruntType>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 
-pub static CITIES: Lazy<Arc<RwLock<HashMap<u16, City>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
+pub static CITIES: Lazy<RwLock<HashMap<u16, City>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 
-pub static CITYSTATS: Lazy<Arc<RwLock<HashMap<u16, CityStats>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
+pub static CITYSTATS: Lazy<RwLock<HashMap<u16, CityStats>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 
-pub static CITYPARKS: Lazy<Arc<RwLock<HashMap<u16, Vec<CityPark>>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
+pub static CITYPARKS: Lazy<RwLock<HashMap<u16, Vec<CityPark>>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 
 pub struct Pokemon {
     pub id: u16,

@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -30,8 +29,8 @@ use crate::config::CONFIG;
 use crate::db::MYSQL;
 use crate::telegram::send_message;
 
-static BOT_CONFIGS: Lazy<Arc<RwLock<HashMap<String, config::BotConfig>>>> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
-static WATCHES: Lazy<Arc<Mutex<Vec<Watch>>>> = Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
+static BOT_CONFIGS: Lazy<RwLock<HashMap<String, config::BotConfig>>> = Lazy::new(|| RwLock::new(HashMap::new()));
+static WATCHES: Lazy<Mutex<Vec<Watch>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
 const MAX_NOTIFICATIONS_PER_HOUR: u32 = 500;
 
