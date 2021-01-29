@@ -53,12 +53,14 @@ impl BotConfigs {
             Self::load(&mut res, None).await?;
         }
 
-        // set reaload interval
+        // set reload interval
         spawn(async {
             let mut interval = interval(Duration::from_secs(60));
             let mut index: u8 = 0;
             loop {
                 interval.tick().await;
+
+                //being index an u8, if 255 is not a multiple of RATE_LIMITER_CHECK_INTERVAL we'll get a shift every round
                 index = index.wrapping_add(1);
 
                 // the intent here was to reaload only expired users, but this won't block users who hit rate limiter
