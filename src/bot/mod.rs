@@ -32,6 +32,7 @@ use crate::telegram::send_message;
 static BOT_CONFIGS: Lazy<RwLock<HashMap<String, config::BotConfig>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 static WATCHES: Lazy<Mutex<Vec<Watch>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
+const RATE_LIMITER_CHECK_INTERVAL: u8 = 10;
 const MAX_NOTIFICATIONS_PER_HOUR: u32 = 500;
 
 enum LoadResult {
@@ -46,27 +47,64 @@ pub struct BotConfigs;
 
 impl BotConfigs {
     pub async fn init() -> Result<(), ()> {
+        // load first config
         {
             let mut res = BOT_CONFIGS.write().await;
             Self::load(&mut res, None).await?;
-            spawn(async {
-                let mut interval = interval(Duration::from_secs(60));
-                loop {
-                    interval.tick().await;
-
-                    let user_ids = {
-                        let lock = BOT_CONFIGS.read().await;
-                        let now = Some(Local::now().timestamp());
-                        lock.iter().filter(|(_, config)| config.scadenza < now).map(|(id, _)| id.clone()).collect::<Vec<String>>()
-                    };
-                    if !user_ids.is_empty() {
-                        let mut res = BOT_CONFIGS.write().await;
-                        Self::load(&mut res, Some(user_ids)).await.ok();
-                    }
-                }
-            });
         }
 
+        // set reaload interval
+        spawn(async {
+            let mut interval = interval(Duration::from_secs(60));
+            let mut index: u8 = 0;
+            loop {
+                interval.tick().await;
+                index = index.wrapping_add(1);
+
+                // the intent here was to reaload only expired users, but this won't block users who hit rate limiter
+                // repeating the query (really similar to the one done in BotConfigs::load) every minute would be a waste of resources
+                // so this is an (ugly) hybrid solution
+                let uids = if index % RATE_LIMITER_CHECK_INTERVAL == 0 {
+                    // here we can't use functional-style code because of async
+                    if let Ok(mut conn) = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e)) {
+                        let query = format!("SELECT b.user_id
+                            FROM utenti_config_bot b
+                            INNER JOIN utenti u ON u.user_id = b.user_id
+                            INNER JOIN city c ON c.id = u.city_id
+                            LEFT JOIN utenti_bot_stats s ON s.user_id = b.user_id AND s.day = CURDATE()
+                            WHERE b.enabled = 1 AND b.beta = 1 AND u.status != 0 AND (CAST(IFNULL(s.sent, 0) / (HOUR(NOW()) + 1) AS UNSIGNED) > {} OR c.scadenza < UNIX_TIMESTAMP())", MAX_NOTIFICATIONS_PER_HOUR);
+
+                        if let Ok(res) = conn.query_iter(query).await.map_err(|e| error!("MySQL query error: get users to disable\n{}", e)) {
+                            res.map_and_drop(|mut row| row.take("user_id").unwrap_or_else(String::new)).await.map_err(|e| error!("MySQL map error: get users to disable\n{}", e))
+                        }
+                        else {
+                            Err(())
+                        }
+                    }
+                    else {
+                        Err(())
+                    }
+                }
+                else {
+                    let lock = BOT_CONFIGS.read().await;
+                    let now = Some(Local::now().timestamp());
+                    Ok(lock.iter().filter(|(_, config)| config.scadenza < now).map(|(id, _)| id.clone()).collect::<Vec<String>>())
+                };
+
+                if let Ok(user_ids) = uids {
+                    if !user_ids.is_empty() {
+                        let mut lock = BOT_CONFIGS.write().await;
+                        if let Ok(res) = Self::load(&mut lock, Some(user_ids)).await {
+                            for (user_id, result) in res {
+                                Self::notify_user(user_id, result, true).ok();
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // load weather watches
         {
             let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
             let res = conn.query_iter("SELECT user_id, encounter_id, pokemon_id, iv, latitude, longitude, expire FROM bot_weather_watches WHERE expire > UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL query error: get weather watches\n{}", e))?;
@@ -116,8 +154,70 @@ impl BotConfigs {
             let user_ids = res.map_and_drop(|mut row| row.take::<u64, _>("user_id").map(|i| i.to_string()).unwrap_or_else(String::new)).await.map_err(|e| error!("MySQL collect error: {}", e))?;
 
             let mut lock = BOT_CONFIGS.write().await;
-            Self::load(&mut lock, Some(user_ids)).await?;
+            let res = Self::load(&mut lock, Some(user_ids)).await?;
+            for (user_id, result) in res {
+                Self::notify_user(user_id, result, true)?;
+            }
         }
+
+        Ok(())
+    }
+
+    fn notify_user(user_id: String, result: LoadResult, silent: bool) -> Result<(), ()> {
+        let msg = match result {
+            LoadResult::Ok => {
+                if silent {
+                    return Ok(());
+                }
+
+                info!("Successfully reloaded configs for user {}", user_id);
+                // $msg = "\xe2\x84\xb9\xef\xb8\x8f <b>Impostazioni modificate!</b>\n";
+                // $msg .= "<code>      ───────</code>\n";
+                // $msg .= "Le modifiche sono state applicate.";
+                // if($e == 0){ $msg .= "\nRicorda di attivare la ricezione delle notifiche con: /start";}
+                // SendTelegram($USER["user_id"], $msg);
+                format!("{} <b>Impostazioni modificate!</b>\n<code>      ───────</code>\nLe modifiche sono state applicate.",
+                    String::from_utf8(vec![0xe2, 0x84, 0xb9, 0xef, 0xb8, 0x8f]).map_err(|e| error!("error converting info icon: {}", e))?)
+            },
+            LoadResult::Flood => {
+                warn!("User {} is flooding", user_id);
+                format!("{} <b>Troppe notifiche!</b>\n<code>      ───────</code>\nLe tue configurazioni generano troppe notifiche, rivedile per limitarne il numero. ",
+                    String::from_utf8(vec![0xE2, 0x9A, 0xA0]).map_err(|e| error!("error converting warning icon: {}", e))?)
+            },
+            LoadResult::Invalid => {
+                if silent {
+                    return Ok(());
+                }
+
+                warn!("User {} has invalid configs", user_id);
+                format!("{} <b>Impostazioni non valide!</b>\n<code>      ───────</code>\nControlla che i tuoi cursori siano all'interno della tua città di appartenenza.\nSe hai bisogno di spostarti temporaneamente, invia la tua nuova posizione al bot per usarla come posizione temporanea.",
+                    String::from_utf8(vec![0xE2, 0x9A, 0xA0]).map_err(|e| error!("error converting warning icon: {}", e))?)
+            },
+            LoadResult::Disabled => {
+                if silent {
+                    return Ok(());
+                }
+
+                warn!("User {} has been disabled", user_id);
+                format!("{} <b>Impostazioni modificate!</b>\n<code>      ───────</code>\nLe modifiche sono state applicate.\nRicorda di attivare la ricezione delle notifiche con: /start",
+                    String::from_utf8(vec![0xe2, 0x84, 0xb9, 0xef, 0xb8, 0x8f]).map_err(|e| error!("error converting info icon: {}", e))?)
+            },
+            LoadResult::Error => {
+                if silent {
+                    return Ok(());
+                }
+
+                error!("Error reloading configs for user {}", user_id);
+                format!("{} <b>Errore!</b>\n<code>      ───────</code>\nC'è stato un errore applicando le tue nuove impostazioni, se il problema persiste contatta il tuo amministratore di zona.",
+                    String::from_utf8(vec![0xF0, 0x9F, 0x9B, 0x91]).map_err(|e| error!("error converting error icon: {}", e))?)
+            },
+        };
+
+        spawn(async move {
+            send_message(&CONFIG.telegram.bot_token, &user_id, &msg, Some("HTML"), None, None, None, None).await
+                .map_err(|_| ())
+                .ok();
+        });
 
         Ok(())
     }
@@ -126,43 +226,7 @@ impl BotConfigs {
         let mut lock = BOT_CONFIGS.write().await;
         let res = Self::load(&mut lock, Some(user_ids.clone())).await?;
         for (user_id, result) in res {
-            let msg = match result {
-                LoadResult::Ok => {
-                    info!("Successfully reloaded configs for user {}", user_id);
-                    // $msg = "\xe2\x84\xb9\xef\xb8\x8f <b>Impostazioni modificate!</b>\n";
-                    // $msg .= "<code>      ───────</code>\n";
-                    // $msg .= "Le modifiche sono state applicate.";
-                    // if($e == 0){ $msg .= "\nRicorda di attivare la ricezione delle notifiche con: /start";}
-                    // SendTelegram($USER["user_id"], $msg);
-                    format!("{} <b>Impostazioni modificate!</b>\n<code>      ───────</code>\nLe modifiche sono state applicate.",
-                        String::from_utf8(vec![0xe2, 0x84, 0xb9, 0xef, 0xb8, 0x8f]).map_err(|e| error!("error converting info icon: {}", e))?)
-                },
-                LoadResult::Flood => {
-                    warn!("User {} if flooding", user_id);
-                    format!("{} <b>Troppe notifiche!</b>\n<code>      ───────</code>\nLe tue configurazioni generano troppe notifiche, rivedile per limitarne il numero. ",
-                        String::from_utf8(vec![0xE2, 0x9A, 0xA0]).map_err(|e| error!("error converting warning icon: {}", e))?)
-                },
-                LoadResult::Invalid => {
-                    warn!("User {} has invalid configs", user_id);
-                    format!("{} <b>Impostazioni non valide!</b>\n<code>      ───────</code>\nControlla che i tuoi cursori siano all'interno della tua città di appartenenza.\nSe hai bisogno di spostarti temporaneamente, invia la tua nuova posizione al bot per usarla come posizione temporanea.",
-                        String::from_utf8(vec![0xE2, 0x9A, 0xA0]).map_err(|e| error!("error converting warning icon: {}", e))?)
-                },
-                LoadResult::Disabled => {
-                    warn!("User {} has been disabled", user_id);
-                    format!("{} <b>Impostazioni modificate!</b>\n<code>      ───────</code>\nLe modifiche sono state applicate.\nRicorda di attivare la ricezione delle notifiche con: /start",
-                        String::from_utf8(vec![0xe2, 0x84, 0xb9, 0xef, 0xb8, 0x8f]).map_err(|e| error!("error converting info icon: {}", e))?)
-                },
-                LoadResult::Error => {
-                    error!("Error reloading configs for user {}", user_id);
-                    format!("{} <b>Errore!</b>\n<code>      ───────</code>\nC'è stato un errore applicando le tue nuova impostazioni, se il problema persiste contatta il tuo amministratore di zona.",
-                        String::from_utf8(vec![0xF0, 0x9F, 0x9B, 0x91]).map_err(|e| error!("error converting error icon: {}", e))?)
-                },
-            };
-            spawn(async move {
-                send_message(&CONFIG.telegram.bot_token, &user_id, &msg, Some("HTML"), None, None, None, None).await
-                    .map_err(|_| ())
-                    .ok();
-            });
+            Self::notify_user(user_id, result, false)?;
         }
         Ok(())
     }
@@ -172,6 +236,9 @@ impl BotConfigs {
             for user_id in user_ids {
                 configs.remove(user_id);
             }
+        }
+        else {
+            configs.clear();
         }
 
         let query = format!("SELECT b.enabled, b.user_id, b.config, b.beta, u.status, c.scadenza, u.city_id, CAST(IFNULL(s.sent, 0) / (HOUR(NOW()) + 1) AS UNSIGNED)
