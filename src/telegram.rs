@@ -1,4 +1,4 @@
-use async_std::sync::RwLock;
+use async_lock::RwLock;
 
 use reqwest::{Body, Client, Method, Url, RequestBuilder, multipart::{Form, Part}};
 

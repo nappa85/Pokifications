@@ -577,13 +577,15 @@ impl Message for RaidMessage {
         };
 
         let caption = if let Some(pokemon_id) = self.raid.pokemon_id.and_then(|id| if id > 0 { Some(id) } else { None }) {
+            let gender = self.raid.gender.get_glyph();
             // $t_corpo = $icon_raid . " "; // Battaglia
             // $t_corpo .= "RAID " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]) . " iniziato\n";
             // $t_corpo .= "\xf0\x9f\x93\x8d " . (strlen($gym_name) > 36 ? substr($gym_name, 0, 35) . ".." : $gym_name) . "\n";
             // $t_corpo .= "\xf0\x9f\x95\x92 Termina: " . date("H:i:s", $t_msg["time_end"]);
-            format!("{} RAID {}{}{} iniziato\n{} {}\n{} Termina: {}",//debug
+            format!("{} RAID {}{}{}{} iniziato\n{} {}\n{} Termina: {}",//debug
                 icon,
                 LIST.read().await.get(&pokemon_id).map(|p| p.name.to_uppercase()).unwrap_or_else(String::new),
+                gender,
                 match self.raid.form {
                     Some(id) => FORMS.read().await.get(&id).and_then(|f| if f.hidden { None } else { Some(format!(" ({})", f.name)) }),
                     None => None,
@@ -657,7 +659,7 @@ impl Message for RaidMessage {
                     Some(3) => "_megay",
                     _ => "",
                 };
-
+ 
                 // $mPoke = imagecreatefrompng("../../assets/img/pkmns/shuffle/" . $v_pkmnid . ".png");
                 let pokemon = match self.raid.form {
                     Some(form) if form > 0 => {
@@ -706,6 +708,15 @@ impl Message for RaidMessage {
                         }
                     },
                 };
+
+                match self.raid.gender {
+                    Gender::Male | Gender::Female => {
+                        let path = format!("{}img/{}.png", CONFIG.images.assets, if self.raid.gender == Gender::Female { "female" } else { "male" });
+                        let icon = open_image(&path).await?;
+                        image::imageops::overlay(&mut background, &icon, 32, 50);
+                    }
+                    _ => {},
+                }
 
                 // imagettftext($mBg, 12, 0, 82, 71, 0x00000000, $f_cal2, $v_end);
                 let v_end = Local.timestamp(self.raid.end, 0);
