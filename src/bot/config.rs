@@ -1053,17 +1053,37 @@ pub struct BotTime {
     pub fi: [u8; 2],
     pub fl: [u8; 2],
     pub fc: u8,
+    pub ex: Option<u8>,
     pub w1: Vec<u8>,
     pub w2: Vec<u8>,
+    pub w3: Option<Vec<u8>>,
+    pub w4: Option<Vec<u8>>,
+    pub w5: Option<Vec<u8>>,
+    pub w6: Option<Vec<u8>>,
+    pub w7: Option<Vec<u8>>,
 }
 
 impl BotTime {
     fn is_active(&self, now: &DateTime<Local>) -> Result<bool, ()> {
         let hour: u8 = now.format("%H").to_string().parse().map_err(|e| error!("current hour retrieve error: {}", e))?;
-        Ok(match now.format("%w").to_string().as_str() {
-            "0" | "6" => self.w2.contains(&hour),
-            _ => self.w1.contains(&hour),
-        })
+        let day = now.format("%w").to_string();
+        if self.ex == Some(1) {
+            Ok(match day.as_str() {
+                "1" => self.w1.contains(&hour),
+                "2" => self.w2.contains(&hour),
+                "3" => self.w3.as_ref().map(|v| v.contains(&hour)) == Some(true),
+                "4" => self.w4.as_ref().map(|v| v.contains(&hour)) == Some(true),
+                "5" => self.w5.as_ref().map(|v| v.contains(&hour)) == Some(true),
+                "6" => self.w6.as_ref().map(|v| v.contains(&hour)) == Some(true),
+                _ => self.w7.as_ref().map(|v| v.contains(&hour)) == Some(true),
+            })
+        }
+        else {
+            Ok(match day.as_str() {
+                "0" | "6" => self.w2.contains(&hour),
+                _ => self.w1.contains(&hour),
+            })
+        }
     }
 
     fn bypass(&self, iv: Option<f32>, lvl: Option<u8>) -> Option<String> {
