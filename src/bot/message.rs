@@ -298,12 +298,16 @@ impl Message for PokemonMessage {
             // $t_corpo .= "PL " . number_format($t_msg["cp"], 0, ",", ".") . " | Lv " . $t_msg["level"] . "\n";
             // $t_corpo .= $t_msg["distance"] . "km" . $dir_icon . " | " . date("H:i", $t_msg["expire_timestamp"]);
             let gender = self.pokemon.gender.get_glyph();
-            format!("{} {}{}{} ({:.0}%){}\n{}{:.1} km {} | {}",
+            format!("{} {}{}{}{} ({:.0}%){}\n{}{:.1} km {} | {}",
                 icon,
                 LIST.read().await.get(&self.pokemon.pokemon_id).map(|p| p.name.to_uppercase()).unwrap_or_else(String::new),
                 gender,
                 match self.pokemon.form {
                     Some(id) => FORMS.read().await.get(&id).and_then(|f| if f.hidden { None } else { Some(format!(" ({})", f.name)) }),
+                    None => None,
+                }.unwrap_or_else(String::new),
+                match self.pokemon.display_pokemon_id {
+                    Some(id) => LIST.read().await.get(&id).map(|f| format!(" ({})", f.name)),
                     None => None,
                 }.unwrap_or_else(String::new),
                 iv.round(),
@@ -322,12 +326,16 @@ impl Message for PokemonMessage {
             // $t_corpo .= ($t_msg["pokemon_id"] == 201 ? " (" . $unown_letter[$t_msg["form"]] . ")" : "") . MeteoIcon($t_msg["wb"]) . "\n";
             // $t_corpo .= $t_msg["distance"] . "km" . $dir_icon . " | " . date("H:i", $t_msg["expire_timestamp"]);
             let gender = self.pokemon.gender.get_glyph();
-            format!("{} {}{}{}{}\n{:.1} km {} | {}",
+            format!("{} {}{}{}{}{}\n{:.1} km {} | {}",
                 icon,
                 LIST.read().await.get(&self.pokemon.pokemon_id).map(|p| p.name.to_uppercase()).unwrap_or_else(String::new),
                 gender,
                 match self.pokemon.form {
                     Some(id) => FORMS.read().await.get(&id).and_then(|f| if f.hidden { None } else { Some(format!(" ({})", f.name)) }),
+                    None => None,
+                }.unwrap_or_else(String::new),
+                match self.pokemon.display_pokemon_id {
+                    Some(id) => LIST.read().await.get(&id).map(|f| format!(" ({})", f.name)),
                     None => None,
                 }.unwrap_or_else(String::new),
                 self.pokemon.weather.and_then(|id| meteo_icon(id).ok()).unwrap_or_else(String::new),
