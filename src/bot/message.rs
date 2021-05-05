@@ -834,6 +834,7 @@ impl Message for LureMessage {
      * 502 => "Modulo Esca Glaciale",
      * 503 => "Modulo Esca Silvestre",
      * 504 => "Modulo Esca Magnetico",
+     * 505 => "Modulo Esca Pluviale",
      */
     async fn get_caption(&self) -> Result<String, ()> {
         if let Some(timestamp) = self.pokestop.lure_expiration {
@@ -843,6 +844,7 @@ impl Message for LureMessage {
                     502 => String::from_utf8(vec![0xE2, 0x9D, 0x84]).map_err(|e| error!("error parsing glacial lure icon: {}", e))?,
                     503 => String::from_utf8(vec![0xF0, 0x9F, 0x8D, 0x83]).map_err(|e| error!("error parsing mossy lure icon: {}", e))?,
                     504 => String::from_utf8(vec![0xF0, 0x9F, 0xA7, 0xB2]).map_err(|e| error!("error parsing magnetic lure icon: {}", e))?,
+                    505 => String::from_utf8(vec![0xF0, 0x9F, 0x8C, 0xA7]).map_err(|e| error!("error parsing rainy lure icon: {}", e))?,
                     _ => String::new(),
                 },
                 match self.pokestop.lure_id {
@@ -850,6 +852,7 @@ impl Message for LureMessage {
                     502 => "Modulo Esca Glaciale",
                     503 => "Modulo Esca Silvestre",
                     504 => "Modulo Esca Magnetico",
+                    505 => "Modulo Esca Pluviale",
                     _ => "",
                 },
                 String::from_utf8(vec![0xf0, 0x9f, 0x93, 0x8d]).map_err(|e| error!("error parsing POI icon: {}", e))?,
