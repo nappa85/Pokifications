@@ -872,19 +872,32 @@ impl BotPkmn {
         }
 
         fn filter_rank<'a>(check: Option<&u8>, filter: Option<&u8>, pvp: Option<&'a Vec<PvpRanking>>) -> Option<Option<&'a PvpRanking>> {
-            if check != Some(&1) {
-                return None;
-            }
-
-            if let Some(perf) = filter {
-                if let Some(ranks) = pvp {
-                    let perf = Some((*perf as f64) / 100_f64);
-                    for rank in ranks {
-                        if rank.percentage >= perf {
-                            return Some(Some(rank));
+            match check {
+                Some(&1) => {
+                    if let Some(perf) = filter {
+                        if let Some(ranks) = pvp {
+                            let perf = Some((*perf as f64) / 100_f64);
+                            for rank in ranks {
+                                if rank.percentage >= perf {
+                                    return Some(Some(rank));
+                                }
+                            }
                         }
                     }
-                }
+                },
+                Some(&2) => {
+                    if let Some(perf) = filter {
+                        if let Some(ranks) = pvp {
+                            let perf = Some(*perf as u16);
+                            for rank in ranks {
+                                if rank.rank <= perf {
+                                    return Some(Some(rank));
+                                }
+                            }
+                        }
+                    }
+                },
+                _ => return None,
             }
 
             Some(None)
@@ -908,9 +921,9 @@ impl BotPkmn {
             if let Some(v) = &r.level {
                 res.push_str(&format!(" livello {}", v));
             }
-            // if let Some(v) = &r.rank {
-            //     res.push_str(&format!(" rank {}", v));
-            // }
+            if let Some(v) = &r.rank {
+                res.push_str(&format!(" rank {}", v));
+            }
             if let Some(v) = &r.percentage {
                 res.push_str(&format!(" percentuale {:.1}%", v * 100_f64));
             }

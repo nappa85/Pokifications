@@ -1,6 +1,6 @@
 [package]
 name = "pokifications"
-version = "1.13.4"
+version = "1.14.0"
 authors = ["Marco Napetti <marco.napetti@gmail.com>"]
 edition = "2018"
 
@@ -24,5 +24,5 @@ image = { version = "0.23.6", default-features = false, features = ["png", "jpeg
 rusttype = "0.9.2" # forced by imageproc
 qrcode = "0.12"
 rand = "0.8"
-geo = { version = "0.17", features = ["use-serde"] }
+geo = { version = "0.18", features = ["use-serde"] }
 geo-raycasting = "0.3"
