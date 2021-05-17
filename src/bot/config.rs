@@ -710,9 +710,9 @@ impl BotPkmn {
      * 17: form (first byte)
      * 18: form (second byte)
      * 19: mega check
-     * 20: mega perf
+     * 20: Mega
      * 21: ultra check
-     * 22: ultra perf
+     * 22: Ultra
      */
     fn filter(filter: &[u8], iv: Option<f32>, lvl: Option<&u8>) -> Option<String> {
         if filter.get(1) >= Some(&1) && filter.get(3) == Some(&1) { // IV e PL attivi
@@ -768,9 +768,9 @@ impl BotPkmn {
      * 17: form (first byte)
      * 18: form (second byte)
      * 19: mega check
-     * 20: mega perf
+     * 20: Mega
      * 21: ultra check
-     * 22: ultra perf
+     * 22: Ultra
      */
     fn check_badge(filter: &[u8], input: &Pokemon) -> bool {
         if filter.get(8) == Some(&1) {
@@ -819,9 +819,9 @@ impl BotPkmn {
      * 17: form (first byte)
      * 18: form (second byte)
      * 19: mega check
-     * 20: mega perf
+     * 20: Mega
      * 21: ultra check
-     * 22: ultra perf
+     * 22: Ultra
      */
     async fn advanced_filters(filter: &[u8], input: &Pokemon) -> Option<String> {
         if filter.get(16) == Some(&1) && input.individual_attack == Some(15) && input.individual_defense == Some(15) && input.individual_stamina == Some(15) {
@@ -878,7 +878,7 @@ impl BotPkmn {
                         if let Some(ranks) = pvp {
                             let perf = Some((*perf as f64) / 100_f64);
                             for rank in ranks {
-                                if rank.percentage >= perf {
+                                if rank.percentage.is_some() && rank.percentage >= perf {
                                     return Some(Some(rank));
                                 }
                             }
@@ -890,7 +890,7 @@ impl BotPkmn {
                         if let Some(ranks) = pvp {
                             let perf = Some(*perf as u16);
                             for rank in ranks {
-                                if rank.rank <= perf {
+                                if rank.rank.is_some() && rank.rank <= perf {
                                     return Some(Some(rank));
                                 }
                             }
@@ -1003,7 +1003,7 @@ impl BotPkmn {
             filter_iv(filter.get(10), filter.get(11), filter.get(12), filter.get(13), filter.get(14), filter.get(15), input.individual_attack.as_ref(), input.individual_defense.as_ref(), input.individual_stamina.as_ref())) {
             (Some(Some(mega)), Some(Some(ultra)), Some(Some(s))) => {
                 dbg.push_str(&format!(
-                    "\nFiltro avanzato: Mega Perf{}\nFiltro avanzato: Ultra Perf{}\nFiltro avanzato: IV{}",
+                    "\nFiltro avanzato: Mega{}\nFiltro avanzato: Ultra{}\nFiltro avanzato: IV{}",
                     rank_to_string(mega).await,
                     rank_to_string(ultra).await,
                     s,
@@ -1011,34 +1011,34 @@ impl BotPkmn {
             },
             (Some(Some(mega)), Some(Some(ultra)), _) => {
                 dbg.push_str(&format!(
-                    "\nFiltro avanzato: Mega Perf{}\nFiltro avanzato: Ultra Perf{}",
+                    "\nFiltro avanzato: Mega{}\nFiltro avanzato: Ultra{}",
                     rank_to_string(mega).await,
                     rank_to_string(ultra).await,
                 ));
             },
             (Some(Some(mega)), _, Some(Some(s))) => {
                 dbg.push_str(&format!(
-                    "\nFiltro avanzato: Mega Perf{}\nFiltro avanzato: IV{}",
+                    "\nFiltro avanzato: Mega{}\nFiltro avanzato: IV{}",
                     rank_to_string(mega).await,
                     s,
                 ));
             },
             (Some(Some(mega)), _, _) => {
                 dbg.push_str(&format!(
-                    "\nFiltro avanzato: Mega Perf{}",
+                    "\nFiltro avanzato: Mega{}",
                     rank_to_string(mega).await,
                 ));
             },
             (_, Some(Some(ultra)), Some(Some(s))) => {
                 dbg.push_str(&format!(
-                    "\nFiltro avanzato: Ultra Perf{}\nFiltro avanzato: IV{}",
+                    "\nFiltro avanzato: Ultra{}\nFiltro avanzato: IV{}",
                     rank_to_string(ultra).await,
                     s,
                 ));
             },
             (_, Some(Some(ultra)), _) => {
                 dbg.push_str(&format!(
-                    "\nFiltro avanzato: Ultra Perf{}",
+                    "\nFiltro avanzato: Ultra{}",
                     rank_to_string(ultra).await,
                 ));
             },
