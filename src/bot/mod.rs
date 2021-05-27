@@ -90,7 +90,7 @@ impl BotConfigs {
                 else {
                     let lock = BOT_CONFIGS.read().await;
                     let now = Some(Local::now().timestamp());
-                    Ok(lock.iter().filter(|(_, config)| config.scadenza < now).map(|(id, _)| id.clone()).collect::<Vec<String>>())
+                    Ok(lock.iter().filter(|(_, config)| now > config.scadenza).map(|(id, _)| id.clone()).collect::<Vec<String>>())
                 };
 
                 if let Ok(user_ids) = uids {
@@ -261,7 +261,7 @@ impl BotConfigs {
         let mut results = HashMap::new();
         let temp = res.map_and_drop(from_row::<(u8, u64, String, u8, u8, i64, u16, u32)>).await.map_err(|e| error!("MySQL collect error: {}", e))?;
         for (enabled, user_id, config, beta, status, scadenza, city_id, sent) in temp {
-            let result = Self::load_user(configs, enabled, user_id.to_string(), config, beta, status, city_id, scadenza, sent).await.unwrap_or_else(|_| LoadResult::Error);
+            let result = Self::load_user(configs, enabled, user_id.to_string(), config, beta, status, city_id, scadenza, sent).await.unwrap_or(LoadResult::Error);
             results.insert(user_id.to_string(), result);
         }
 
@@ -273,6 +273,7 @@ impl BotConfigs {
             if sent < MAX_NOTIFICATIONS_PER_HOUR {
                 let mut config: config::BotConfig = serde_json::from_str(&config).map_err(|e| error!("MySQL utenti_config_bot.config decoding error for user_id {}: {}", user_id, e))?;
                 if config.validate(&user_id, city_id).await? {
+                    config.user_id = Some(user_id.clone());
                     config.scadenza = Some(scadenza);
                     configs.insert(user_id, config);
 
@@ -338,25 +339,23 @@ impl BotConfigs {
             lock.remove(index);
         }
 
-        if watch.expire > now && Local::now().hour() != Local.timestamp(watch.expire, 0).hour() {
-            if !lock.contains(&watch) {
-                let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-                conn.query_drop("DELETE FROM bot_weather_watches WHERE expire < UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL delete error: {}", e))?;
-                conn.exec_drop(
-                    "INSERT INTO bot_weather_watches (user_id, encounter_id, pokemon_id, iv, latitude, longitude, expire) VALUES (:user_id, :encounter_id, :pokemon_id, :iv, :latitude, :longitude, :expire)",
-                    params! {
-                        "user_id" => watch.user_id.clone(),
-                        "encounter_id" => watch.encounter_id.clone(),
-                        "pokemon_id" => watch.pokemon_id,
-                        "iv" => watch.iv,
-                        "latitude" => watch.point.x(),
-                        "longitude" => watch.point.y(),
-                        "expire" => watch.expire,
-                    }
-                ).await.map_err(|e| error!("MySQL insert error: insert weather watch\n{}", e))?;
+        if watch.expire > now && Local::now().hour() != Local.timestamp(watch.expire, 0).hour() && !lock.contains(&watch) {
+            let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+            conn.query_drop("DELETE FROM bot_weather_watches WHERE expire < UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL delete error: {}", e))?;
+            conn.exec_drop(
+                "INSERT INTO bot_weather_watches (user_id, encounter_id, pokemon_id, iv, latitude, longitude, expire) VALUES (:user_id, :encounter_id, :pokemon_id, :iv, :latitude, :longitude, :expire)",
+                params! {
+                    "user_id" => watch.user_id.clone(),
+                    "encounter_id" => watch.encounter_id.clone(),
+                    "pokemon_id" => watch.pokemon_id,
+                    "iv" => watch.iv,
+                    "latitude" => watch.point.x(),
+                    "longitude" => watch.point.y(),
+                    "expire" => watch.expire,
+                }
+            ).await.map_err(|e| error!("MySQL insert error: insert weather watch\n{}", e))?;
 
-                lock.push(*watch);
-            }
+            lock.push(*watch);
         }
 
         Ok(())
@@ -435,7 +434,6 @@ impl BotConfigs {
                     continue;
                 },
                 Request::Weather(weather) => {
-                    let now = now.clone();
                     spawn(async move {
                         BotConfigs::submit_weather(weather, now).await;
                     });
@@ -455,7 +453,7 @@ impl BotConfigs {
                     });
                     continue;
                 },
-                Request::Pokestop(_) => {},
+                Request::Pokestop(_) | Request::GymDetails(_) => {},
                 _ => debug!("Unmanaged webhook: {:?}", input),
             }
 
@@ -524,10 +522,7 @@ impl BotConfigs {
     fn update_city_stats(input: &Request, now: i64) {
         match input {
             Request::Pokemon(p) => {
-                let iv = match (p.individual_attack, p.individual_defense, p.individual_stamina) {
-                    (Some(_), Some(_), Some(_)) => true,
-                    _ => false,
-                };
+                let iv = matches!((p.individual_attack, p.individual_defense, p.individual_stamina), (Some(_), Some(_), Some(_)));
                 let point: Point<f64> = (p.latitude, p.longitude).into();
 
                 spawn(async move {
@@ -540,7 +535,7 @@ impl BotConfigs {
 
                             if update.is_none() || update == Some(true) {
                                 let mut lock = CITYSTATS.write().await;
-                                let entry = lock.entry(*id).or_insert_with(|| CityStats::default());
+                                let entry = lock.entry(*id).or_insert_with(CityStats::default);
                                 if iv {
                                     entry.last_iv = Some(now);
                                 }
@@ -567,7 +562,7 @@ impl BotConfigs {
 
                             if update.is_none() || update == Some(true) {
                                 let mut lock = CITYSTATS.write().await;
-                                let entry = lock.entry(*id).or_insert_with(|| CityStats::default());
+                                let entry = lock.entry(*id).or_insert_with(CityStats::default);
                                 entry.last_raid = Some(now);
                             }
 
@@ -589,7 +584,7 @@ impl BotConfigs {
 
                             if update.is_none() || update == Some(true) {
                                 let mut lock = CITYSTATS.write().await;
-                                let entry = lock.entry(*id).or_insert_with(|| CityStats::default());
+                                let entry = lock.entry(*id).or_insert_with(CityStats::default);
                                 entry.last_invasion = Some(now);
                             }
 
@@ -611,7 +606,7 @@ impl BotConfigs {
 
                             if update.is_none() || update == Some(true) {
                                 let mut lock = CITYSTATS.write().await;
-                                let entry = lock.entry(*id).or_insert_with(|| CityStats::default());
+                                let entry = lock.entry(*id).or_insert_with(CityStats::default);
                                 entry.last_quest = Some(now);
                             }
 

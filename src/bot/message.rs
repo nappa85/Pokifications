@@ -18,7 +18,7 @@ use log::error;
 
 use super::BotConfigs;
 
-use crate::entities::{Pokemon, Raid, Pokestop, Gender, /*Weather,*/ Watch, DeviceTier};
+use crate::entities::{DeviceTier, Gender, GymDetails, Pokemon, Pokestop, Raid, Watch};
 use crate::lists::{LIST, MOVES, FORMS, GRUNTS};
 use crate::config::CONFIG;
 use crate::db::MYSQL;
@@ -168,12 +168,12 @@ pub trait Message {
                             // scan various formats to select the best one
                             let mut best_index = 0;
                             for i in 1..sizes.len() {
-                                if sizes[best_index]["file_size"].as_u64() < sizes[i]["file_size"].as_u64() {
+                                if sizes[i]["file_size"].as_u64() > sizes[best_index]["file_size"].as_u64() {
                                     best_index = i;
                                 }
                             }
 
-                            return Ok(Image::FileId(sizes[best_index]["file_id"].as_str().map(|s| s.to_owned()).ok_or_else(|| ())?));
+                            return Ok(Image::FileId(sizes[best_index]["file_id"].as_str().map(|s| s.to_owned()).ok_or(())?));
                         }
                         else {
                             error!("error while reading Telegram response: photos isn't an array\n{}", body);
@@ -265,7 +265,7 @@ impl Message for PokemonMessage {
         // }
         let date = Local::today();
         let date: usize = date.format("%m%d").to_string().parse().map_err(|e| error!("error parsing date: {}", e))?;
-        let icon = if date < 106 || date > 1222 {
+        let icon = if !(106..=1222).contains(&date) {
             String::from_utf8(vec![0xf0, 0x9f, 0x8e, 0x81])//natale
                 .map_err(|e| error!("error parsing pokemon christmas icon: {}", e))?
         }
@@ -380,8 +380,8 @@ impl Message for PokemonMessage {
         let mut background = {
             let path = format!("{}{}", CONFIG.images.sender, match self.iv {
                 Some(i) if i < 80f32 => "images/msg-bgs/msg-poke-big-norm.png",
-                Some(i) if i >= 80f32 && i < 90f32 => "images/msg-bgs/msg-poke-big-med.png",
-                Some(i) if i >= 90f32 && i < 100f32 => "images/msg-bgs/msg-poke-big-hi.png",
+                Some(i) if (80f32..90f32).contains(&i) => "images/msg-bgs/msg-poke-big-med.png",
+                Some(i) if (90f32..100f32).contains(&i) => "images/msg-bgs/msg-poke-big-hi.png",
                 Some(i) if i >= 100f32 => "images/msg-bgs/msg-poke-big-top.png",
                 _ => "images/msg-bgs/msg-poke-sm.png",
             });
@@ -470,8 +470,8 @@ impl Message for PokemonMessage {
 
             let v_ivcolor = match self.iv {
                 Some(i) if i == 0f32 => image::Rgba::<u8>([0x2D, 0x90, 0xFF, 0]),//0x002D90FF, // NULL Azzurro
-                Some(i) if i >= 80f32 && i < 90f32 => image::Rgba::<u8>([0xFF, 0x62, 0x14, 0]),//0x00FF6214, // MED Arancione
-                Some(i) if i >= 90f32 && i < 100f32 => image::Rgba::<u8>([0xFF, 0, 0, 0]),//0x00FF0000, // HI Rosso
+                Some(i) if (80f32..90f32).contains(&i) => image::Rgba::<u8>([0xFF, 0x62, 0x14, 0]),//0x00FF6214, // MED Arancione
+                Some(i) if (90f32..100f32).contains(&i) => image::Rgba::<u8>([0xFF, 0, 0, 0]),//0x00FF0000, // HI Rosso
                 Some(i) if i >= 100f32 => image::Rgba::<u8>([0xDC, 0, 0xEA, 0]),//0x00DC00EA, // TOP Viola
                 _ => image::Rgba::<u8>([0, 0, 0, 0]),//0x00000000,
             };
@@ -482,21 +482,21 @@ impl Message for PokemonMessage {
             imageproc::drawing::draw_text_mut(&mut background, v_ivcolor, 80 - (dm / 2) as u32, 87, scale13, &f_cal2, &text);
 
             let v_plcolor = match self.pokemon.pokemon_level {
-                Some(i) if i >= 25 && i < 30 => image::Rgba::<u8>([0xFF, 0x62, 0x14, 0]),//0x00FF6214, // MED Arancione
-                Some(i) if i >= 30 && i < 35 => image::Rgba::<u8>([0xFF, 0, 0, 0]),//0x00FF0000, // HI Rosso
+                Some(i) if (25..30).contains(&i) => image::Rgba::<u8>([0xFF, 0x62, 0x14, 0]),//0x00FF6214, // MED Arancione
+                Some(i) if (30..35).contains(&i) => image::Rgba::<u8>([0xFF, 0, 0, 0]),//0x00FF0000, // HI Rosso
                 Some(i) if i >= 35 => image::Rgba::<u8>([0xDC, 0, 0xEA, 0]),//0x00DC00EA, // TOP Viola
                 _ => image::Rgba::<u8>([0, 0, 0, 0]),//0x00000000,
             };
             // $dm = imagettfbbox(13, 0, $f_cal2, "PL " . number_format($v_pl, 0, '', '.'));
             // imagettftext($mBg, 13, 0, 200 - (abs($dm[4] - $dm[6]) / 2), 100, $v_plcolor, $f_cal2, "PL " . number_format($v_pl, 0, '', '.'));
-            let text = format!("PL {}", self.pokemon.cp.unwrap_or_else(|| 0));
+            let text = format!("PL {}", self.pokemon.cp.unwrap_or(0));
             let dm = get_text_width(&f_cal2, scale13, &text);
             imageproc::drawing::draw_text_mut(&mut background, v_plcolor, 200 - (dm / 2) as u32, 87, scale13, &f_cal2, &text);
 
             // $v_str = "ATK: " . $v_atk . "   DEF: " . $v_def . "   STA: " . $v_sta;
             // $dm = imagettfbbox(12, 0, $f_cal1, $v_str);
             // imagettftext($mBg, 12, 0, 140 - (abs($dm[4] - $dm[6]) / 2), 123, 0x00000000, $f_cal1, $v_str);
-            let text = format!("ATK: {}   DEF: {}   STA: {}", self.pokemon.individual_attack.unwrap_or_else(|| 0), self.pokemon.individual_defense.unwrap_or_else(|| 0), self.pokemon.individual_stamina.unwrap_or_else(|| 0));
+            let text = format!("ATK: {}   DEF: {}   STA: {}", self.pokemon.individual_attack.unwrap_or(0), self.pokemon.individual_defense.unwrap_or(0), self.pokemon.individual_stamina.unwrap_or(0));
             let dm = get_text_width(&f_cal1, scale12, &text);
             imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 140 - (dm / 2) as u32, 111, scale12, &f_cal1, &text);
         }
@@ -528,14 +528,11 @@ impl Message for PokemonMessage {
 
         // watch button available only on crossing-hour spawns
         if Local::now().hour() != Local.timestamp(self.pokemon.disappear_time, 0).hour() {
-            match (self.pokemon.individual_attack, self.pokemon.individual_defense, self.pokemon.individual_stamina, keyboard["inline_keyboard"].as_array_mut()) {
-                (Some(_), Some(_), Some(_), Some(a)) => {
-                    a.push(json!([{
-                        "text": format!("{} Avvia tracciamento Meteo", String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?),
-                        "callback_data": format!("watch|{:.3}|{:.3}|{}|{}|{}|{}", lat, lon, self.pokemon.disappear_time, self.pokemon.encounter_id, self.pokemon.pokemon_id, self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new))
-                    }]));
-                },
-                _ => {},
+            if let (Some(_), Some(_), Some(_), Some(a)) = (self.pokemon.individual_attack, self.pokemon.individual_defense, self.pokemon.individual_stamina, keyboard["inline_keyboard"].as_array_mut()) {
+                a.push(json!([{
+                    "text": format!("{} Avvia tracciamento Meteo", String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?),
+                    "callback_data": format!("watch|{:.3}|{:.3}|{}|{}|{}|{}", lat, lon, self.pokemon.disappear_time, self.pokemon.encounter_id, self.pokemon.pokemon_id, self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new))
+                }]));
             }
         }
 
@@ -575,7 +572,7 @@ impl Message for RaidMessage {
         // }
         let date = Local::today();
         let date: usize = date.format("%m%d").to_string().parse().map_err(|e| error!("error parsing date: {}", e))?;
-        let icon = if date < 106 || date > 1222 {
+        let icon = if !(106..=1222).contains(&date) {
             String::from_utf8(vec![0xf0, 0x9f, 0x8e, 0x84])//natale
                 .map_err(|e| error!("error parsing raid christmas icon: {}", e))?
         }
@@ -732,7 +729,7 @@ impl Message for RaidMessage {
 
                 // $dm = imagettfbbox(12, 0, $f_cal2, $v_str);
                 // imagettftext($mBg, 12, 0, 140 - (abs($dm[4] - $dm[6]) / 2), 100, 0x00000000, $f_cal2, $v_str);
-                let text = format!("PL {}", self.raid.cp.unwrap_or_else(|| 0));
+                let text = format!("PL {}", self.raid.cp.unwrap_or(0));
                 let dm = get_text_width(&f_cal2, scale12, &text);
                 imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 140 - (dm / 2) as u32, 88, scale12, &f_cal2, &text);
 
@@ -766,7 +763,7 @@ impl Message for RaidMessage {
                 }
                 if !has_form && self.raid.evolution.is_some() {
                     let dm = get_text_width(&f_cal2, scale18, &name);
-                    imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 73 + dm as u32, 7, scale11, &f_cal2, &format!("{}", get_mega_desc(&self.raid.evolution)));
+                    imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 73 + dm as u32, 7, scale11, &f_cal2, get_mega_desc(&self.raid.evolution));
                 }
 
                 (background, pokemon)
@@ -1108,6 +1105,78 @@ impl Message for WeatherMessage {
 }
 
 #[derive(Debug)]
+pub struct GymMessage {
+    pub gym: GymDetails,
+    pub distance: f64,
+    pub debug: Option<String>,
+}
+
+#[async_trait]
+impl Message for GymMessage {
+    fn get_latitude(&self) -> f64 {
+        self.gym.latitude
+    }
+
+    fn get_longitude(&self) -> f64 {
+        self.gym.longitude
+    }
+
+    async fn get_caption(&self) -> Result<String, ()> {
+        let caption = format!("{} Situazione cambiata nella palestra!",
+            String::from_utf8(vec![0xF0, 0x9F, 0x8F, 0x8B]).map_err(|e| error!("error encoding gym icon: {}", e))?,
+        );
+        Ok(match &self.debug {
+            Some(time) => format!("{}\n\nScansione avvenuta alle {}", caption, time),
+            _ => caption,
+        })
+    }
+
+    async fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
+        let now = Local::now();
+        let img_path_str = format!("{}img_sent/gym_{}_{}_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.gym.id, self.gym.team.get_id(), 6 - self.gym.slots_available, if self.gym.ex_raid_eligible { 1 } else { 0 });
+        let img_path = Path::new(&img_path_str);
+
+        if img_path.exists() {
+            let mut image = File::open(&img_path).await.map_err(|e| error!("error opening raid image {}: {}", img_path_str, e))?;
+            let mut bytes = Vec::new();
+            image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading raid image {}: {}", img_path_str, e))?;
+            return Ok(bytes);
+        }
+
+        // let f_cal1 = {
+        //     let font = format!("{}fonts/calibri.ttf", CONFIG.images.sender);
+        //     open_font(&font).await?
+        // };
+        let f_cal2 = {
+            let font = format!("{}fonts/calibrib.ttf", CONFIG.images.sender);
+            open_font(&font).await?
+        };
+        // let scale11 = rusttype::Scale::uniform(16f32);
+        let scale12 = rusttype::Scale::uniform(17f32);
+        // let scale18 = rusttype::Scale::uniform(23f32);
+
+        let mut background = {
+            let path = format!("{}images/msg-bgs/msg-raid-sm-t{}{}.png", CONFIG.images.sender, self.gym.team.get_id(), if self.gym.ex_raid_eligible { "-ex" } else { "" });
+            open_image(&path).await?
+        };
+        let gym = {
+            let path = format!("{}img/pkmns/gym_images/t{}m{}p{}.png", CONFIG.images.assets, self.gym.team.get_id(), 6 - self.gym.slots_available, if self.gym.ex_raid_eligible { 1 } else { 0 });
+            open_image(&path).await?
+        };
+
+        image::imageops::overlay(&mut background, &gym, 5, 5);
+
+        // imagettftext($mBg, 12, 0, 63, 47, 0x00000000, $f_cal2, (strlen($v_name) > 26 ? substr($v_name, 0, 25) . ".." : ($v_name == "" ? "-" : $v_name)));
+        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 35, scale12, &f_cal2, &truncate_str(&self.gym.name, 30, '-'));
+    
+        // imagecopymerge($mBg, $mMap, 0, ($v_pkmnid == 0 ? 83 : 136), 0, 0, 280, 101, 100);
+        image::imageops::overlay(&mut background, &map, 0, 83);
+
+        save_image(&background, &img_path_str).await
+    }
+}
+
+#[derive(Debug)]
 pub struct DeviceTierMessage<'a> {
     pub tier: &'a DeviceTier,
 }
@@ -1146,7 +1215,7 @@ impl<'a> Message for DeviceTierMessage<'a> {
             self.tier.release_date.format("%d/%m/%Y"),
             self.tier.app_version,
             self.tier.api_version,
-            self.tier.name.as_ref().or(name.as_ref()).ok_or_else(|| error!("Can't find device tier {}", self.tier.id))?,
+            self.tier.name.as_ref().or_else(|| name.as_ref()).ok_or_else(|| error!("Can't find device tier {}", self.tier.id))?,
             match (self.tier.reboot, self.tier.uninstall) {
                 (true, true) => "Per installare l’app di scansione, É NECESSARIO DISINSTALLARE LA VECCHIA VERSIONE E RIAVVIARE IL TELEFONO, prima di installare questa versione.",
                 (true, false) => "Per installare l’app di scansione, É NECESSARIO RIAVVIARE IL TELEFONO, prima di installare questa versione (Non è necessario disinstallare prima la vecchia app).",

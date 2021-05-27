@@ -34,7 +34,7 @@ pub enum Request {
     #[serde(rename = "account")]
     Account(Box<Account>),
     #[serde(rename = "reload")]
-    Reload(Vec<String>),//Vec should already be a pointer to stack
+    Reload(Vec<String>),//Vec should already be a pointer to heap
     #[serde(rename = "reload_city")]
     ReloadCity(u16),//adding a Box is futile
     #[serde(rename = "watch")]

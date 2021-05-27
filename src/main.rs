@@ -55,7 +55,7 @@ async fn parse(now: DateTime<Local>, bytes: Vec<u8>) -> Result<(), ()> {
 
     let count = configs.len();
     spawn(async move {
-        if let Some(mut conn) = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e)).ok() {
+        if let Ok(mut conn) = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e)) {
             conn.query_drop(format!("INSERT INTO bot_stats (day, events) VALUES (CURDATE(), {0}) ON DUPLICATE KEY UPDATE events = events + {0}", count)).await
                 .map_err(|e| error!("MySQL update bot stats error: {}", e))
                 .ok();
@@ -78,7 +78,7 @@ async fn parse(now: DateTime<Local>, bytes: Vec<u8>) -> Result<(), ()> {
 }
 
 async fn service(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
-    if config::CONFIG.service.safeword.is_none() || Some(req.uri().path().trim_matches('/')) == config::CONFIG.service.safeword.as_ref().map(|s| s.as_str()) {
+    if config::CONFIG.service.safeword.is_none() || Some(req.uri().path().trim_matches('/')) == config::CONFIG.service.safeword.as_deref() {
         let now = Local::now();
         let bytes = req.into_body()
             .map_ok(|c| c.to_vec())
@@ -107,8 +107,8 @@ async fn main() -> Result<(), ()> {
     //retrieve address and port, defaulting if not configured
     let addr = format!(
             "{}:{}",
-            config::CONFIG.service.address.as_ref().map(|s| s.as_str()).unwrap_or_else(|| "0.0.0.0"),
-            config::CONFIG.service.port.unwrap_or_else(|| 80)
+            config::CONFIG.service.address.as_deref().unwrap_or("0.0.0.0"),
+            config::CONFIG.service.port.unwrap_or(80)
         ).parse().map_err(|e| error!("Error parsing webserver address: {}", e))?;
 
     //basic service function

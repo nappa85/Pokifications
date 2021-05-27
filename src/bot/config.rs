@@ -17,13 +17,14 @@ use log::error;
 
 use log::info;
 
+use crate::entities::GymDetails;
 // use crate::lists::COMMON;
 use crate::entities::{Pokemon, Pokestop, Raid, Request, Gender, PvpRanking};
 use crate::lists::{CITIES, LIST, FORMS};
 use crate::db::MYSQL;
 // use crate::telegram::Image;
 
-use super::message::{Message, PokemonMessage, RaidMessage, InvasionMessage, LureMessage};
+use super::message::{Message, PokemonMessage, RaidMessage, InvasionMessage, LureMessage, GymMessage};
 
 const MAX_DISTANCE: f64 = 15f64;
 // const MIN_IV_LIMIT: f32 = 36f32;
@@ -31,6 +32,7 @@ const MAX_DISTANCE: f64 = 15f64;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BotConfig {
+    pub user_id: Option<String>,
     pub scadenza: Option<i64>,
     pub debug: Option<bool>,
     pub locs: BotLocs,
@@ -53,154 +55,133 @@ impl BotConfig {
             },
         };
 
-        // match (BotLocs::convert_to_f64(&self.locs.h[0]), BotLocs::convert_to_f64(&self.locs.h[1])) {
-        //     (Ok(x), Ok(y)) => {
-        //         let p: Point<f64> = (x, y).into();
-        //         if !polygon.within(&p) {
-        //             info!("{} has home pointer out of city {}", user_id, city_id);
-        //             return Ok(false);
-        //         }
-        //     },
-        //     _ => {},
+        // if let (Ok(x), Ok(y)) = (BotLocs::convert_to_f64(&self.locs.h[0]), BotLocs::convert_to_f64(&self.locs.h[1])) {
+        //     let p: Point<f64> = (x, y).into();
+        //     if !polygon.within(&p) {
+        //         info!("{} has home pointer out of city {}", user_id, city_id);
+        //         return Ok(false);
+        //     }
         // }
 
-        match (BotLocs::convert_to_f64(&self.locs.p[0]), BotLocs::convert_to_f64(&self.locs.p[1])) {
-            (Ok(x), Ok(y)) => {
-                let p: Point<f64> = (x, y).into();
-                if !polygon.within(&p) {
-                    info!("{} has pokemon pointer out of city {}", user_id, city_id);
-                    return Ok(false);
-                }
-            },
-            _ => {},
+        if let (Ok(x), Ok(y)) = (BotLocs::convert_to_f64(&self.locs.p[0]), BotLocs::convert_to_f64(&self.locs.p[1])) {
+            let p: Point<f64> = (x, y).into();
+            if !polygon.within(&p) {
+                info!("{} has pokemon pointer out of city {}", user_id, city_id);
+                return Ok(false);
+            }
         }
 
-        match (BotLocs::convert_to_f64(&self.locs.r[0]), BotLocs::convert_to_f64(&self.locs.r[1])) {
-            (Ok(x), Ok(y)) => {
-                let p: Point<f64> = (x, y).into();
-                if !polygon.within(&p) {
-                    info!("{} has raid pointer out of city {}", user_id, city_id);
-                    return Ok(false);
-                }
-            },
-            _ => {},
+        if let (Ok(x), Ok(y)) = (BotLocs::convert_to_f64(&self.locs.r[0]), BotLocs::convert_to_f64(&self.locs.r[1])) {
+            let p: Point<f64> = (x, y).into();
+            if !polygon.within(&p) {
+                info!("{} has raid pointer out of city {}", user_id, city_id);
+                return Ok(false);
+            }
         }
 
         if let Some(pos) = self.locs.i.as_ref() {
-            match (BotLocs::convert_to_f64(&pos[0]), BotLocs::convert_to_f64(&pos[1])) {
-                (Ok(x), Ok(y)) => {
-                    let p: Point<f64> = (x, y).into();
-                    if !polygon.within(&p) {
-                        info!("{} has pokestop pointer out of city {}", user_id, city_id);
-                        return Ok(false);
-                    }
-                },
-                _ => {},
+            if let (Ok(x), Ok(y)) = (BotLocs::convert_to_f64(&pos[0]), BotLocs::convert_to_f64(&pos[1])) {
+                let p: Point<f64> = (x, y).into();
+                if !polygon.within(&p) {
+                    info!("{} has pokestop pointer out of city {}", user_id, city_id);
+                    return Ok(false);
+                }
             }
         }
 
         let now = Local::now().timestamp();
 
         if BotLocs::convert_to_i64(&self.locs.t_p[2]).map(|i| i > now) == Ok(true) {
-            match (BotLocs::convert_to_f64(&self.locs.t_p[0]), BotLocs::convert_to_f64(&self.locs.t_p[1])) {
-                (Ok(x), Ok(y)) => {
-                    let p: Point<f64> = (x, y).into();
-                    let mut not_found = true;
-                    let mut city_id: u16 = 0;
-                    for (id, city) in CITIES.read().await.iter() {
-                        if city.coordinates.within(&p) {
-                            not_found = false;
-                            city_id = *id;
-                            break;
+            if let (Ok(x), Ok(y)) = (BotLocs::convert_to_f64(&self.locs.t_p[0]), BotLocs::convert_to_f64(&self.locs.t_p[1])) {
+                let p: Point<f64> = (x, y).into();
+                let mut not_found = true;
+                let mut city_id: u16 = 0;
+                for (id, city) in CITIES.read().await.iter() {
+                    if city.coordinates.within(&p) {
+                        not_found = false;
+                        city_id = *id;
+                        break;
+                    }
+                }
+                if not_found {
+                    info!("{} has temp pokemon pointer out of any city", user_id);
+                    return Ok(false);
+                }
+                else {
+                    // update city_id on temp pos log
+                    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+                    conn.exec_drop(
+                        "UPDATE utenti_temp_pos SET city_id = :city_id WHERE user_id = :user_id AND pos_type IN ('a', 'p') AND start_time <= :now AND end_time > :now",
+                        params! {
+                            "city_id" => city_id,
+                            "user_id" => user_id,
+                            "now" => now,
                         }
-                    }
-                    if not_found {
-                        info!("{} has temp pokemon pointer out of any city", user_id);
-                        return Ok(false);
-                    }
-                    else {
-                        // update city_id on temp pos log
-                        let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-                        conn.exec_drop(
-                            "UPDATE utenti_temp_pos SET city_id = :city_id WHERE user_id = :user_id AND pos_type IN ('a', 'p') AND start_time <= :now AND end_time > :now",
-                            params! {
-                                "city_id" => city_id,
-                                "user_id" => user_id,
-                                "now" => now,
-                            }
-                        ).await.map_err(|e| error!("MySQL query error: update pokemon temp pos\n{}", e))?;
-                    }
-                },
-                _ => {},
+                    ).await.map_err(|e| error!("MySQL query error: update pokemon temp pos\n{}", e))?;
+                }
             }
         }
 
         if BotLocs::convert_to_i64(&self.locs.t_r[2]).map(|i| i > now) == Ok(true) {
-            match (BotLocs::convert_to_f64(&self.locs.t_r[0]), BotLocs::convert_to_f64(&self.locs.t_r[1])) {
-                (Ok(x), Ok(y)) => {
-                    let p: Point<f64> = (x, y).into();
-                    let mut not_found = true;
-                    let mut city_id: u16 = 0;
-                    for (id, city) in CITIES.read().await.iter() {
-                        if city.coordinates.within(&p) {
-                            not_found = false;
-                            city_id = *id;
-                            break;
+            if let (Ok(x), Ok(y)) = (BotLocs::convert_to_f64(&self.locs.t_r[0]), BotLocs::convert_to_f64(&self.locs.t_r[1])) {
+                let p: Point<f64> = (x, y).into();
+                let mut not_found = true;
+                let mut city_id: u16 = 0;
+                for (id, city) in CITIES.read().await.iter() {
+                    if city.coordinates.within(&p) {
+                        not_found = false;
+                        city_id = *id;
+                        break;
+                    }
+                }
+                if not_found {
+                    info!("{} has temp raid pointer out of any city", user_id);
+                    return Ok(false);
+                }
+                else {
+                    // update city_id on temp pos log
+                    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+                    conn.exec_drop(
+                        "UPDATE utenti_temp_pos SET city_id = :city_id WHERE user_id = :user_id AND pos_type IN ('a', 'r') AND start_time <= :now AND end_time > :now",
+                        params! {
+                            "city_id" => city_id,
+                            "user_id" => user_id,
+                            "now" => now,
                         }
-                    }
-                    if not_found {
-                        info!("{} has temp raid pointer out of any city", user_id);
-                        return Ok(false);
-                    }
-                    else {
-                        // update city_id on temp pos log
-                        let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-                        conn.exec_drop(
-                            "UPDATE utenti_temp_pos SET city_id = :city_id WHERE user_id = :user_id AND pos_type IN ('a', 'r') AND start_time <= :now AND end_time > :now",
-                            params! {
-                                "city_id" => city_id,
-                                "user_id" => user_id,
-                                "now" => now,
-                            }
-                        ).await.map_err(|e| error!("MySQL query error: update raid temp pos\n{}", e))?;
-                    }
-                },
-                _ => {},
+                    ).await.map_err(|e| error!("MySQL query error: update raid temp pos\n{}", e))?;
+                }
             }
         }
 
         if let Some(pos) = self.locs.t_i.as_ref() {
             if BotLocs::convert_to_i64(&pos[2]).map(|i| i > now) == Ok(true) {
-                match (BotLocs::convert_to_f64(&pos[0]), BotLocs::convert_to_f64(&pos[1])) {
-                    (Ok(x), Ok(y)) => {
-                        let p: Point<f64> = (x, y).into();
-                        let mut not_found = true;
-                        let mut city_id: u16 = 0;
-                        for (id, city) in CITIES.read().await.iter() {
-                            if city.coordinates.within(&p) {
-                                not_found = false;
-                                city_id = *id;
-                                break;
+                if let (Ok(x), Ok(y)) = (BotLocs::convert_to_f64(&pos[0]), BotLocs::convert_to_f64(&pos[1])) {
+                    let p: Point<f64> = (x, y).into();
+                    let mut not_found = true;
+                    let mut city_id: u16 = 0;
+                    for (id, city) in CITIES.read().await.iter() {
+                        if city.coordinates.within(&p) {
+                            not_found = false;
+                            city_id = *id;
+                            break;
+                        }
+                    }
+                    if not_found {
+                        info!("{} has temp pokestop pointer out of any city", user_id);
+                        return Ok(false);
+                    }
+                    else {
+                        // update city_id on temp pos log
+                        let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+                        conn.exec_drop(
+                            "UPDATE utenti_temp_pos SET city_id = :city_id WHERE user_id = :user_id AND pos_type IN ('a', 'i') AND start_time <= :now AND end_time > :now",
+                            params! {
+                                "city_id" => city_id,
+                                "user_id" => user_id,
+                                "now" => now,
                             }
-                        }
-                        if not_found {
-                            info!("{} has temp pokestop pointer out of any city", user_id);
-                            return Ok(false);
-                        }
-                        else {
-                            // update city_id on temp pos log
-                            let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-                            conn.exec_drop(
-                                "UPDATE utenti_temp_pos SET city_id = :city_id WHERE user_id = :user_id AND pos_type IN ('a', 'i') AND start_time <= :now AND end_time > :now",
-                                params! {
-                                    "city_id" => city_id,
-                                    "user_id" => user_id,
-                                    "now" => now,
-                                }
-                            ).await.map_err(|e| error!("MySQL query error: update pokestop temp pos\n{}", e))?;
-                        }
-                    },
-                    _ => {},
+                        ).await.map_err(|e| error!("MySQL query error: update pokestop temp pos\n{}", e))?;
+                    }
                 }
             }
         }
@@ -221,6 +202,7 @@ impl BotConfig {
                 Request::Raid(r) => Ok(Box::new(self.submit_raid(now, r).await?)),
                 Request::Pokestop(i) => Ok(Box::new(self.submit_pokestop(now, i).await?)),
                 Request::Invasion(i) => Ok(Box::new(self.submit_invasion(now, i).await?)),
+                Request::GymDetails(i) => Ok(Box::new(self.submit_gym(now, i).await?)),
                 _ => Err(()),
             }
         }
@@ -255,8 +237,6 @@ impl BotConfig {
         let filter = self.pkmn.l.get(&pokemon_id).ok_or_else(|| {
             #[cfg(test)]
             info!("Pokémon not configured");
-
-            ()
         })?;
         if filter.get(0) == Some(&0) {
             #[cfg(test)]
@@ -270,8 +250,6 @@ impl BotConfig {
             let rad = MAX_DISTANCE.min(f64::from(*(filter.get(6).ok_or_else(|| {
                 #[cfg(test)]
                 info!("Custom distance but no custom distance value");
-    
-                ()
             })?))).max(0.1);
             debug.push_str(&format!("Distanza personalizzata per Pokémon inferiore a {:.2} km", rad));
             rad
@@ -327,19 +305,17 @@ impl BotConfig {
                 return Err(());
             }
         }
+        else if badge {
+            debug.push_str("\nEccezione per medaglia");
+        }
+        else if let Some(s) = BotPkmn::filter(filter, iv, input.pokemon_level.as_ref()) {
+            debug.push_str(&format!("\nFiltro orario attivo e {}", s));
+        }
         else {
-            if badge {
-                debug.push_str("\nEccezione per medaglia");
-            }
-            else if let Some(s) = BotPkmn::filter(filter, iv, input.pokemon_level.as_ref()) {
-                debug.push_str(&format!("\nFiltro orario attivo e {}", s));
-            }
-            else {
-                #[cfg(test)]
-                info!("Pokémon discarded for IV-Level config: pokemon_id {} iv {:?} level {:?}", pokemon_id, iv, input.pokemon_level);
+            #[cfg(test)]
+            info!("Pokémon discarded for IV-Level config: pokemon_id {} iv {:?} level {:?}", pokemon_id, iv, input.pokemon_level);
 
-                return Err(());
-            }
+            return Err(());
         }
 
         if !badge {
@@ -407,7 +383,7 @@ impl BotConfig {
         else {
             match input.pokemon_id {
                 Some(pkmn_id) if pkmn_id > 0 => {
-                    if !self.raid.p.contains(&(pkmn_id as i16)) && !self.raid.p.contains(&((input.level as i16) * -1)) {
+                    if !self.raid.p.contains(&(pkmn_id as i16)) && !self.raid.p.contains(&(-(input.level as i16))) {
                         #[cfg(test)]
                         info!("Raid discarded for disabled raidboss: raidboss {} config {:?}", pkmn_id, self.raid.p);
 
@@ -439,7 +415,7 @@ impl BotConfig {
     }
 
     async fn submit_pokestop(&self, now: &DateTime<Local>, input: &Pokestop) -> Result<LureMessage, ()> {
-        let lure = self.lure.as_ref().ok_or_else(|| ())?;
+        let lure = self.lure.as_ref().ok_or(())?;
         if lure.n == 0 || input.lure_id == 0 || input.lure_expiration <= Some(now.timestamp()) {
             return Err(());
         }
@@ -477,7 +453,7 @@ impl BotConfig {
     }
 
     async fn submit_invasion(&self, now: &DateTime<Local>, input: &Pokestop) -> Result<InvasionMessage, ()> {
-        let invs = self.invs.as_ref().ok_or_else(|| ())?;
+        let invs = self.invs.as_ref().ok_or(())?;
         if invs.n == 0 {
             return Err(());
         }
@@ -497,7 +473,7 @@ impl BotConfig {
         }
 
         if invs.f == 1 {
-            if !invs.l.contains(input.grunt_type.as_ref().ok_or_else(|| ())?) {
+            if !invs.l.contains(input.grunt_type.as_ref().ok_or(())?) {
                 return Err(());
             }
             else {
@@ -510,6 +486,43 @@ impl BotConfig {
 
         Ok(InvasionMessage {
             invasion: input.clone(),
+            debug: if self.debug == Some(true) { Some(debug) } else { None },
+        })
+    }
+
+    async fn submit_gym(&self, now: &DateTime<Local>, input: &GymDetails) -> Result<GymMessage, ()> {
+        // close debug
+        if self.user_id.as_deref() != Some("25900594") {
+            return Err(());
+        }
+
+        let loc = self.locs.get_raid_settings();
+        let pos = (input.latitude, input.longitude);
+
+        let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &self.locs.r[2]))?).max(0.1);
+
+        let mut debug = format!("Scansione avvenuta alle {}\n", now.format("%T").to_string());
+        let dist = BotLocs::calc_dist(loc, pos)?;
+        if dist > rad {
+            #[cfg(test)]
+            info!("Gym discarded for distance: loc {:?} pos {:?} dist {} rad {}", loc, pos, dist, rad);
+
+            return Err(());
+        }
+        else {
+            debug.push_str(&format!("Distanza per Palestre inferiore a {:.2} km ({:.2} km)", rad, dist));
+        }
+
+        if !self.time.is_active(now)? {
+            #[cfg(test)]
+            info!("Gym discarded for time config");
+
+            return Err(());
+        }
+
+        Ok(GymMessage {
+            gym: input.clone(),
+            distance: BotLocs::calc_dist(&self.locs.h, pos)?,
             debug: if self.debug == Some(true) { Some(debug) } else { None },
         })
     }
@@ -588,7 +601,7 @@ impl BotLocs {
     fn get_invs_settings(&self) -> Result<&Vec<JsonValue>, ()> {
         match self.t_i {
             Some(ref t_i) if !t_i[2].is_null() && Self::convert_to_i64(&t_i[2]).map(|i| i > Local::now().timestamp()) == Ok(true) => Ok(t_i),
-            _ => self.i.as_ref().ok_or_else(|| ())
+            _ => self.i.as_ref().ok_or(())
         }
     }
 
@@ -637,7 +650,7 @@ impl BotLocs {
 
         // $tmp = round(((rad2deg(atan2($dLon, $dPhi)) + 360) % 360) / 45);
         let tmp = (((d_lon.atan2(d_phi).to_degrees() + 360f64) % 360f64) / 45f64).round() as usize;
-        Ok(match tmp {
+        match tmp {
             1 => String::from_utf8(vec![0xe2, 0x86, 0x97, 0xef, 0xb8, 0x8f]),
             2 => String::from_utf8(vec![0xe2, 0x9e, 0xa1, 0xef, 0xb8, 0x8f]),
             3 => String::from_utf8(vec![0xe2, 0x86, 0x98, 0xef, 0xb8, 0x8f]),
@@ -646,7 +659,7 @@ impl BotLocs {
             6 => String::from_utf8(vec![0xe2, 0xac, 0x85, 0xef, 0xb8, 0x8f]),
             7 => String::from_utf8(vec![0xe2, 0x86, 0x96, 0xef, 0xb8, 0x8f]),
             _ => String::from_utf8(vec![0xe2, 0xac, 0x86, 0xef, 0xb8, 0x8f]),
-        }.map_err(|e| error!("direction gliph error: {}", e))?)
+        }.map_err(|e| error!("direction gliph error: {}", e))
     }
 }
 
@@ -715,29 +728,25 @@ impl BotPkmn {
      * 22: Ultra
      */
     fn filter(filter: &[u8], iv: Option<f32>, lvl: Option<&u8>) -> Option<String> {
-        if filter.get(1) >= Some(&1) && filter.get(3) == Some(&1) { // IV e PL attivi
+        if filter.get(1) >= Some(&1) && filter.get(3) == Some(&1) {
+            // IV e PL attivi
             if filter.get(7) == Some(&1) {
                 if iv >= filter.get(2).map(|i| f32::from(*i)) || lvl >= filter.get(4) {
-                    return Some(format!("IV >= {} O LVL >= {}", filter.get(2).unwrap_or_else(|| &0), filter.get(4).unwrap_or_else(|| &0)));
+                    return Some(format!("IV >= {} O LVL >= {}", filter.get(2).unwrap_or(&0), filter.get(4).unwrap_or(&0)));
                 }
             }
-            else {
-                if iv >= filter.get(2).map(|i| f32::from(*i)) && lvl >= filter.get(4) {
-                    return Some(format!("IV >= {} E LVL >= {}", filter.get(2).unwrap_or_else(|| &0), filter.get(4).unwrap_or_else(|| &0)));
-                }
+            else if iv >= filter.get(2).map(|i| f32::from(*i)) && lvl >= filter.get(4) {
+                return Some(format!("IV >= {} E LVL >= {}", filter.get(2).unwrap_or(&0), filter.get(4).unwrap_or(&0)));
             }
             None
         }
-        else if filter.get(1) >= Some(&1) || filter.get(3) == Some(&1) { // IV o PL attivi
-            if filter.get(1) >= Some(&1) {
-                if iv >= filter.get(2).map(|i| f32::from(*i)) {
-                    return Some(format!("IV >= {}", filter.get(2).unwrap_or_else(|| &0)));
-                }
+        else if filter.get(1) >= Some(&1) || filter.get(3) == Some(&1) {
+            // IV o PL attivi
+            if filter.get(1) >= Some(&1) && iv >= filter.get(2).map(|i| f32::from(*i)) {
+                return Some(format!("IV >= {}", filter.get(2).unwrap_or(&0)));
             }
-            if filter.get(3) == Some(&1) {
-                if lvl >= filter.get(4) {
-                    return Some(format!("LVL >= {}", filter.get(4).unwrap_or_else(|| &0)));
-                }
+            if filter.get(3) == Some(&1) && lvl >= filter.get(4) {
+                return Some(format!("LVL >= {}", filter.get(4).unwrap_or(&0)));
             }
             None
         }
@@ -876,9 +885,9 @@ impl BotPkmn {
                 Some(&1) => {
                     if let Some(perf) = filter {
                         if let Some(ranks) = pvp {
-                            let perf = Some((*perf as f64) / 100_f64);
+                            let perf = (*perf as f64) / 100_f64;
                             for rank in ranks {
-                                if rank.percentage.is_some() && rank.percentage >= perf {
+                                if rank.percentage.map(|p| p >= perf) == Some(true) {
                                     return Some(Some(rank));
                                 }
                             }
@@ -888,9 +897,9 @@ impl BotPkmn {
                 Some(&2) => {
                     if let Some(perf) = filter {
                         if let Some(ranks) = pvp {
-                            let perf = Some(*perf as u16);
+                            let perf = *perf as u16;
                             for rank in ranks {
-                                if rank.rank.is_some() && rank.rank <= perf {
+                                if rank.rank.map(|r| r <= perf) == Some(true) {
                                     return Some(Some(rank));
                                 }
                             }
@@ -934,17 +943,17 @@ impl BotPkmn {
             let mut res = String::new();
             match atkf {
                 Some(&1) => if atkv > atk {
-                        res.push_str(&format!(" ATK {} < {}", atkv.unwrap_or_else(|| &0), atk.unwrap_or_else(|| &0)));
+                        res.push_str(&format!(" ATK {} < {}", atkv.unwrap_or(&0), atk.unwrap_or(&0)));
                     } else {
                         return Some(None);
                     },
                 Some(&2) => if atkv == atk {
-                        res.push_str(&format!(" ATK {} = {}", atkv.unwrap_or_else(|| &0), atk.unwrap_or_else(|| &0)));
+                        res.push_str(&format!(" ATK {} = {}", atkv.unwrap_or(&0), atk.unwrap_or(&0)));
                     } else {
                         return Some(None);
                     },
                 Some(&3) => if atkv < atk {
-                        res.push_str(&format!(" ATK {} > {}", atkv.unwrap_or_else(|| &0), atk.unwrap_or_else(|| &0)));
+                        res.push_str(&format!(" ATK {} > {}", atkv.unwrap_or(&0), atk.unwrap_or(&0)));
                     } else {
                         return Some(None);
                     },
@@ -952,17 +961,17 @@ impl BotPkmn {
             }
             match deff {
                 Some(&1) => if defv > def {
-                        res.push_str(&format!(" DEF {} < {}", defv.unwrap_or_else(|| &0), def.unwrap_or_else(|| &0)));
+                        res.push_str(&format!(" DEF {} < {}", defv.unwrap_or(&0), def.unwrap_or(&0)));
                     } else {
                         return Some(None);
                     },
                 Some(&2) => if defv == def {
-                        res.push_str(&format!(" DEF {} = {}", defv.unwrap_or_else(|| &0), def.unwrap_or_else(|| &0)));
+                        res.push_str(&format!(" DEF {} = {}", defv.unwrap_or(&0), def.unwrap_or(&0)));
                     } else {
                         return Some(None);
                     },
                 Some(&3) => if defv < def {
-                        res.push_str(&format!(" DEF {} > {}", defv.unwrap_or_else(|| &0), def.unwrap_or_else(|| &0)));
+                        res.push_str(&format!(" DEF {} > {}", defv.unwrap_or(&0), def.unwrap_or(&0)));
                     } else {
                         return Some(None);
                     },
@@ -970,17 +979,17 @@ impl BotPkmn {
             }
             match staf {
                 Some(&1) => if stav > sta {
-                        res.push_str(&format!(" STA {} < {}", stav.unwrap_or_else(|| &0), sta.unwrap_or_else(|| &0)));
+                        res.push_str(&format!(" STA {} < {}", stav.unwrap_or(&0), sta.unwrap_or(&0)));
                     } else {
                         return Some(None);
                     },
                 Some(&2) => if stav == sta {
-                        res.push_str(&format!(" STA {} = {}", stav.unwrap_or_else(|| &0), sta.unwrap_or_else(|| &0)));
+                        res.push_str(&format!(" STA {} = {}", stav.unwrap_or(&0), sta.unwrap_or(&0)));
                     } else {
                         return Some(None);
                     },
                 Some(&3) => if stav < sta {
-                        res.push_str(&format!(" STA {} > {}", stav.unwrap_or_else(|| &0), sta.unwrap_or_else(|| &0)));
+                        res.push_str(&format!(" STA {} > {}", stav.unwrap_or(&0), sta.unwrap_or(&0)));
                     } else {
                         return Some(None);
                     },
@@ -1115,15 +1124,11 @@ impl BotTime {
             }
         }
         else {
-            if self.fi[0] == 1 {
-                if iv >= Some(f32::from(self.fi[1])) {
-                    return Some(format!("IV >= {}", self.fi[1]));
-                }
+            if self.fi[0] == 1 && iv >= Some(f32::from(self.fi[1])) {
+                return Some(format!("IV >= {}", self.fi[1]));
             }
-            if self.fl[0] == 1 {
-                if lvl >= Some(self.fl[1]) {
-                    return Some(format!("LVL >= {}", self.fl[1]));
-                }
+            if self.fl[0] == 1 && lvl >= Some(self.fl[1]) {
+                return Some(format!("LVL >= {}", self.fl[1]));
             }
 
             None

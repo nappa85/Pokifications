@@ -68,9 +68,9 @@ impl<'a> Map<'a> {
         let tiles_y = (self.height / self.tile_height) + 2;
 
         // x_row = range(-int(math.floor(tiles_x/2)),int(math.ceil(tiles_x/2)))
-        let x_row = (((tiles_x / 2) as i64) * -1)..=((tiles_x / 2) as i64);
+        let x_row = -((tiles_x / 2) as i64)..=((tiles_x / 2) as i64);
         // y_row = range(-int(math.floor(tiles_y/2)),int(math.ceil(tiles_y/2)))
-        let y_row = (((tiles_y / 2) as i64) * -1)..=((tiles_y / 2) as i64);
+        let y_row = -((tiles_y / 2) as i64)..=((tiles_y / 2) as i64);
 
         // x_offset, y_offset = tileXY(self.lat, self.lon, self.zoom)
         let (x_offset, y_offset) = tile_xy(self.lat, self.lon, self.zoom);
@@ -146,8 +146,8 @@ impl<'a> Map<'a> {
         //     int(y_top + (self.height / 2)),
         // ))
         Ok(image.crop(
-            x_left.checked_sub(self.width / 2).unwrap_or_else(|| 0),
-            y_top.checked_sub(self.height / 2).unwrap_or_else(|| 0),
+            x_left.saturating_sub(self.width / 2),
+            y_top.saturating_sub(self.height / 2),
             self.width,
             self.height
         ))

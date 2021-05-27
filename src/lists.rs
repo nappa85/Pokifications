@@ -80,7 +80,7 @@ impl From<Row> for City {
         else {
             (&coords[1..(coords.len() - 1)]).split("),(")
                 .map(|s| {
-                    let x_y: Vec<f64> = s.split(",")
+                    let x_y: Vec<f64> = s.split(',')
                         .map(|s| match s.parse::<f64>() {
                             Ok(f) => f,
                             Err(_) => panic!("Error parsing \"{}\" as a float", s),
@@ -235,7 +235,7 @@ async fn load_parks() -> Result<(), ()> {
         else {
             (&coords[1..(coords.len() - 1)]).split("),(")
                 .map(|s| {
-                    let x_y: Vec<f64> = s.split(",")
+                    let x_y: Vec<f64> = s.split(',')
                         .map(|s| s.parse::<f64>().map_err(|e| error!("Error parsing \"{}\" as a float: {}", s, e)).ok())
                         .filter(Option::is_some)
                         .map(Option::unwrap)
