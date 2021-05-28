@@ -1,9 +1,6 @@
-use std::collections::HashMap;
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
-use async_lock::{RwLock, Mutex};
-
-use tokio::{spawn, time::interval};
+use tokio::{spawn, time::interval, sync::{RwLock, Mutex}};
 
 use mysql_async::{from_row, prelude::Queryable, params};
 

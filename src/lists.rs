@@ -6,9 +6,7 @@ use geo::{Point, Polygon};
 
 use mysql_async::{prelude::Queryable, Row};
 
-use async_lock::RwLock;
-
-use tokio::{spawn, time::{Duration, Instant, interval_at}};
+use tokio::{spawn, time::{Duration, Instant, interval_at}, sync::RwLock};
 
 use once_cell::sync::Lazy;
 
