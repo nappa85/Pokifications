@@ -1127,7 +1127,7 @@ impl Message for GymMessage {
             self.gym.name
         );
         Ok(match &self.debug {
-            Some(time) => format!("{}\n\nScansione avvenuta alle {}", caption, time),
+            Some(time) => format!("{}\n\n{}", caption, time),
             _ => caption,
         })
     }
