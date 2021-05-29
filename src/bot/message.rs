@@ -1122,8 +1122,9 @@ impl Message for GymMessage {
     }
 
     async fn get_caption(&self) -> Result<String, ()> {
-        let caption = format!("{} Situazione cambiata nella palestra!",
+        let caption = format!("{} Situazione cambiata nella palestra {}!",
             String::from_utf8(vec![0xF0, 0x9F, 0x8F, 0x8B]).map_err(|e| error!("error encoding gym icon: {}", e))?,
+            self.gym.name
         );
         Ok(match &self.debug {
             Some(time) => format!("{}\n\nScansione avvenuta alle {}", caption, time),
@@ -1164,7 +1165,7 @@ impl Message for GymMessage {
             open_image(&path).await?
         };
 
-        image::imageops::overlay(&mut background, &gym, 5, 5);
+        image::imageops::overlay(&mut background, &gym, 4, 11);
 
         // imagettftext($mBg, 12, 0, 63, 47, 0x00000000, $f_cal2, (strlen($v_name) > 26 ? substr($v_name, 0, 25) . ".." : ($v_name == "" ? "-" : $v_name)));
         imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 35, scale12, &f_cal2, &truncate_str(&self.gym.name, 30, '-'));

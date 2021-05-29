@@ -662,7 +662,7 @@ impl BotConfigs {
 
 #[cfg(test)]
 mod tests {
-    use super::message::{Message, PokemonMessage, RaidMessage, InvasionMessage};
+    use super::message::{Message, PokemonMessage, RaidMessage, InvasionMessage, GymMessage};
 
     use chrono::Local;
 
@@ -734,6 +734,20 @@ mod tests {
             invasion: serde_json::from_str(
                     r#"{"lure_expiration":0,"enabled":true,"updated":1564332327,"url":"http://lh6.ggpht.com/ga78DsEtufPUGu0H0oE2ZOeagwxe8aQ4k4-kBLEDdSfeFVshH8gHhQN1GMcw1OFd_n94NpwTkOa16zR5DqUL","pokestop_display":1,"longitude":11.236241,"lure_id":501,"last_modified":1564329955,"pokestop_id":"54e0ee4c0e7a42ca93d2e93ee720dc90.16","name":"Ancora Un'altra Madonnina.","incident_expire_timestamp":1564333601,"grunt_type":33,"latitude":44.723203}"#
                 ).unwrap(),
+            debug: None,
+        };
+        message.prepare(Local::now()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn gym_image() {
+        env_logger::try_init().ok();
+
+        let message = GymMessage {
+            gym: serde_json::from_str(
+                    r#"{"name":"Genova - Ponte Monumentale","latitude":44.405798,"slots_available":5,"sponsor_od":0,"team":2,"id":"e697b9b81d24466f90f97fe362a9bc02.11","url":"http://lh3.googleusercontent.com/Xg9dpwYjV3wEHSbLdsJep2duokPdQEuUt3iwcxVhajTt1OucrYU9p-nFYnn60cOP42Uf3MYn3zJ3hyiDaEPqi3-WyA","longitude":8.939554,"ex_raid_eligible":false,"in_battle":false}"#
+                ).unwrap(),
+            distance: 0_f64,
             debug: None,
         };
         message.prepare(Local::now()).await.unwrap();
