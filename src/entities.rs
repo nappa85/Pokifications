@@ -185,6 +185,7 @@ pub struct PvpRanking {
     pub form: Option<u16>,
     pub level: Option<f32>,
     pub pokemon: u16,
+    pub gender: Option<Gender>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -207,6 +208,7 @@ pub struct Pokestop {
     pub updated: i64,
     pub lure_id: u16,
     pub grunt_type: Option<u8>,
+    pub ar_scan_eligible: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -293,6 +295,7 @@ pub struct GymDetails {
     pub slots_available: u8,
     pub ex_raid_eligible: bool,
     pub sponsor_od: Option<u8>,
+    pub ar_scan_eligible: Option<bool>,
 }
 
 // #[derive(Clone, Debug, Deserialize)]
@@ -351,6 +354,7 @@ pub struct Raid {
     pub gender: Gender,
     pub sponsor_od: Option<u8>,
     pub evolution: Option<u8>,
+    pub ar_scan_eligible: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
