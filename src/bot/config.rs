@@ -787,14 +787,16 @@ impl BotPkmn {
                 // rattata
                 19 => {
                     match (input.height, input.weight) {
-                        (Some(h), Some(w)) => (h/0.3f64 + w/3.5f64) < 1.5f64,
+                        // https://www.reddit.com/r/TheSilphRoad/comments/5931wy/youngster_medal_you/
+                        (Some(h), Some(w)) => (h/0.3f64 + w/3.5f64) < 1.5f64 && w < 2.41,
                         _ => false,
                     }
                 },
                 // magikarp
                 129 => {
                     match (input.height, input.weight) {
-                        (Some(h), Some(w)) => (h/0.9f64 + w/10f64) > 2.5f64,
+                        // https://www.reddit.com/r/TheSilphRoad/comments/5nuipx/fisherman_medal_weights/
+                        (Some(h), Some(w)) => (h/0.9f64 + w/10f64) > 2.5f64 && w >= 13.13,
                         _ => false,
                     }
                 },
