@@ -1,6 +1,10 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use tokio::{spawn, time::interval, sync::{RwLock, Mutex}};
+use futures_util::stream::unfold;
+
+use stream_throttle::{ThrottlePool, ThrottleRate, ThrottledStream};
+
+use tokio::{spawn, sync::{RwLock, RwLockWriteGuard, broadcast}, time::interval};
 
 use mysql_async::{from_row, prelude::Queryable, params};
 
@@ -17,21 +21,27 @@ use log::{info, error, debug, warn};
 mod config;
 mod message;
 mod map;
+mod select_all;
 
-use message::{Message, WeatherMessage, DeviceTierMessage};
+use message::{Message, DeviceTierMessage};
 
-use crate::entities::{Request, Weather, Watch, DeviceTier};
+use crate::entities::{Request, Watch, DeviceTier};
 use crate::lists::{CITIES, CITYSTATS, CITYPARKS, City, CityStats};
 use crate::config::CONFIG;
 use crate::db::MYSQL;
 use crate::telegram::send_message;
 
 static BOT_CONFIGS: Lazy<RwLock<HashMap<String, config::BotConfig>>> = Lazy::new(|| RwLock::new(HashMap::new()));
-static WATCHES: Lazy<Mutex<Vec<Watch>>> = Lazy::new(|| Mutex::new(Vec::new()));
+static WATCHES: Lazy<RwLock<HashMap<String, Vec<Watch>>>> = Lazy::new(|| RwLock::new(HashMap::new()));
+static SENDER: Lazy<broadcast::Sender<Arc<(DateTime<Local>, Request)>>> = Lazy::new(|| {
+    let (tx, _) = broadcast::channel(10);
+    tx
+});
 
 const RATE_LIMITER_CHECK_INTERVAL: u8 = 10;
 const MAX_NOTIFICATIONS_PER_HOUR: u32 = 500;
 
+#[derive(PartialEq)]
 enum LoadResult {
     Ok,
     Disabled,
@@ -107,10 +117,11 @@ impl BotConfigs {
         {
             let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
             let res = conn.query_iter("SELECT user_id, encounter_id, pokemon_id, iv, latitude, longitude, expire FROM bot_weather_watches WHERE expire > UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL query error: get weather watches\n{}", e))?;
-            let mut lock = WATCHES.lock().await;
+            let mut lock = WATCHES.write().await;
             res.for_each_and_drop(|row| {
                 let (user_id, encounter_id, pokemon_id, iv, latitude, longitude, expire) = from_row::<(String, String, u16, Option<u8>, f64, f64, i64)>(row);
-                lock.push(Watch {
+                let entry = lock.entry(user_id.clone()).or_insert_with(Vec::new);
+                entry.push(Watch {
                     user_id,
                     encounter_id,
                     pokemon_id,
@@ -231,26 +242,19 @@ impl BotConfigs {
     }
 
     async fn load(configs: &mut HashMap<String, config::BotConfig>, user_ids: Option<Vec<String>>) -> Result<HashMap<String, LoadResult>, ()> {
-        if let Some(ref user_ids) = user_ids {
-            for user_id in user_ids {
-                configs.remove(user_id);
-            }
-        }
-        else {
-            configs.clear();
-        }
-
         let query = format!("SELECT b.enabled, b.user_id, b.config, b.beta, u.status, c.scadenza, u.city_id, CAST(IFNULL(s.sent, 0) / (HOUR(NOW()) + 1) AS UNSIGNED)
             FROM utenti_config_bot b
             INNER JOIN utenti u ON u.user_id = b.user_id
             INNER JOIN city c ON c.id = u.city_id AND c.scadenza > UNIX_TIMESTAMP()
             LEFT JOIN utenti_bot_stats s ON s.user_id = b.user_id AND s.day = CURDATE()
-            WHERE {}", user_ids.and_then(|v| if v.is_empty() {
+            WHERE {}", user_ids.as_ref().and_then(|v| if v.is_empty() {
                     None
                 }
                 else {
                     Some(format!("b.user_id IN ({})", v.join(", ")))
                 }).unwrap_or_else(|| String::from("b.enabled = 1 AND b.beta = 1 AND u.status != 0")));
+
+        let mut ids = user_ids.unwrap_or_else(|| configs.iter().map(|(id, _)| id.clone()).collect());
 
         let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
         let res = conn.query_iter(query).await.map_err(|e| error!("MySQL query error: get users configs\n{}", e))?;
@@ -258,8 +262,19 @@ impl BotConfigs {
         let mut results = HashMap::new();
         let temp = res.map_and_drop(from_row::<(u8, u64, String, u8, u8, i64, u16, u32)>).await.map_err(|e| error!("MySQL collect error: {}", e))?;
         for (enabled, user_id, config, beta, status, scadenza, city_id, sent) in temp {
-            let result = Self::load_user(configs, enabled, user_id.to_string(), config, beta, status, city_id, scadenza, sent).await.unwrap_or(LoadResult::Error);
-            results.insert(user_id.to_string(), result);
+            let id = user_id.to_string();
+            let pos = ids.iter().position(|i| i == &id);
+            let result = Self::load_user(configs, enabled, id.clone(), config, beta, status, city_id, scadenza, sent).await.unwrap_or(LoadResult::Error);
+            if result == LoadResult::Ok {
+                if let Some(i) = pos {
+                    ids.remove(i);
+                }
+            }
+            results.insert(id, result);
+        }
+
+        for id in ids.into_iter() {
+            configs.remove(&id);
         }
 
         Ok(results)
@@ -272,7 +287,34 @@ impl BotConfigs {
                 if config.validate(&user_id, city_id).await? {
                     config.user_id = Some(user_id.clone());
                     config.scadenza = Some(scadenza);
-                    configs.insert(user_id, config);
+                    if let Some(c) = configs.get_mut(&user_id) {
+                        *c = config;
+                    }
+                    else {
+                        configs.insert(user_id.clone(), config);
+                        let stream = unfold((SENDER.subscribe(), user_id), |(mut rx, user_id)| Box::pin(async {
+                            let mut res = None;
+                            while res.is_none() {
+                                let temp = match rx.recv().await {
+                                    Ok(t) => t,
+                                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                                        res = Some(Box::new(LagMessage::new(n)));
+                                        break;
+                                    },
+                                    _ => return None,
+                                };
+                                let (time, req) = temp.as_ref();
+                                let lock = BOT_CONFIGS.read().await;
+                                let conf = lock.get(&user_id)?;
+                                res = conf.submit(time, req).await.ok();
+                            }
+                            Some((res.unwrap(), (rx, user_id)))
+                        }));
+                        // We can send a single message per telegram chat per second
+                        let rate = ThrottleRate::new(1, Duration::from_secs(1));
+                        let pool = ThrottlePool::new(rate);
+                        select_all::add(stream.throttle(pool)).await;
+                    }
 
                     Ok(LoadResult::Ok)
                 }
@@ -289,20 +331,28 @@ impl BotConfigs {
         }
     }
 
+    async fn clean_watches<'a, 'b>(now: i64, watch: &'a Watch) -> RwLockWriteGuard<'b, HashMap<String, Vec<Watch>>> {
+        // remove expired watches
+        let mut lock = WATCHES.write().await;
+        for (_, v) in lock.iter_mut() {
+            let mut remove = Vec::new();
+            for (index, w) in v.iter().enumerate() {
+                if w.expire < now || w == watch {
+                    remove.push(index);
+                }
+            }
+            for index in remove.into_iter().rev() {
+                v.remove(index);
+            }
+        }
+
+        lock
+    }
+
     async fn remove_watches(watch: Box<Watch>) -> Result<(), ()> {
         let now = Local::now().timestamp();
 
-        // remove expired watches
-        let mut remove = Vec::new();
-        let mut lock = WATCHES.lock().await;
-        for (index, w) in lock.iter().enumerate() {
-            if w.expire < now || w == &*watch {
-                remove.push(index);
-            }
-        }
-        for index in remove.into_iter().rev() {
-            lock.remove(index);
-        }
+        Self::clean_watches(now, &watch).await;
 
         let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
         conn.exec_drop(
@@ -324,19 +374,9 @@ impl BotConfigs {
     async fn add_watches(watch: Box<Watch>) -> Result<(), ()> {
         let now = Local::now().timestamp();
 
-        // remove expired watches
-        let mut remove = Vec::new();
-        let mut lock = WATCHES.lock().await;
-        for (index, w) in lock.iter().enumerate() {
-            if w.expire < now {
-                remove.push(index);
-            }
-        }
-        for index in remove.into_iter().rev() {
-            lock.remove(index);
-        }
+        let mut lock = Self::clean_watches(now, &watch).await;
 
-        if watch.expire > now && Local::now().hour() != Local.timestamp(watch.expire, 0).hour() && !lock.contains(&watch) {
+        if watch.expire > now && Local::now().hour() != Local.timestamp(watch.expire, 0).hour() && lock.get(&watch.user_id).map(|v| v.contains(&watch)) != Some(true) {
             let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
             conn.query_drop("DELETE FROM bot_weather_watches WHERE expire < UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL delete error: {}", e))?;
             conn.exec_drop(
@@ -352,55 +392,56 @@ impl BotConfigs {
                 }
             ).await.map_err(|e| error!("MySQL insert error: insert weather watch\n{}", e))?;
 
-            lock.push(*watch);
+            let entry = lock.entry(watch.user_id.clone()).or_insert_with(Vec::new);
+            entry.push(*watch);
         }
 
         Ok(())
     }
 
-    async fn submit_weather(weather: Box<Weather>, now: DateTime<Local>) {
-        let timestamp = now.timestamp();
-        let time = now.format("%T").to_string();
+    // async fn submit_weather(weather: Box<Weather>, now: DateTime<Local>) {
+    //     let timestamp = now.timestamp();
+    //     let time = now.format("%T").to_string();
 
-        let mut remove = Vec::new();
-        let mut fire = Vec::new();
-        let mut lock = WATCHES.lock().await;
-        let users = BOT_CONFIGS.read().await;
-        for (index, watch) in lock.iter_mut().enumerate() {
-            if watch.expire < timestamp {
-                remove.push(index);
-                continue;
-            }
+    //     let mut remove = Vec::new();
+    //     let mut fire = Vec::new();
+    //     let mut lock = WATCHES.lock().await;
+    //     let users = BOT_CONFIGS.read().await;
+    //     for (index, watch) in lock.iter_mut().enumerate() {
+    //         if watch.expire < timestamp {
+    //             remove.push(index);
+    //             continue;
+    //         }
 
-            if weather.polygon.within(&watch.point) {
-                let debug = users.get(&watch.user_id).and_then(|c| c.debug);
-                fire.push((index, debug));
-            }
-        }
+    //         if weather.polygon.within(&watch.point) {
+    //             let debug = users.get(&watch.user_id).and_then(|c| c.debug);
+    //             fire.push((index, debug));
+    //         }
+    //     }
 
-        for (index, debug) in fire.into_iter() {
-            let message = WeatherMessage {
-                watch: lock[index].clone(),
-                // actual_weather: weather.clone(),
-                debug: if debug == Some(true) { Some(time.clone()) } else { None },
-            };
+    //     for (index, debug) in fire.into_iter() {
+    //         let message = WeatherMessage {
+    //             watch: lock[index].clone(),
+    //             // actual_weather: weather.clone(),
+    //             debug: if debug == Some(true) { Some(time.clone()) } else { None },
+    //         };
 
-            spawn(async move {
-                let lock = BOT_CONFIGS.read().await;
-                if let Some(l) = lock.get(&message.watch.user_id).map(|c| c.more.l.clone()) {
-                    if let Ok(file_id) = message.prepare(Local::now()).await {
-                        message.send(&message.watch.user_id, file_id, l.as_str()).await
-                            .map_err(|_| error!("Error sending weather notification"))
-                            .ok();
-                    }
-                }
-            });
-        }
+    //         spawn(async move {
+    //             let lock = BOT_CONFIGS.read().await;
+    //             if let Some(l) = lock.get(&message.watch.user_id).map(|c| c.more.l.clone()) {
+    //                 if let Ok(file_id) = message.prepare(Local::now()).await {
+    //                     message.send(&message.watch.user_id, file_id, l.as_str()).await
+    //                         .map_err(|_| error!("Error sending weather notification"))
+    //                         .ok();
+    //                 }
+    //             }
+    //         });
+    //     }
 
-        for index in remove.into_iter().rev() {
-            lock.remove(index);
-        }
-    }
+    //     for index in remove.into_iter().rev() {
+    //         lock.remove(index);
+    //     }
+    // }
 
     pub async fn submit(now: DateTime<Local>, inputs: Vec<Request>) {
         for input in inputs.into_iter() {
@@ -430,12 +471,12 @@ impl BotConfigs {
                     });
                     continue;
                 },
-                Request::Weather(weather) => {
-                    spawn(async move {
-                        BotConfigs::submit_weather(weather, now).await;
-                    });
-                    continue;
-                },
+                // Request::Weather(weather) => {
+                //     spawn(async move {
+                //         BotConfigs::submit_weather(weather, now).await;
+                //     });
+                //     continue;
+                // },
                 Request::Pokemon(ref p) => {
                     BotConfigs::update_park_stats((p.latitude, p.longitude).into(), p.pokemon_id, p.encounter_id.clone());
 
@@ -450,7 +491,7 @@ impl BotConfigs {
                     });
                     continue;
                 },
-                Request::Pokestop(_) | Request::GymDetails(_) => {},
+                Request::Weather(_) | Request::Pokestop(_) | Request::GymDetails(_) => {},
                 _ => debug!("Unmanaged webhook: {:?}", input),
             }
 

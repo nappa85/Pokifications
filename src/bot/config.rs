@@ -17,14 +17,13 @@ use log::error;
 
 use log::info;
 
-use crate::entities::GymDetails;
 // use crate::lists::COMMON;
-use crate::entities::{Pokemon, Pokestop, Raid, Request, Gender, PvpRanking};
+use crate::entities::{Pokemon, Pokestop, Raid, Request, Gender, PvpRanking, GymDetails, Weather};
 use crate::lists::{CITIES, LIST, FORMS};
 use crate::db::MYSQL;
 // use crate::telegram::Image;
 
-use super::message::{Message, PokemonMessage, RaidMessage, InvasionMessage, LureMessage, GymMessage};
+use super::{message::{Message, PokemonMessage, RaidMessage, InvasionMessage, LureMessage, GymMessage, WeatherMessage}, WATCHES};
 
 const MAX_DISTANCE: f64 = 15f64;
 // const MIN_IV_LIMIT: f32 = 36f32;
@@ -198,11 +197,12 @@ impl BotConfig {
         }
         else {
             match input {
-                Request::Pokemon(p) => Ok(Box::new(self.submit_pokemon(now, p).await?)),
-                Request::Raid(r) => Ok(Box::new(self.submit_raid(now, r).await?)),
+                Request::Pokemon(i) => Ok(Box::new(self.submit_pokemon(now, i).await?)),
+                Request::Raid(i) => Ok(Box::new(self.submit_raid(now, i).await?)),
                 Request::Pokestop(i) => Ok(Box::new(self.submit_pokestop(now, i).await?)),
                 Request::Invasion(i) => Ok(Box::new(self.submit_invasion(now, i).await?)),
                 Request::GymDetails(i) => Ok(Box::new(self.submit_gym(now, i).await?)),
+                Request::Weather(i) => Ok(Box::new(self.submit_weather(now, i).await?)),
                 _ => Err(()),
             }
         }
@@ -525,6 +525,31 @@ impl BotConfig {
             distance: BotLocs::calc_dist(&self.locs.h, pos)?,
             debug: if self.debug == Some(true) { Some(debug) } else { None },
         })
+    }
+
+    async fn submit_weather(&self, now: &DateTime<Local>, weather: &Weather) -> Result<WeatherMessage, ()> {
+        if let Some(user_id) = self.user_id.as_deref() {
+            let lock = WATCHES.read().await;
+            if let Some(watches) = lock.get(user_id) {
+                let timestamp = now.timestamp();
+                let time = now.format("%T").to_string();
+
+                for watch in watches {
+                    if watch.expire < timestamp {
+                        continue;
+                    }
+
+                    if weather.polygon.within(&watch.point) {
+                        return Ok(WeatherMessage {
+                            watch: watch.clone(),
+                            // actual_weather: weather.clone(),
+                            debug: if self.debug == Some(true) { Some(time.clone()) } else { None },
+                        })
+                    }
+                }
+            }
+        }
+        Err(())
     }
 }
 
