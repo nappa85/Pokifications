@@ -429,6 +429,7 @@ pub struct Quest {
     pub pokestop_id: String,
     pub pokestop_name: String,
     pub conditions: Value,
+    pub ar_scan_eligible: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
