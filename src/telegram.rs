@@ -55,6 +55,7 @@ pub enum CallResult {
 #[derive(Clone, Debug)]
 pub enum Image {
     // FileId(String),
+    FileUrl(String),
     Bytes(Vec<u8>),
 }
 
@@ -167,6 +168,9 @@ pub async fn send_photo(bot_token: &str, chat_id: &str, photo: Image, caption: O
         // Image::FileId(file_id) => {
         //     form = form.text("photo", file_id);
         // },
+        Image::FileUrl(url) => {
+            form = form.text("photo", url);
+        },
         Image::Bytes(bytes) => {
             form = form.part("photo", Part::stream(Body::from(bytes)).file_name("image.png").mime_str("image/png").map_err(|e| {
                 error!("error writing multipart mime: {}", e);

@@ -1,4 +1,4 @@
-use std::{path::{Path, PathBuf}, time::Duration};
+use std::path::PathBuf;
 
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -18,7 +18,7 @@ use async_trait::async_trait;
 
 use log::error;
 
-use super::{BotConfigs, once_barrier::OnceBarrier};
+use super::{BotConfigs, file_cache::FileCache};
 
 use crate::entities::{DeviceTier, Gender, GymDetails, Pokemon, Pokestop, Raid, Watch};
 use crate::lists::{LIST, MOVES, FORMS, GRUNTS};
@@ -26,7 +26,8 @@ use crate::config::CONFIG;
 use crate::db::MYSQL;
 use crate::telegram::{send_photo, send_message, CallResult, Image};
 
-static FILE_BARRIER: Lazy<OnceBarrier<PathBuf>> = Lazy::new(|| OnceBarrier::new(Duration::from_secs(3600)));
+static MAP_CACHE: Lazy<FileCache<PathBuf, Result<image::DynamicImage, ()>>> = Lazy::new(|| FileCache::new(CONFIG.service.lru_size));
+static IMG_CACHE: Lazy<FileCache<PathBuf, Result<Image, ()>>> = Lazy::new(|| FileCache::new(CONFIG.service.lru_size));
 
 fn truncate_str(s: &str, limit: usize, placeholder: char) -> String {
     if s.is_empty() {
@@ -142,7 +143,7 @@ pub trait Message {
         // $map_path = "../../data/bot/img_maps/" . $lat . "_" . $lon . ".png";
         let map_path_str = format!("{}img_maps/{:.3}_{:.3}.png", CONFIG.images.bot, self.get_latitude(), self.get_longitude());
 
-        FILE_BARRIER.get(map_path_str.into(), |p| async move { open_image(&p).await }, |map_path| async move {
+        MAP_CACHE.get(map_path_str.into(), |map_path| async move {
             if map_path.exists() {
                 return open_image(&map_path).await;
             }
@@ -159,8 +160,7 @@ pub trait Message {
 
     async fn get_image(&self) -> Result<Image, ()> {
         let map = self.get_map().await?;
-        let bytes = self._get_image(map).await?;
-        Ok(Image::Bytes(bytes))
+        self._get_image(map).await
     }
 
     fn message_button(&self, _chat_id: &str, mtype: &str) -> Result<Value, ()> {
@@ -192,7 +192,7 @@ pub trait Message {
 
     async fn get_caption(&self) -> Result<String, ()>;
 
-    async fn _get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()>;
+    async fn _get_image(&self, map: image::DynamicImage) -> Result<Image, ()>;
 
     async fn update_stats(&self, _: &mut Conn) -> Result<(), ()> {
         Ok(())
@@ -313,21 +313,21 @@ impl Message for PokemonMessage {
         })
     }
 
-    async fn _get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
+    async fn _get_image(&self, map: image::DynamicImage) -> Result<Image, ()> {
         let timestamp = Local.timestamp(self.pokemon.disappear_time, 0);
         let img_path_str = format!("{}img_sent/poke_{}_{}_{}_{}.png", CONFIG.images.bot, timestamp.format("%Y%m%d%H").to_string(), self.pokemon.encounter_id, self.pokemon.pokemon_id, self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new));
 
-        FILE_BARRIER.get(img_path_str.into(), |img_path| async move {
-            let mut image = File::open(&img_path).await.map_err(|e| error!("error opening pokemon image {}: {}", img_path.display(), e))?;
-            let mut bytes = Vec::new();
-            image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading pokemon image {}: {}", img_path.display(), e))?;
-            Ok(bytes)
-        }, |img_path| async move {
+        IMG_CACHE.get(img_path_str.into(), |img_path| async move {
             if img_path.exists() {
-                let mut image = File::open(&img_path).await.map_err(|e| error!("error opening pokemon image {}: {}", img_path.display(), e))?;
-                let mut bytes = Vec::new();
-                image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading pokemon image {}: {}", img_path.display(), e))?;
-                return Ok(bytes);
+                if let Some(url) = &CONFIG.images.bot_pub {
+                    return Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)));
+                }
+                else {
+                    let mut image = File::open(&img_path).await.map_err(|e| error!("error opening pokemon image {}: {}", img_path.display(), e))?;
+                    let mut bytes = Vec::new();
+                    image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading pokemon image {}: {}", img_path.display(), e))?;
+                    return Ok(Image::Bytes(bytes));
+                }
             }
 
             let f_cal1 = {
@@ -468,7 +468,14 @@ impl Message for PokemonMessage {
                 imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 140 - (dm / 2) as u32, 111, scale12, &f_cal1, &text);
             }
 
-            save_image(&background, &img_path).await
+            let bytes = save_image(&background, &img_path).await?;
+
+            if let Some(url) = &CONFIG.images.bot_pub {
+                Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)))
+            }
+            else {
+                Ok(Image::Bytes(bytes))
+            }
         }).await
     }
 
@@ -596,21 +603,21 @@ impl Message for RaidMessage {
         })
     }
 
-    async fn _get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
+    async fn _get_image(&self, map: image::DynamicImage) -> Result<Image, ()> {
         let now = Local::now();
         let img_path_str = format!("{}img_sent/raid_{}_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.raid.gym_id, self.raid.start, self.raid.pokemon_id.map(|i| i.to_string()).unwrap_or_else(String::new));
         
-        FILE_BARRIER.get(img_path_str.into(), |img_path| async move {
-            let mut image = File::open(&img_path).await.map_err(|e| error!("error opening raid image {}: {}", img_path.display(), e))?;
-            let mut bytes = Vec::new();
-            image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading raid image {}: {}", img_path.display(), e))?;
-            Ok(bytes)
-        }, |img_path| async move {
+        IMG_CACHE.get(img_path_str.into(), |img_path| async move {
             if img_path.exists() {
-                let mut image = File::open(&img_path).await.map_err(|e| error!("error opening raid image {}: {}", img_path.display(), e))?;
-                let mut bytes = Vec::new();
-                image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading raid image {}: {}", img_path.display(), e))?;
-                return Ok(bytes);
+                if let Some(url) = &CONFIG.images.bot_pub {
+                    return Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)));
+                }
+                else {
+                    let mut image = File::open(&img_path).await.map_err(|e| error!("error opening raid image {}: {}", img_path.display(), e))?;
+                    let mut bytes = Vec::new();
+                    image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading raid image {}: {}", img_path.display(), e))?;
+                    return Ok(Image::Bytes(bytes));
+                }
             }
 
             let f_cal1 = {
@@ -770,7 +777,14 @@ impl Message for RaidMessage {
             // imagecopymerge($mBg, $mMap, 0, ($v_pkmnid == 0 ? 83 : 136), 0, 0, 280, 101, 100);
             image::imageops::overlay(&mut background, &map, 0, if self.raid.pokemon_id.and_then(|i| if i > 0 { Some(i) } else { None }).is_none() { 83 } else { 136 });
 
-            save_image(&background, &img_path).await
+            let bytes = save_image(&background, &img_path).await?;
+
+            if let Some(url) = &CONFIG.images.bot_pub {
+                Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)))
+            }
+            else {
+                Ok(Image::Bytes(bytes))
+            }
         }).await
     }
 
@@ -842,21 +856,21 @@ impl Message for LureMessage {
         }
     }
 
-    async fn _get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
+    async fn _get_image(&self, map: image::DynamicImage) -> Result<Image, ()> {
         let now = Local::now();
         let img_path_str = format!("{}img_sent/lure_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.pokestop.pokestop_id, self.pokestop.lure_id);
 
-        FILE_BARRIER.get(img_path_str.into(), |img_path| async move {
-            let mut image = File::open(&img_path).await.map_err(|e| error!("error opening invasion image {}: {}", img_path.display(), e))?;
-            let mut bytes = Vec::new();
-            image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading invasion image {}: {}", img_path.display(), e))?;
-            Ok(bytes)
-        }, |img_path| async move {
+        IMG_CACHE.get(img_path_str.into(), |img_path| async move {
             if img_path.exists() {
-                let mut image = File::open(&img_path).await.map_err(|e| error!("error opening invasion image {}: {}", img_path.display(), e))?;
-                let mut bytes = Vec::new();
-                image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading invasion image {}: {}", img_path.display(), e))?;
-                return Ok(bytes);
+                if let Some(url) = &CONFIG.images.bot_pub {
+                    return Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)));
+                }
+                else {
+                    let mut image = File::open(&img_path).await.map_err(|e| error!("error opening invasion image {}: {}", img_path.display(), e))?;
+                    let mut bytes = Vec::new();
+                    image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading invasion image {}: {}", img_path.display(), e))?;
+                    return Ok(Image::Bytes(bytes));
+                }
             }
 
             // let f_cal1 = {
@@ -892,7 +906,14 @@ impl Message for LureMessage {
 
             image::imageops::overlay(&mut background, &map, 0, 58);
 
-            save_image(&background, &img_path).await
+            let bytes = save_image(&background, &img_path).await?;
+
+            if let Some(url) = &CONFIG.images.bot_pub {
+                Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)))
+            }
+            else {
+                Ok(Image::Bytes(bytes))
+            }
         }).await
     }
 }
@@ -937,21 +958,21 @@ impl Message for InvasionMessage {
         }
     }
 
-    async fn _get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
+    async fn _get_image(&self, map: image::DynamicImage) -> Result<Image, ()> {
         let now = Local::now();
         let img_path_str = format!("{}img_sent/invasion_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.invasion.pokestop_id, self.invasion.grunt_type.map(|id| id.to_string()).unwrap_or_else(String::new));
 
-        FILE_BARRIER.get(img_path_str.into(), |img_path| async move {
-            let mut image = File::open(&img_path).await.map_err(|e| error!("error opening invasion image {}: {}", img_path.display(), e))?;
-            let mut bytes = Vec::new();
-            image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading invasion image {}: {}", img_path.display(), e))?;
-            return Ok(bytes);
-        }, |img_path| async move {
+        IMG_CACHE.get(img_path_str.into(), |img_path| async move {
             if img_path.exists() {
-                let mut image = File::open(&img_path).await.map_err(|e| error!("error opening invasion image {}: {}", img_path.display(), e))?;
-                let mut bytes = Vec::new();
-                image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading invasion image {}: {}", img_path.display(), e))?;
-                return Ok(bytes);
+                if let Some(url) = &CONFIG.images.bot_pub {
+                    return Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)));
+                }
+                else {
+                    let mut image = File::open(&img_path).await.map_err(|e| error!("error opening invasion image {}: {}", img_path.display(), e))?;
+                    let mut bytes = Vec::new();
+                    image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading invasion image {}: {}", img_path.display(), e))?;
+                    return Ok(Image::Bytes(bytes));
+                }
             }
 
             // let f_cal1 = {
@@ -1003,7 +1024,14 @@ impl Message for InvasionMessage {
 
             image::imageops::overlay(&mut background, &map, 0, 58);
 
-            save_image(&background, &img_path).await
+            let bytes = save_image(&background, &img_path).await?;
+
+            if let Some(url) = &CONFIG.images.bot_pub {
+                Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)))
+            }
+            else {
+                Ok(Image::Bytes(bytes))
+            }
         }).await
     }
 }
@@ -1037,7 +1065,7 @@ impl Message for WeatherMessage {
         })
     }
 
-    async fn _get_image(&self, _: image::DynamicImage) -> Result<Vec<u8>, ()> {
+    async fn _get_image(&self, _: image::DynamicImage) -> Result<Image, ()> {
         Err(())
     }
 
@@ -1046,7 +1074,7 @@ impl Message for WeatherMessage {
         let img_path_str = format!("{}img_sent/poke_{}_{}_{}_{}.png", CONFIG.images.bot, timestamp.format("%Y%m%d%H").to_string(), self.watch.encounter_id, self.watch.pokemon_id, self.watch.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new));
 
         // no need for OnceBarrier
-        let img_path = Path::new(&img_path_str);
+        let img_path = PathBuf::from(&img_path_str);
         if img_path.exists() {
             let mut image = File::open(&img_path).await.map_err(|e| error!("error opening pokemon image {}: {}", img_path_str, e))?;
             let mut bytes = Vec::new();
@@ -1123,21 +1151,21 @@ impl Message for GymMessage {
         })
     }
 
-    async fn _get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
+    async fn _get_image(&self, map: image::DynamicImage) -> Result<Image, ()> {
         let now = Local::now();
         let img_path_str = format!("{}img_sent/gym_{}_{}_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.gym.id, self.gym.team.get_id(), 6 - self.gym.slots_available, if self.gym.ex_raid_eligible { 1 } else { 0 });
 
-        FILE_BARRIER.get(img_path_str.into(), |img_path| async move {
-            let mut image = File::open(&img_path).await.map_err(|e| error!("error opening raid image {}: {}", img_path.display(), e))?;
-            let mut bytes = Vec::new();
-            image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading raid image {}: {}", img_path.display(), e))?;
-            Ok(bytes)
-        }, |img_path| async move {
+        IMG_CACHE.get(img_path_str.into(), |img_path| async move {
             if img_path.exists() {
-                let mut image = File::open(&img_path).await.map_err(|e| error!("error opening raid image {}: {}", img_path.display(), e))?;
-                let mut bytes = Vec::new();
-                image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading raid image {}: {}", img_path.display(), e))?;
-                return Ok(bytes);
+                if let Some(url) = &CONFIG.images.bot_pub {
+                    return Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)));
+                }
+                else {
+                    let mut image = File::open(&img_path).await.map_err(|e| error!("error opening raid image {}: {}", img_path.display(), e))?;
+                    let mut bytes = Vec::new();
+                    image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading raid image {}: {}", img_path.display(), e))?;
+                    return Ok(Image::Bytes(bytes));
+                }
             }
 
             // let f_cal1 = {
@@ -1169,7 +1197,14 @@ impl Message for GymMessage {
             // imagecopymerge($mBg, $mMap, 0, ($v_pkmnid == 0 ? 83 : 136), 0, 0, 280, 101, 100);
             image::imageops::overlay(&mut background, &map, 0, 83);
 
-            save_image(&background, &img_path).await
+            let bytes = save_image(&background, &img_path).await?;
+
+            if let Some(url) = &CONFIG.images.bot_pub {
+                Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)))
+            }
+            else {
+                Ok(Image::Bytes(bytes))
+            }
         }).await
     }
 }
@@ -1224,7 +1259,7 @@ impl<'a> Message for DeviceTierMessage<'a> {
         ))
     }
 
-    async fn _get_image(&self, _: image::DynamicImage) -> Result<Vec<u8>, ()> {
+    async fn _get_image(&self, _: image::DynamicImage) -> Result<Image, ()> {
         Err(())
     }
 
@@ -1272,7 +1307,7 @@ impl Message for LagMessage {
             String::from_utf8(vec![0xE2, 0x9A, 0xA0]).map_err(|e| error!("error converting warning icon: {}", e))?, self.lag))
     }
 
-    async fn _get_image(&self, _: image::DynamicImage) -> Result<Vec<u8>, ()> {
+    async fn _get_image(&self, _: image::DynamicImage) -> Result<Image, ()> {
         Err(())
     }
 

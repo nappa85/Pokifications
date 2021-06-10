@@ -8,9 +8,10 @@ queue_size = 1
 url = "mysql://user:password@host/database"
 
 [images]
-sent = "/path/to/img_sent/"
-source = "/path/to/sources/"
-assets = "/path/to/assets"
+bot = "/path/to/bot/"
+bot_pub = "http://public/url/to/bot/"
+sender = "/path/to/sender/"
+assets = "/path/to/assets/"
 
 [osm]
 tile_url = ""
