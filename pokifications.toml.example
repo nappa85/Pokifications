@@ -2,6 +2,7 @@
 address = "0.0.0.0"#0.0.0.0 accepts from any address
 port = 8080
 safeword = ""
+queue_size = 1
 
 [database]
 url = "mysql://user:password@host/database"
@@ -21,4 +22,3 @@ alert_bot_token = ""
 alert_chat = ""
 version_chat = ""
 timeout = 1
-cache_chat = ""

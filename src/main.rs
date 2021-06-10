@@ -15,7 +15,6 @@ mod bot;
 mod lists;
 mod telegram;
 mod alerts;
-mod file_creator;
 
 use hyper::{Body, Request, Response, Server};
 use hyper::service::{make_service_fn, service_fn};
@@ -119,7 +118,7 @@ async fn main() -> Result<(), ()> {
         }
     });
 
-    telegram::init();
+    // telegram::init();
     lists::init().await;
     alerts::init();
     if bot::BotConfigs::init().await.is_ok() {

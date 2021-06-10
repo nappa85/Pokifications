@@ -6,9 +6,9 @@ use log::error;
 use stream_throttle::{ThrottlePool, ThrottleRate, ThrottledStream};
 use tokio::sync::{mpsc, OnceCell};
 
-type Message = Box<dyn super::message::Message + Send + Sync>;
+pub type Message = (String, Box<dyn super::message::Message + Send + Sync>, String);
 
-pub static TX: OnceCell<mpsc::UnboundedSender<Box<dyn Stream<Item=Message> + Send + Unpin>>> = OnceCell::const_new();
+static TX: OnceCell<mpsc::UnboundedSender<Box<dyn Stream<Item=Message> + Send + Unpin>>> = OnceCell::const_new();
 
 pub async fn add<S>(stream: S) -> Result<(), ()>
 where S: Stream<Item=Message> + Send + Unpin + 'static {
@@ -19,7 +19,11 @@ where S: Stream<Item=Message> + Send + Unpin + 'static {
             // we can send globally only 30 telegram messages per second
             let rate = ThrottleRate::new(30, Duration::from_secs(1));
             let pool = ThrottlePool::new(rate);
-            stream.throttle(pool).for_each_concurrent(None, |_m| async {}).await;
+            stream.throttle(pool).for_each_concurrent(None, |(user_id, message, map_type): Message| async move {
+                if let Ok(img) = message.get_image().await {
+                    message.send(&user_id, img, &map_type).await.ok();
+                }
+            }).await;
         });
         tx
     }).await

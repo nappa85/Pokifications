@@ -22,8 +22,9 @@ mod config;
 mod message;
 mod map;
 mod select_all;
+mod once_barrier;
 
-use message::{Message, DeviceTierMessage};
+use message::{Message, DeviceTierMessage, LagMessage};
 
 use crate::entities::{Request, Watch, DeviceTier};
 use crate::lists::{CITIES, CITYSTATS, CITYPARKS, City, CityStats};
@@ -34,7 +35,7 @@ use crate::telegram::send_message;
 static BOT_CONFIGS: Lazy<RwLock<HashMap<String, config::BotConfig>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 static WATCHES: Lazy<RwLock<HashMap<String, Vec<Watch>>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 static SENDER: Lazy<broadcast::Sender<Arc<(DateTime<Local>, Request)>>> = Lazy::new(|| {
-    let (tx, _) = broadcast::channel(10);
+    let (tx, _) = broadcast::channel(CONFIG.service.queue_size);
     tx
 });
 
@@ -293,12 +294,12 @@ impl BotConfigs {
                     else {
                         configs.insert(user_id.clone(), config);
                         let stream = unfold((SENDER.subscribe(), user_id), |(mut rx, user_id)| Box::pin(async {
-                            let mut res = None;
-                            while res.is_none() {
+                            let res: select_all::Message;
+                            loop {
                                 let temp = match rx.recv().await {
                                     Ok(t) => t,
-                                    Err(broadcast::error::RecvError::Lagged(n)) => {
-                                        res = Some(Box::new(LagMessage::new(n)));
+                                    Err(broadcast::error::RecvError::Lagged(lag)) => {
+                                        res = (user_id.clone(), Box::new(LagMessage { lag }), String::new());
                                         break;
                                     },
                                     _ => return None,
@@ -306,14 +307,17 @@ impl BotConfigs {
                                 let (time, req) = temp.as_ref();
                                 let lock = BOT_CONFIGS.read().await;
                                 let conf = lock.get(&user_id)?;
-                                res = conf.submit(time, req).await.ok();
+                                if let Ok(msg) = conf.submit(time, req).await {
+                                    res = (user_id.clone(), msg, conf.more.l.clone());
+                                    break;
+                                }
                             }
-                            Some((res.unwrap(), (rx, user_id)))
+                            Some((res, (rx, user_id)))
                         }));
                         // We can send a single message per telegram chat per second
                         let rate = ThrottleRate::new(1, Duration::from_secs(1));
                         let pool = ThrottlePool::new(rate);
-                        select_all::add(stream.throttle(pool)).await;
+                        select_all::add(stream.throttle(pool)).await.ok();
                     }
 
                     Ok(LoadResult::Ok)
@@ -487,7 +491,7 @@ impl BotConfigs {
                 },
                 Request::DeviceTier(dt) => {
                     spawn(async move {
-                        BotConfigs::update_device_tier(&dt, now).await.ok();
+                        BotConfigs::update_device_tier(&dt).await.ok();
                     });
                     continue;
                 },
@@ -495,28 +499,29 @@ impl BotConfigs {
                 _ => debug!("Unmanaged webhook: {:?}", input),
             }
 
-            let mut messages = Vec::new();
-            {
-                let lock = BOT_CONFIGS.read().await;
-                for (chat_id, config) in lock.iter() {
-                    if let Ok(message) = config.submit(&now, &input).await {
-                        messages.push((chat_id.clone(), message, config.more.l.clone()));
-                    }
-                }
-            }
+            // let mut messages = Vec::new();
+            // {
+            //     let lock = BOT_CONFIGS.read().await;
+            //     for (chat_id, config) in lock.iter() {
+            //         if let Ok(message) = config.submit(&now, &input).await {
+            //             messages.push((chat_id.clone(), message, config.more.l.clone()));
+            //         }
+            //     }
+            // }
 
-            if !messages.is_empty() {
-                spawn(async move {
-                    if let Ok(file_id) = messages[0].1.prepare(now).await {
-                        for (chat_id, message, map_type) in messages.into_iter() {
-                            let file_id = file_id.clone();
-                            spawn(async move {
-                                message.send(&chat_id, file_id, &map_type).await.ok();
-                            });
-                        }
-                    }
-                });
-            }
+            // if !messages.is_empty() {
+            //     spawn(async move {
+            //         if let Ok(file_id) = messages[0].1.prepare(now).await {
+            //             for (chat_id, message, map_type) in messages.into_iter() {
+            //                 let file_id = file_id.clone();
+            //                 spawn(async move {
+            //                     message.send(&chat_id, file_id, &map_type).await.ok();
+            //                 });
+            //             }
+            //         }
+            //     });
+            // }
+            SENDER.send(Arc::new((now, input))).map_err(|e| error!("Stream send error: {}", e)).ok();
         }
     }
 
@@ -657,7 +662,7 @@ impl BotConfigs {
         }
     }
 
-    async fn update_device_tier(dt: &DeviceTier, now: DateTime<Local>) -> Result<(), ()> {
+    async fn update_device_tier(dt: &DeviceTier) -> Result<(), ()> {
         let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
         if let Some(name) = &dt.name {
             conn.exec_drop(
@@ -693,7 +698,7 @@ impl BotConfigs {
             let message = DeviceTierMessage {
                 tier: dt,
             };
-            let image = message.prepare(now).await?;
+            let image = message.get_image().await?;
             message.send(version_chat, image, "").await?;
         }
 
@@ -704,8 +709,6 @@ impl BotConfigs {
 #[cfg(test)]
 mod tests {
     use super::message::{Message, PokemonMessage, RaidMessage, InvasionMessage, GymMessage};
-
-    use chrono::Local;
 
     #[tokio::test]
     async fn pokemon_image_iv() {
@@ -720,7 +723,7 @@ mod tests {
             direction: String::new(),
             debug: None,
         };
-        message.prepare(Local::now()).await.unwrap();
+        message.get_image().await.unwrap();
     }
 
     #[tokio::test]
@@ -736,7 +739,7 @@ mod tests {
             direction: String::new(),
             debug: None,
         };
-        message.prepare(Local::now()).await.unwrap();
+        message.get_image().await.unwrap();
     }
 
     #[tokio::test]
@@ -750,7 +753,7 @@ mod tests {
             distance: 0_f64,
             debug: None,
         };
-        message.prepare(Local::now()).await.unwrap();
+        message.get_image().await.unwrap();
     }
 
     #[tokio::test]
@@ -764,7 +767,7 @@ mod tests {
             distance: 0_f64,
             debug: None,
         };
-        message.prepare(Local::now()).await.unwrap();
+        message.get_image().await.unwrap();
     }
 
     #[tokio::test]
@@ -777,7 +780,7 @@ mod tests {
                 ).unwrap(),
             debug: None,
         };
-        message.prepare(Local::now()).await.unwrap();
+        message.get_image().await.unwrap();
     }
 
     #[tokio::test]
@@ -791,6 +794,6 @@ mod tests {
             distance: 0_f64,
             debug: None,
         };
-        message.prepare(Local::now()).await.unwrap();
+        message.get_image().await.unwrap();
     }
 }
