@@ -3,6 +3,7 @@ address = "0.0.0.0"#0.0.0.0 accepts from any address
 port = 8080
 safeword = ""
 queue_size = 1
+lru_size = 1
 
 [database]
 url = "mysql://user:password@host/database"
