@@ -230,6 +230,7 @@ pub struct Gym {
     pub raid_active_until: i64,
     pub ex_raid_eligible: bool,
     pub sponsor_od: Option<u8>,
+    pub ar_scan_eligible: Option<bool>,
 }
 
 #[derive(Clone, Debug)]
@@ -429,6 +430,7 @@ pub struct Quest {
     pub pokestop_id: String,
     pub pokestop_name: String,
     pub conditions: Value,
+    pub ar_scan_eligible: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
