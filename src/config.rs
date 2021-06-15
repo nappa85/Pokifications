@@ -24,6 +24,8 @@ pub struct Service {
     pub address: Option<String>,
     pub port: Option<u32>,
     pub safeword: Option<String>,
+    pub queue_size: usize,
+    pub lru_size: usize,
 }
 
 #[derive(Deserialize)]
@@ -34,6 +36,7 @@ pub struct Database {
 #[derive(Deserialize)]
 pub struct Images {
     pub bot: String,
+    pub bot_pub: Option<String>,
     pub sender: String,
     pub assets: String,
 }
@@ -51,7 +54,8 @@ pub struct Telegram {
     pub alert_chat: Option<String>,
     pub version_chat: Option<String>,
     pub timeout: Option<u64>,
-    pub cache_chat: Option<String>,
+    // pub cache_chat: Option<String>,
+    pub send_file: Option<bool>,
 }
 
 impl Config {

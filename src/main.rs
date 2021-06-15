@@ -118,7 +118,7 @@ async fn main() -> Result<(), ()> {
         }
     });
 
-    telegram::init();
+    // telegram::init();
     lists::init().await;
     alerts::init();
     if bot::BotConfigs::init().await.is_ok() {

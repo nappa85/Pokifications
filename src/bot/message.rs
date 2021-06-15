@@ -1,28 +1,33 @@
-use std::path::Path;
+use std::path::PathBuf;
 
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use mysql_async::{prelude::Queryable, Conn, params};
 
-use chrono::{Local, DateTime, Timelike};
+use chrono::{Local, Timelike};
 use chrono::offset::TimeZone;
 
 use qrcode::{QrCode, Version, EcLevel};
 
 use serde_json::{json, value::Value};
 
+use once_cell::sync::Lazy;
+
 use async_trait::async_trait;
 
 use log::error;
 
-use super::BotConfigs;
+use super::{BotConfigs, file_cache::FileCache};
 
 use crate::entities::{DeviceTier, Gender, GymDetails, Pokemon, Pokestop, Raid, Watch};
 use crate::lists::{LIST, MOVES, FORMS, GRUNTS};
 use crate::config::CONFIG;
 use crate::db::MYSQL;
-use crate::telegram::{send_photo, CallResult, Image};
+use crate::telegram::{send_photo, send_message, CallResult, Image};
+
+static MAP_CACHE: Lazy<FileCache<PathBuf, Result<image::DynamicImage, ()>>> = Lazy::new(|| FileCache::new(CONFIG.service.lru_size));
+static IMG_CACHE: Lazy<FileCache<PathBuf, Result<Image, ()>>> = Lazy::new(|| FileCache::new(CONFIG.service.lru_size));
 
 fn truncate_str(s: &str, limit: usize, placeholder: char) -> String {
     if s.is_empty() {
@@ -46,16 +51,16 @@ async fn open_font(path: &str) -> Result<rusttype::Font<'static>, ()> {
     rusttype::Font::try_from_vec(data).ok_or_else(|| error!("error decoding font {}", path))
 }
 
-async fn open_image(path: &str) -> Result<image::DynamicImage, ()> {
-    let mut file = File::open(path).await.map_err(|e| error!("error opening image {}: {}", path, e))?;
+async fn open_image(path: &PathBuf) -> Result<image::DynamicImage, ()> {
+    let mut file = File::open(path).await.map_err(|e| error!("error opening image {}: {}", path.display(), e))?;
     let mut data = Vec::new();
-    file.read_to_end(&mut data).await.map_err(|e| error!("error reading image {}: {}", path, e))?;
-    image::load_from_memory_with_format(&data, image::ImageFormat::Png).map_err(|e| error!("error opening image {}: {}", path, e))
+    file.read_to_end(&mut data).await.map_err(|e| error!("error reading image {}: {}", path.display(), e))?;
+    image::load_from_memory_with_format(&data, image::ImageFormat::Png).map_err(|e| error!("error opening image {}: {}", path.display(), e))
 }
 
-async fn save_image(img: &image::DynamicImage, path: &str) -> Result<Vec<u8>, ()> {
+async fn save_image(img: &image::DynamicImage, path: &PathBuf) -> Result<Vec<u8>, ()> {
     let mut out = Vec::new();
-    img.write_to(&mut out, image::ImageOutputFormat::Png).map_err(|e| error!("error converting image {}: {}", path, e))?;
+    img.write_to(&mut out, image::ImageOutputFormat::Png).map_err(|e| error!("error converting image {}: {}", path.display(), e))?;
 
     let mut file = OpenOptions::new()
         .write(true)
@@ -63,8 +68,8 @@ async fn save_image(img: &image::DynamicImage, path: &str) -> Result<Vec<u8>, ()
         .create(true)
         .open(path)
         .await
-        .map_err(|e| error!("error saving image {}: {}", path, e))?;
-    file.write_all(&out).await.map_err(|e| error!("error writing image {}: {}", path, e))?;
+        .map_err(|e| error!("error saving image {}: {}", path.display(), e))?;
+    file.write_all(&out).await.map_err(|e| error!("error writing image {}: {}", path.display(), e))?;
 
     Ok(out)
 }
@@ -138,67 +143,24 @@ pub trait Message {
         // $map_path = "../../data/bot/img_maps/" . $lat . "_" . $lon . ".png";
         let map_path_str = format!("{}img_maps/{:.3}_{:.3}.png", CONFIG.images.bot, self.get_latitude(), self.get_longitude());
 
-        let map_path = Path::new(&map_path_str);
-        if map_path.exists() {
-            return open_image(&map_path_str).await;
-        }
+        MAP_CACHE.get(map_path_str.into(), |map_path| async move {
+            if map_path.exists() {
+                return open_image(&map_path).await;
+            }
 
-        let map = super::map::Map::new(&CONFIG.osm.tile_url, 14, 280, 101, self.get_latitude(), self.get_longitude());
-        let marker = format!("{}img/marker.png", CONFIG.images.assets);
-        let image = map.get_map(open_image(&marker).await.ok()).await?;
+            let map = super::map::Map::new(&CONFIG.osm.tile_url, 14, 280, 101, self.get_latitude(), self.get_longitude());
+            let marker = format!("{}img/marker.png", CONFIG.images.assets).into();
+            let image = map.get_map(open_image(&marker).await.ok()).await?;
 
-        save_image(&image, &map_path_str).await?;
+            save_image(&image, &map_path).await?;
 
-        Ok(image)
+            Ok(image)
+        }).await
     }
 
-    async fn prepare(&self, now: DateTime<Local>) -> Result<Image, ()> {
+    async fn get_image(&self) -> Result<Image, ()> {
         let map = self.get_map().await?;
-        let bytes = self.get_image(map).await?;
-
-        if let Some(chat_id) = CONFIG.telegram.cache_chat.as_ref() {
-            let mut retries: u8 = 0;
-            loop {
-                let temp = format!("{}\n{} retries", now.format("%F %T").to_string(), retries);
-                match send_photo(&CONFIG.telegram.bot_token, chat_id, Image::Bytes(bytes.clone()), Some(&temp), None, None, None, None).await {
-                    Ok(body) => {
-                        let json: Value = serde_json::from_str(&body).map_err(|e| error!("error while decoding Telegram response: {}\n{}", e, body))?;
-
-                        if let Some(sizes) = json["result"]["photo"].as_array() {
-                            // scan various formats to select the best one
-                            let mut best_index = 0;
-                            for i in 1..sizes.len() {
-                                if sizes[i]["file_size"].as_u64() > sizes[best_index]["file_size"].as_u64() {
-                                    best_index = i;
-                                }
-                            }
-
-                            return Ok(Image::FileId(sizes[best_index]["file_id"].as_str().map(|s| s.to_owned()).ok_or(())?));
-                        }
-                        else {
-                            error!("error while reading Telegram response: photos isn't an array\n{}", body);
-                            return Err(());
-                        }
-                    },
-                    Err(CallResult::Body((status, body))) => {
-                        if status == 429u16 || status == 504u16 {
-                            retries += 1;
-                            continue;
-                        }
-                        else {
-                            error!("error while reading Telegram response: {}", body);
-                            return Err(());
-                        }
-                    },
-                    _ => {
-                        return Err(());
-                    },
-                }
-            }
-        }
-        else {
-            Ok(Image::Bytes(bytes))
-        }
+        self._get_image(map).await
     }
 
     fn message_button(&self, _chat_id: &str, mtype: &str) -> Result<Value, ()> {
@@ -230,7 +192,7 @@ pub trait Message {
 
     async fn get_caption(&self) -> Result<String, ()>;
 
-    async fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()>;
+    async fn _get_image(&self, map: image::DynamicImage) -> Result<Image, ()>;
 
     async fn update_stats(&self, _: &mut Conn) -> Result<(), ()> {
         Ok(())
@@ -351,157 +313,170 @@ impl Message for PokemonMessage {
         })
     }
 
-    async fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
+    async fn _get_image(&self, map: image::DynamicImage) -> Result<Image, ()> {
         let timestamp = Local.timestamp(self.pokemon.disappear_time, 0);
         let img_path_str = format!("{}img_sent/poke_{}_{}_{}_{}.png", CONFIG.images.bot, timestamp.format("%Y%m%d%H").to_string(), self.pokemon.encounter_id, self.pokemon.pokemon_id, self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new));
 
-        let img_path = Path::new(&img_path_str);
-        if img_path.exists() {
-            let mut image = File::open(&img_path).await.map_err(|e| error!("error opening pokemon image {}: {}", img_path_str, e))?;
-            let mut bytes = Vec::new();
-            image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading pokemon image {}: {}", img_path_str, e))?;
-            return Ok(bytes);
-        }
-
-        let f_cal1 = {
-            let font = format!("{}fonts/calibri.ttf", CONFIG.images.sender);
-            open_font(&font).await?
-        };
-        let f_cal2 = {
-            let font = format!("{}fonts/calibrib.ttf", CONFIG.images.sender);
-            open_font(&font).await?
-        };
-        let scale11 = rusttype::Scale::uniform(16f32);
-        let scale12 = rusttype::Scale::uniform(17f32);
-        let scale13 = rusttype::Scale::uniform(18f32);
-        let scale18 = rusttype::Scale::uniform(23f32);
-
-        // $mBg = null;
-        let mut background = {
-            let path = format!("{}{}", CONFIG.images.sender, match self.iv {
-                Some(i) if i < 80f32 => "images/msg-bgs/msg-poke-big-norm.png",
-                Some(i) if (80f32..90f32).contains(&i) => "images/msg-bgs/msg-poke-big-med.png",
-                Some(i) if (90f32..100f32).contains(&i) => "images/msg-bgs/msg-poke-big-hi.png",
-                Some(i) if i >= 100f32 => "images/msg-bgs/msg-poke-big-top.png",
-                _ => "images/msg-bgs/msg-poke-sm.png",
-            });
-            open_image(&path).await?
-        };
-
-        let pokemon = match self.pokemon.form {
-            Some(form) if form > 0 => {
-                let image = format!("{}img/pkmns/shuffle/{}-{}.png",
-                    CONFIG.images.assets,
-                    self.pokemon.pokemon_id,
-                    form
-                );
-                match open_image(&image).await {
-                    Ok(img) => img,
-                    Err(_) => {
-                        let image = format!("{}img/pkmns/shuffle/{}.png",
-                            CONFIG.images.assets,
-                            self.pokemon.pokemon_id
-                        );
-                        open_image(&image).await?
-                    },
+        IMG_CACHE.get(img_path_str.into(), |img_path| async move {
+            if img_path.exists() {
+                if let Some(url) = &CONFIG.images.bot_pub {
+                    return Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)));
                 }
-            },
-            _ => {
-                let image = format!("{}img/pkmns/shuffle/{}.png",
-                    CONFIG.images.assets,
-                    self.pokemon.pokemon_id
-                );
-                open_image(&image).await?
-            },
-        };
-
-        image::imageops::overlay(&mut background, &pokemon, 5, 5);
-
-        match self.pokemon.gender {
-            Gender::Male | Gender::Female => {
-                let path = format!("{}img/{}.png", CONFIG.images.assets, if self.pokemon.gender == Gender::Female { "female" } else { "male" });
-                let icon = open_image(&path).await?;
-                image::imageops::overlay(&mut background, &icon, 32, 32);
+                else {
+                    let mut image = File::open(&img_path).await.map_err(|e| error!("error opening pokemon image {}: {}", img_path.display(), e))?;
+                    let mut bytes = Vec::new();
+                    image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading pokemon image {}: {}", img_path.display(), e))?;
+                    return Ok(Image::Bytes(bytes));
+                }
             }
-            _ => {},
-        }
 
-        // imagettftext($mBg, 18, 0, 63, 25, 0x00000000, $f_cal2, strtoupper($p_name));
-        let name = LIST.read().await.get(&self.pokemon.pokemon_id).map(|p| {
-            // fix nidoran gender
-            let gender = self.pokemon.gender.get_glyph();
-            p.name.replace(&gender, "").to_uppercase()
-        }).unwrap_or_else(String::new);
-        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale18, &f_cal2, &name);
+            let f_cal1 = {
+                let font = format!("{}fonts/calibri.ttf", CONFIG.images.sender);
+                open_font(&font).await?
+            };
+            let f_cal2 = {
+                let font = format!("{}fonts/calibrib.ttf", CONFIG.images.sender);
+                open_font(&font).await?
+            };
+            let scale11 = rusttype::Scale::uniform(16f32);
+            let scale12 = rusttype::Scale::uniform(17f32);
+            let scale13 = rusttype::Scale::uniform(18f32);
+            let scale18 = rusttype::Scale::uniform(23f32);
 
-        if let Some(id) = self.pokemon.form {
-            if let Some(form_name) = FORMS.read().await.get(&id).and_then(|f| if f.hidden { None } else { Some(&f.name) }) {
-                let dm = get_text_width(&f_cal2, scale18, &name);
-                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 73 + dm as u32, 7, scale11, &f_cal2, &format!("({})", form_name));
+            // $mBg = null;
+            let mut background = {
+                let path = format!("{}{}", CONFIG.images.sender, match self.iv {
+                    Some(i) if i < 80f32 => "images/msg-bgs/msg-poke-big-norm.png",
+                    Some(i) if (80f32..90f32).contains(&i) => "images/msg-bgs/msg-poke-big-med.png",
+                    Some(i) if (90f32..100f32).contains(&i) => "images/msg-bgs/msg-poke-big-hi.png",
+                    Some(i) if i >= 100f32 => "images/msg-bgs/msg-poke-big-top.png",
+                    _ => "images/msg-bgs/msg-poke-sm.png",
+                }).into();
+                open_image(&path).await?
+            };
+
+            let pokemon = match self.pokemon.form {
+                Some(form) if form > 0 => {
+                    let image = format!("{}img/pkmns/shuffle/{}-{}.png",
+                        CONFIG.images.assets,
+                        self.pokemon.pokemon_id,
+                        form
+                    ).into();
+                    match open_image(&image).await {
+                        Ok(img) => img,
+                        Err(_) => {
+                            let image = format!("{}img/pkmns/shuffle/{}.png",
+                                CONFIG.images.assets,
+                                self.pokemon.pokemon_id
+                            ).into();
+                            open_image(&image).await?
+                        },
+                    }
+                },
+                _ => {
+                    let image = format!("{}img/pkmns/shuffle/{}.png",
+                        CONFIG.images.assets,
+                        self.pokemon.pokemon_id
+                    ).into();
+                    open_image(&image).await?
+                },
+            };
+
+            image::imageops::overlay(&mut background, &pokemon, 5, 5);
+
+            match self.pokemon.gender {
+                Gender::Male | Gender::Female => {
+                    let path = format!("{}img/{}.png", CONFIG.images.assets, if self.pokemon.gender == Gender::Female { "female" } else { "male" }).into();
+                    let icon = open_image(&path).await?;
+                    image::imageops::overlay(&mut background, &icon, 32, 32);
+                }
+                _ => {},
             }
-        }
 
-        // imagettftext($mBg, 12, 0, 82, 46, 0x00000000, $f_cal2, $v_exit);
-        let v_exit = Local.timestamp(self.pokemon.disappear_time, 0);
-        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 82, 34, scale12, &f_cal2, &v_exit.format("%T").to_string());
+            // imagettftext($mBg, 18, 0, 63, 25, 0x00000000, $f_cal2, strtoupper($p_name));
+            let name = LIST.read().await.get(&self.pokemon.pokemon_id).map(|p| {
+                // fix nidoran gender
+                let gender = self.pokemon.gender.get_glyph();
+                p.name.replace(&gender, "").to_uppercase()
+            }).unwrap_or_else(String::new);
+            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale18, &f_cal2, &name);
 
-        //     imagecopymerge($mBg, $mMap, 0, ($v_ivs ? 136 : 58), 0, 0, 280, 101, 100);
-        image::imageops::overlay(&mut background, &map, 0, if self.iv.is_some() { 136 } else { 58 });
+            if let Some(id) = self.pokemon.form {
+                if let Some(form_name) = FORMS.read().await.get(&id).and_then(|f| if f.hidden { None } else { Some(&f.name) }) {
+                    let dm = get_text_width(&f_cal2, scale18, &name);
+                    imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 73 + dm as u32, 7, scale11, &f_cal2, &format!("({})", form_name));
+                }
+            }
 
-        // //////////////////////////////////////////////
-        // // IV, PL e MOSSE
-        if let Some(iv) = self.iv {
-            // $dm = imagettfbbox(11, 0, $f_cal1, strtoupper($m_move1));
-            // imagettftext($mBg, 11, 0, 80 - (abs($dm[4] - $dm[6]) / 2), 75, 0x00000000, $f_cal1, strtoupper($m_move1));
-            let m_move1 = match self.pokemon.move_1 {
-                    Some(i) => MOVES.read().await.get(&i).map(|s| s.to_uppercase()),
-                    None => None,
-                }.unwrap_or_else(|| String::from("-"));
-            let dm = get_text_width(&f_cal1, scale11, &m_move1);
-            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 80 - (dm / 2) as u32, 64, scale11, &f_cal1, &m_move1);
-            // $dm = imagettfbbox(11, 0, $f_cal1, strtoupper($m_move2));
-            // imagettftext($mBg, 11, 0, 200 - (abs($dm[4] - $dm[6]) / 2), 75, 0x00000000, $f_cal1, strtoupper($m_move2));
-            let m_move2 = match self.pokemon.move_2 {
-                    Some(i) => MOVES.read().await.get(&i).map(|s| s.to_uppercase()),
-                    None => None,
-                }.unwrap_or_else(|| String::from("-"));
-            let dm = get_text_width(&f_cal1, scale11, &m_move2);
-            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 200 - (dm / 2) as u32, 64, scale11, &f_cal1, &m_move2);
+            // imagettftext($mBg, 12, 0, 82, 46, 0x00000000, $f_cal2, $v_exit);
+            let v_exit = Local.timestamp(self.pokemon.disappear_time, 0);
+            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 82, 34, scale12, &f_cal2, &v_exit.format("%T").to_string());
 
-            let v_ivcolor = match self.iv {
-                Some(i) if i == 0f32 => image::Rgba::<u8>([0x2D, 0x90, 0xFF, 0]),//0x002D90FF, // NULL Azzurro
-                Some(i) if (80f32..90f32).contains(&i) => image::Rgba::<u8>([0xFF, 0x62, 0x14, 0]),//0x00FF6214, // MED Arancione
-                Some(i) if (90f32..100f32).contains(&i) => image::Rgba::<u8>([0xFF, 0, 0, 0]),//0x00FF0000, // HI Rosso
-                Some(i) if i >= 100f32 => image::Rgba::<u8>([0xDC, 0, 0xEA, 0]),//0x00DC00EA, // TOP Viola
-                _ => image::Rgba::<u8>([0, 0, 0, 0]),//0x00000000,
-            };
-            // $dm = imagettfbbox(13, 0, $f_cal2, "IV " . $v_iv . " %");
-            // imagettftext($mBg, 13, 0, 80 - (abs($dm[4] - $dm[6]) / 2), 100, $v_ivcolor, $f_cal2, "IV " . $v_iv . " %");
-            let text = format!("IV {:.0}%", iv.round());
-            let dm = get_text_width(&f_cal2, scale13, &text);
-            imageproc::drawing::draw_text_mut(&mut background, v_ivcolor, 80 - (dm / 2) as u32, 87, scale13, &f_cal2, &text);
+            //     imagecopymerge($mBg, $mMap, 0, ($v_ivs ? 136 : 58), 0, 0, 280, 101, 100);
+            image::imageops::overlay(&mut background, &map, 0, if self.iv.is_some() { 136 } else { 58 });
 
-            let v_plcolor = match self.pokemon.pokemon_level {
-                Some(i) if (25..30).contains(&i) => image::Rgba::<u8>([0xFF, 0x62, 0x14, 0]),//0x00FF6214, // MED Arancione
-                Some(i) if (30..35).contains(&i) => image::Rgba::<u8>([0xFF, 0, 0, 0]),//0x00FF0000, // HI Rosso
-                Some(i) if i >= 35 => image::Rgba::<u8>([0xDC, 0, 0xEA, 0]),//0x00DC00EA, // TOP Viola
-                _ => image::Rgba::<u8>([0, 0, 0, 0]),//0x00000000,
-            };
-            // $dm = imagettfbbox(13, 0, $f_cal2, "PL " . number_format($v_pl, 0, '', '.'));
-            // imagettftext($mBg, 13, 0, 200 - (abs($dm[4] - $dm[6]) / 2), 100, $v_plcolor, $f_cal2, "PL " . number_format($v_pl, 0, '', '.'));
-            let text = format!("PL {}", self.pokemon.cp.unwrap_or(0));
-            let dm = get_text_width(&f_cal2, scale13, &text);
-            imageproc::drawing::draw_text_mut(&mut background, v_plcolor, 200 - (dm / 2) as u32, 87, scale13, &f_cal2, &text);
+            // //////////////////////////////////////////////
+            // // IV, PL e MOSSE
+            if let Some(iv) = self.iv {
+                // $dm = imagettfbbox(11, 0, $f_cal1, strtoupper($m_move1));
+                // imagettftext($mBg, 11, 0, 80 - (abs($dm[4] - $dm[6]) / 2), 75, 0x00000000, $f_cal1, strtoupper($m_move1));
+                let m_move1 = match self.pokemon.move_1 {
+                        Some(i) => MOVES.read().await.get(&i).map(|s| s.to_uppercase()),
+                        None => None,
+                    }.unwrap_or_else(|| String::from("-"));
+                let dm = get_text_width(&f_cal1, scale11, &m_move1);
+                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 80 - (dm / 2) as u32, 64, scale11, &f_cal1, &m_move1);
+                // $dm = imagettfbbox(11, 0, $f_cal1, strtoupper($m_move2));
+                // imagettftext($mBg, 11, 0, 200 - (abs($dm[4] - $dm[6]) / 2), 75, 0x00000000, $f_cal1, strtoupper($m_move2));
+                let m_move2 = match self.pokemon.move_2 {
+                        Some(i) => MOVES.read().await.get(&i).map(|s| s.to_uppercase()),
+                        None => None,
+                    }.unwrap_or_else(|| String::from("-"));
+                let dm = get_text_width(&f_cal1, scale11, &m_move2);
+                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 200 - (dm / 2) as u32, 64, scale11, &f_cal1, &m_move2);
 
-            // $v_str = "ATK: " . $v_atk . "   DEF: " . $v_def . "   STA: " . $v_sta;
-            // $dm = imagettfbbox(12, 0, $f_cal1, $v_str);
-            // imagettftext($mBg, 12, 0, 140 - (abs($dm[4] - $dm[6]) / 2), 123, 0x00000000, $f_cal1, $v_str);
-            let text = format!("ATK: {}   DEF: {}   STA: {}", self.pokemon.individual_attack.unwrap_or(0), self.pokemon.individual_defense.unwrap_or(0), self.pokemon.individual_stamina.unwrap_or(0));
-            let dm = get_text_width(&f_cal1, scale12, &text);
-            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 140 - (dm / 2) as u32, 111, scale12, &f_cal1, &text);
-        }
+                let v_ivcolor = match self.iv {
+                    Some(i) if i == 0f32 => image::Rgba::<u8>([0x2D, 0x90, 0xFF, 0]),//0x002D90FF, // NULL Azzurro
+                    Some(i) if (80f32..90f32).contains(&i) => image::Rgba::<u8>([0xFF, 0x62, 0x14, 0]),//0x00FF6214, // MED Arancione
+                    Some(i) if (90f32..100f32).contains(&i) => image::Rgba::<u8>([0xFF, 0, 0, 0]),//0x00FF0000, // HI Rosso
+                    Some(i) if i >= 100f32 => image::Rgba::<u8>([0xDC, 0, 0xEA, 0]),//0x00DC00EA, // TOP Viola
+                    _ => image::Rgba::<u8>([0, 0, 0, 0]),//0x00000000,
+                };
+                // $dm = imagettfbbox(13, 0, $f_cal2, "IV " . $v_iv . " %");
+                // imagettftext($mBg, 13, 0, 80 - (abs($dm[4] - $dm[6]) / 2), 100, $v_ivcolor, $f_cal2, "IV " . $v_iv . " %");
+                let text = format!("IV {:.0}%", iv.round());
+                let dm = get_text_width(&f_cal2, scale13, &text);
+                imageproc::drawing::draw_text_mut(&mut background, v_ivcolor, 80 - (dm / 2) as u32, 87, scale13, &f_cal2, &text);
 
-        save_image(&background, &img_path_str).await
+                let v_plcolor = match self.pokemon.pokemon_level {
+                    Some(i) if (25..30).contains(&i) => image::Rgba::<u8>([0xFF, 0x62, 0x14, 0]),//0x00FF6214, // MED Arancione
+                    Some(i) if (30..35).contains(&i) => image::Rgba::<u8>([0xFF, 0, 0, 0]),//0x00FF0000, // HI Rosso
+                    Some(i) if i >= 35 => image::Rgba::<u8>([0xDC, 0, 0xEA, 0]),//0x00DC00EA, // TOP Viola
+                    _ => image::Rgba::<u8>([0, 0, 0, 0]),//0x00000000,
+                };
+                // $dm = imagettfbbox(13, 0, $f_cal2, "PL " . number_format($v_pl, 0, '', '.'));
+                // imagettftext($mBg, 13, 0, 200 - (abs($dm[4] - $dm[6]) / 2), 100, $v_plcolor, $f_cal2, "PL " . number_format($v_pl, 0, '', '.'));
+                let text = format!("PL {}", self.pokemon.cp.unwrap_or(0));
+                let dm = get_text_width(&f_cal2, scale13, &text);
+                imageproc::drawing::draw_text_mut(&mut background, v_plcolor, 200 - (dm / 2) as u32, 87, scale13, &f_cal2, &text);
+
+                // $v_str = "ATK: " . $v_atk . "   DEF: " . $v_def . "   STA: " . $v_sta;
+                // $dm = imagettfbbox(12, 0, $f_cal1, $v_str);
+                // imagettftext($mBg, 12, 0, 140 - (abs($dm[4] - $dm[6]) / 2), 123, 0x00000000, $f_cal1, $v_str);
+                let text = format!("ATK: {}   DEF: {}   STA: {}", self.pokemon.individual_attack.unwrap_or(0), self.pokemon.individual_defense.unwrap_or(0), self.pokemon.individual_stamina.unwrap_or(0));
+                let dm = get_text_width(&f_cal1, scale12, &text);
+                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 140 - (dm / 2) as u32, 111, scale12, &f_cal1, &text);
+            }
+
+            let bytes = save_image(&background, &img_path).await?;
+
+            if let Some(url) = &CONFIG.images.bot_pub {
+                Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)))
+            }
+            else {
+                Ok(Image::Bytes(bytes))
+            }
+        }).await
     }
 
     fn message_button(&self, _chat_id: &str, mtype: &str) -> Result<Value, ()> {
@@ -628,176 +603,189 @@ impl Message for RaidMessage {
         })
     }
 
-    async fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
+    async fn _get_image(&self, map: image::DynamicImage) -> Result<Image, ()> {
         let now = Local::now();
         let img_path_str = format!("{}img_sent/raid_{}_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.raid.gym_id, self.raid.start, self.raid.pokemon_id.map(|i| i.to_string()).unwrap_or_else(String::new));
-        let img_path = Path::new(&img_path_str);
-
-        if img_path.exists() {
-            let mut image = File::open(&img_path).await.map_err(|e| error!("error opening raid image {}: {}", img_path_str, e))?;
-            let mut bytes = Vec::new();
-            image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading raid image {}: {}", img_path_str, e))?;
-            return Ok(bytes);
-        }
-
-        let f_cal1 = {
-            let font = format!("{}fonts/calibri.ttf", CONFIG.images.sender);
-            open_font(&font).await?
-        };
-        let f_cal2 = {
-            let font = format!("{}fonts/calibrib.ttf", CONFIG.images.sender);
-            open_font(&font).await?
-        };
-        let scale11 = rusttype::Scale::uniform(16f32);
-        let scale12 = rusttype::Scale::uniform(17f32);
-        let scale18 = rusttype::Scale::uniform(23f32);
-
-        let (mut background, pokemon) = match self.raid.pokemon_id {
-            Some(pkmn_id) if pkmn_id > 0 => {
-                // $mBg = imagecreatefrompng("images/msg-bgs/msg-raid-big-t" . $v_team . ".png");
-                let path = format!("{}images/msg-bgs/msg-raid-big-t{}{}.png", CONFIG.images.sender, self.raid.team_id.get_id(), if self.raid.ex_raid_eligible { "-ex" } else { "" });
-                let mut background = open_image(&path).await?;
-
-                let evo = match self.raid.evolution {
-                    Some(1) => "_mega",
-                    Some(2) => "_megax",
-                    Some(3) => "_megay",
-                    _ => "",
-                };
- 
-                // $mPoke = imagecreatefrompng("../../assets/img/pkmns/shuffle/" . $v_pkmnid . ".png");
-                let pokemon = match self.raid.form {
-                    Some(form) if form > 0 => {
-                        let image = format!("{}img/pkmns/shuffle/{}-{}{}.png",
-                            CONFIG.images.assets,
-                            pkmn_id,
-                            form,
-                            evo
-                        );
-                        match open_image(&image).await {
-                            Ok(img) => img,
-                            Err(_) => {
-                                let image = format!("{}img/pkmns/shuffle/{}{}.png",
-                                    CONFIG.images.assets,
-                                    pkmn_id,
-                                    evo
-                                );
-                                match open_image(&image).await {
-                                    Ok(img) => img,
-                                    Err(_) => {
-                                        let image = format!("{}img/pkmns/shuffle/{}.png",
-                                            CONFIG.images.assets,
-                                            pkmn_id
-                                        );
-                                        open_image(&image).await?
-                                    }
-                                }
-                            },
-                        }
-                    },
-                    _ => {
-                        let image = format!("{}img/pkmns/shuffle/{}{}.png",
-                            CONFIG.images.assets,
-                            pkmn_id,
-                            evo
-                        );
-                        match open_image(&image).await {
-                            Ok(img) => img,
-                            Err(_) => {
-                                let image = format!("{}img/pkmns/shuffle/{}.png",
-                                    CONFIG.images.assets,
-                                    pkmn_id
-                                );
-                                open_image(&image).await?
-                            }
-                        }
-                    },
-                };
-
-                match self.raid.gender {
-                    Gender::Male | Gender::Female => {
-                        let path = format!("{}img/{}.png", CONFIG.images.assets, if self.raid.gender == Gender::Female { "female" } else { "male" });
-                        let icon = open_image(&path).await?;
-                        image::imageops::overlay(&mut background, &icon, 32, 50);
-                    }
-                    _ => {},
+        
+        IMG_CACHE.get(img_path_str.into(), |img_path| async move {
+            if img_path.exists() {
+                if let Some(url) = &CONFIG.images.bot_pub {
+                    return Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)));
                 }
-
-                // imagettftext($mBg, 12, 0, 82, 71, 0x00000000, $f_cal2, $v_end);
-                let v_end = Local.timestamp(self.raid.end, 0);
-                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 82, 59, scale12, &f_cal2, &v_end.format("%T").to_string());
-
-                // $dm = imagettfbbox(12, 0, $f_cal2, $v_str);
-                // imagettftext($mBg, 12, 0, 140 - (abs($dm[4] - $dm[6]) / 2), 100, 0x00000000, $f_cal2, $v_str);
-                let text = format!("PL {}", self.raid.cp.unwrap_or(0));
-                let dm = get_text_width(&f_cal2, scale12, &text);
-                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 140 - (dm / 2) as u32, 88, scale12, &f_cal2, &text);
-
-                // $dm = imagettfbbox(11, 0, $f_cal1, strtoupper($m_move1));
-                // imagettftext($mBg, 11, 0, 80 - (abs($dm[4] - $dm[6]) / 2), 123, 0x00000000, $f_cal1, strtoupper($m_move1));
-                let m_move1 = match self.raid.move_1 {
-                    Some(i) => MOVES.read().await.get(&i).map(|s| s.to_uppercase()),
-                    None => None,
-                }.unwrap_or_else(|| String::from("-"));
-                let dm = get_text_width(&f_cal1, scale11, &m_move1);
-                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 80 - (dm / 2) as u32, 111, scale11, &f_cal1, &m_move1);
-                // $dm = imagettfbbox(11, 0, $f_cal1, strtoupper($m_move2));
-                // imagettftext($mBg, 11, 0, 200 - (abs($dm[4] - $dm[6]) / 2), 123, 0x00000000, $f_cal1, strtoupper($m_move2));
-                let m_move2 = match self.raid.move_2 {
-                    Some(i) => MOVES.read().await.get(&i).map(|s| s.to_uppercase()),
-                    None => None,
-                }.unwrap_or_else(|| String::from("-"));
-                let dm = get_text_width(&f_cal1, scale11, &m_move2);
-                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 200 - (dm / 2) as u32, 111, scale11, &f_cal1, &m_move2);
-
-                // imagettftext($mBg, 18, 0, 63, 25, 0x00000000, $f_cal2, $p_name);
-                let name = LIST.read().await.get(&pkmn_id).map(|p| p.name.to_uppercase()).unwrap_or_else(String::new);
-                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale18, &f_cal2, &name);
-                let mut has_form = false;
-                if let Some(id) = self.raid.form {
-                    if let Some(form_name) = FORMS.read().await.get(&id).and_then(|f| if f.hidden { None } else { Some(&f.name) }) {
-                        has_form = true;
-                        let dm = get_text_width(&f_cal2, scale18, &name);
-                        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 73 + dm as u32, 7, scale11, &f_cal2, &format!("({}) {}", form_name, get_mega_desc(&self.raid.evolution)));
-                    }
+                else {
+                    let mut image = File::open(&img_path).await.map_err(|e| error!("error opening raid image {}: {}", img_path.display(), e))?;
+                    let mut bytes = Vec::new();
+                    image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading raid image {}: {}", img_path.display(), e))?;
+                    return Ok(Image::Bytes(bytes));
                 }
-                if !has_form && self.raid.evolution.is_some() {
-                    let dm = get_text_width(&f_cal2, scale18, &name);
-                    imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 73 + dm as u32, 7, scale11, &f_cal2, get_mega_desc(&self.raid.evolution));
-                }
+            }
 
-                (background, pokemon)
-            },
-            _ => {
-                let mut background = {
-                    let path = format!("{}images/msg-bgs/msg-raid-sm-t{}{}.png", CONFIG.images.sender, self.raid.team_id.get_id(), if self.raid.ex_raid_eligible { "-ex" } else { "" });
-                    open_image(&path).await?
-                };
-                let pokemon = {
-                    let path = format!("{}images/raid_{}.png", CONFIG.images.sender, self.raid.level);
-                    open_image(&path).await?
-                };
+            let f_cal1 = {
+                let font = format!("{}fonts/calibri.ttf", CONFIG.images.sender);
+                open_font(&font).await?
+            };
+            let f_cal2 = {
+                let font = format!("{}fonts/calibrib.ttf", CONFIG.images.sender);
+                open_font(&font).await?
+            };
+            let scale11 = rusttype::Scale::uniform(16f32);
+            let scale12 = rusttype::Scale::uniform(17f32);
+            let scale18 = rusttype::Scale::uniform(23f32);
 
-                // imagettftext($mBg, 12, 0, 82, 71, 0x00000000, $f_cal2, $v_battle);
-                let v_battle = Local.timestamp(self.raid.start, 0);
-                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 82, 59, scale12, &f_cal2, &v_battle.format("%T").to_string());
+            let (mut background, pokemon) = match self.raid.pokemon_id {
+                Some(pkmn_id) if pkmn_id > 0 => {
+                    // $mBg = imagecreatefrompng("images/msg-bgs/msg-raid-big-t" . $v_team . ".png");
+                    let path = format!("{}images/msg-bgs/msg-raid-big-t{}{}.png", CONFIG.images.sender, self.raid.team_id.get_id(), if self.raid.ex_raid_eligible { "-ex" } else { "" }).into();
+                    let mut background = open_image(&path).await?;
 
-                // imagettftext($mBg, 18, 0, 63, 25, 0x00000000, $f_cal2, $p_name);
-                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale18, &f_cal2, &format!("RAID liv. {}", self.raid.level));
-
-                (background, pokemon)
-            },
-        };
-
-        image::imageops::overlay(&mut background, &pokemon, 5, 5);
-
-        // imagettftext($mBg, 12, 0, 63, 47, 0x00000000, $f_cal2, (strlen($v_name) > 26 ? substr($v_name, 0, 25) . ".." : ($v_name == "" ? "-" : $v_name)));
-        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 35, scale12, &f_cal2, &truncate_str(&self.raid.gym_name, 30, '-'));
+                    let evo = match self.raid.evolution {
+                        Some(1) => "_mega",
+                        Some(2) => "_megax",
+                        Some(3) => "_megay",
+                        _ => "",
+                    };
     
-        // imagecopymerge($mBg, $mMap, 0, ($v_pkmnid == 0 ? 83 : 136), 0, 0, 280, 101, 100);
-        image::imageops::overlay(&mut background, &map, 0, if self.raid.pokemon_id.and_then(|i| if i > 0 { Some(i) } else { None }).is_none() { 83 } else { 136 });
+                    // $mPoke = imagecreatefrompng("../../assets/img/pkmns/shuffle/" . $v_pkmnid . ".png");
+                    let pokemon = match self.raid.form {
+                        Some(form) if form > 0 => {
+                            let image = format!("{}img/pkmns/shuffle/{}-{}{}.png",
+                                CONFIG.images.assets,
+                                pkmn_id,
+                                form,
+                                evo
+                            ).into();
+                            match open_image(&image).await {
+                                Ok(img) => img,
+                                Err(_) => {
+                                    let image = format!("{}img/pkmns/shuffle/{}{}.png",
+                                        CONFIG.images.assets,
+                                        pkmn_id,
+                                        evo
+                                    ).into();
+                                    match open_image(&image).await {
+                                        Ok(img) => img,
+                                        Err(_) => {
+                                            let image = format!("{}img/pkmns/shuffle/{}.png",
+                                                CONFIG.images.assets,
+                                                pkmn_id
+                                            ).into();
+                                            open_image(&image).await?
+                                        }
+                                    }
+                                },
+                            }
+                        },
+                        _ => {
+                            let image = format!("{}img/pkmns/shuffle/{}{}.png",
+                                CONFIG.images.assets,
+                                pkmn_id,
+                                evo
+                            ).into();
+                            match open_image(&image).await {
+                                Ok(img) => img,
+                                Err(_) => {
+                                    let image = format!("{}img/pkmns/shuffle/{}.png",
+                                        CONFIG.images.assets,
+                                        pkmn_id
+                                    ).into();
+                                    open_image(&image).await?
+                                }
+                            }
+                        },
+                    };
 
-        save_image(&background, &img_path_str).await
+                    match self.raid.gender {
+                        Gender::Male | Gender::Female => {
+                            let path = format!("{}img/{}.png", CONFIG.images.assets, if self.raid.gender == Gender::Female { "female" } else { "male" }).into();
+                            let icon = open_image(&path).await?;
+                            image::imageops::overlay(&mut background, &icon, 32, 50);
+                        }
+                        _ => {},
+                    }
+
+                    // imagettftext($mBg, 12, 0, 82, 71, 0x00000000, $f_cal2, $v_end);
+                    let v_end = Local.timestamp(self.raid.end, 0);
+                    imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 82, 59, scale12, &f_cal2, &v_end.format("%T").to_string());
+
+                    // $dm = imagettfbbox(12, 0, $f_cal2, $v_str);
+                    // imagettftext($mBg, 12, 0, 140 - (abs($dm[4] - $dm[6]) / 2), 100, 0x00000000, $f_cal2, $v_str);
+                    let text = format!("PL {}", self.raid.cp.unwrap_or(0));
+                    let dm = get_text_width(&f_cal2, scale12, &text);
+                    imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 140 - (dm / 2) as u32, 88, scale12, &f_cal2, &text);
+
+                    // $dm = imagettfbbox(11, 0, $f_cal1, strtoupper($m_move1));
+                    // imagettftext($mBg, 11, 0, 80 - (abs($dm[4] - $dm[6]) / 2), 123, 0x00000000, $f_cal1, strtoupper($m_move1));
+                    let m_move1 = match self.raid.move_1 {
+                        Some(i) => MOVES.read().await.get(&i).map(|s| s.to_uppercase()),
+                        None => None,
+                    }.unwrap_or_else(|| String::from("-"));
+                    let dm = get_text_width(&f_cal1, scale11, &m_move1);
+                    imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 80 - (dm / 2) as u32, 111, scale11, &f_cal1, &m_move1);
+                    // $dm = imagettfbbox(11, 0, $f_cal1, strtoupper($m_move2));
+                    // imagettftext($mBg, 11, 0, 200 - (abs($dm[4] - $dm[6]) / 2), 123, 0x00000000, $f_cal1, strtoupper($m_move2));
+                    let m_move2 = match self.raid.move_2 {
+                        Some(i) => MOVES.read().await.get(&i).map(|s| s.to_uppercase()),
+                        None => None,
+                    }.unwrap_or_else(|| String::from("-"));
+                    let dm = get_text_width(&f_cal1, scale11, &m_move2);
+                    imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 200 - (dm / 2) as u32, 111, scale11, &f_cal1, &m_move2);
+
+                    // imagettftext($mBg, 18, 0, 63, 25, 0x00000000, $f_cal2, $p_name);
+                    let name = LIST.read().await.get(&pkmn_id).map(|p| p.name.to_uppercase()).unwrap_or_else(String::new);
+                    imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale18, &f_cal2, &name);
+                    let mut has_form = false;
+                    if let Some(id) = self.raid.form {
+                        if let Some(form_name) = FORMS.read().await.get(&id).and_then(|f| if f.hidden { None } else { Some(&f.name) }) {
+                            has_form = true;
+                            let dm = get_text_width(&f_cal2, scale18, &name);
+                            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 73 + dm as u32, 7, scale11, &f_cal2, &format!("({}) {}", form_name, get_mega_desc(&self.raid.evolution)));
+                        }
+                    }
+                    if !has_form && self.raid.evolution.is_some() {
+                        let dm = get_text_width(&f_cal2, scale18, &name);
+                        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 73 + dm as u32, 7, scale11, &f_cal2, get_mega_desc(&self.raid.evolution));
+                    }
+
+                    (background, pokemon)
+                },
+                _ => {
+                    let mut background = {
+                        let path = format!("{}images/msg-bgs/msg-raid-sm-t{}{}.png", CONFIG.images.sender, self.raid.team_id.get_id(), if self.raid.ex_raid_eligible { "-ex" } else { "" }).into();
+                        open_image(&path).await?
+                    };
+                    let pokemon = {
+                        let path = format!("{}images/raid_{}.png", CONFIG.images.sender, self.raid.level).into();
+                        open_image(&path).await?
+                    };
+
+                    // imagettftext($mBg, 12, 0, 82, 71, 0x00000000, $f_cal2, $v_battle);
+                    let v_battle = Local.timestamp(self.raid.start, 0);
+                    imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 82, 59, scale12, &f_cal2, &v_battle.format("%T").to_string());
+
+                    // imagettftext($mBg, 18, 0, 63, 25, 0x00000000, $f_cal2, $p_name);
+                    imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale18, &f_cal2, &format!("RAID liv. {}", self.raid.level));
+
+                    (background, pokemon)
+                },
+            };
+
+            image::imageops::overlay(&mut background, &pokemon, 5, 5);
+
+            // imagettftext($mBg, 12, 0, 63, 47, 0x00000000, $f_cal2, (strlen($v_name) > 26 ? substr($v_name, 0, 25) . ".." : ($v_name == "" ? "-" : $v_name)));
+            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 35, scale12, &f_cal2, &truncate_str(&self.raid.gym_name, 30, '-'));
+        
+            // imagecopymerge($mBg, $mMap, 0, ($v_pkmnid == 0 ? 83 : 136), 0, 0, 280, 101, 100);
+            image::imageops::overlay(&mut background, &map, 0, if self.raid.pokemon_id.and_then(|i| if i > 0 { Some(i) } else { None }).is_none() { 83 } else { 136 });
+
+            let bytes = save_image(&background, &img_path).await?;
+
+            if let Some(url) = &CONFIG.images.bot_pub {
+                Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)))
+            }
+            else {
+                Ok(Image::Bytes(bytes))
+            }
+        }).await
     }
 
     async fn update_stats(&self, conn: &mut Conn) -> Result<(), ()> {
@@ -868,52 +856,65 @@ impl Message for LureMessage {
         }
     }
 
-    async fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
+    async fn _get_image(&self, map: image::DynamicImage) -> Result<Image, ()> {
         let now = Local::now();
         let img_path_str = format!("{}img_sent/lure_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.pokestop.pokestop_id, self.pokestop.lure_id);
-        let img_path = Path::new(&img_path_str);
 
-        if img_path.exists() {
-            let mut image = File::open(&img_path).await.map_err(|e| error!("error opening invasion image {}: {}", img_path_str, e))?;
-            let mut bytes = Vec::new();
-            image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading invasion image {}: {}", img_path_str, e))?;
-            return Ok(bytes);
-        }
+        IMG_CACHE.get(img_path_str.into(), |img_path| async move {
+            if img_path.exists() {
+                if let Some(url) = &CONFIG.images.bot_pub {
+                    return Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)));
+                }
+                else {
+                    let mut image = File::open(&img_path).await.map_err(|e| error!("error opening invasion image {}: {}", img_path.display(), e))?;
+                    let mut bytes = Vec::new();
+                    image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading invasion image {}: {}", img_path.display(), e))?;
+                    return Ok(Image::Bytes(bytes));
+                }
+            }
 
-        // let f_cal1 = {
-        //     let font = format!("{}fonts/calibri.ttf", CONFIG.images.sender);
-        //     open_font(&font).await?
-        // };
-        let f_cal2 = {
-            let font = format!("{}fonts/calibrib.ttf", CONFIG.images.sender);
-            open_font(&font).await?
-        };
-        // let scale11 = rusttype::Scale::uniform(16f32);
-        let scale12 = rusttype::Scale::uniform(17f32);
-        let scale13 = rusttype::Scale::uniform(18f32);
-        // let scale18 = rusttype::Scale::uniform(23f32);
+            // let f_cal1 = {
+            //     let font = format!("{}fonts/calibri.ttf", CONFIG.images.sender);
+            //     open_font(&font).await?
+            // };
+            let f_cal2 = {
+                let font = format!("{}fonts/calibrib.ttf", CONFIG.images.sender);
+                open_font(&font).await?
+            };
+            // let scale11 = rusttype::Scale::uniform(16f32);
+            let scale12 = rusttype::Scale::uniform(17f32);
+            let scale13 = rusttype::Scale::uniform(18f32);
+            // let scale18 = rusttype::Scale::uniform(23f32);
 
-        let mut background = {
-            let path = format!("{}images/msg-bgs/msg-lure.png", CONFIG.images.sender);
-            open_image(&path).await?
-        };
+            let mut background = {
+                let path = format!("{}images/msg-bgs/msg-lure.png", CONFIG.images.sender).into();
+                open_image(&path).await?
+            };
 
-        let icon = {
-            let path = format!("{}img/items/{}.png", CONFIG.images.assets, self.pokestop.lure_id);
-            open_image(&path).await?
-        };
-        image::imageops::overlay(&mut background, &icon, 5, 5);
+            let icon = {
+                let path = format!("{}img/items/{}.png", CONFIG.images.assets, self.pokestop.lure_id).into();
+                open_image(&path).await?
+            };
+            image::imageops::overlay(&mut background, &icon, 5, 5);
 
-        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale13, &f_cal2, &truncate_str(&self.pokestop.name, 25, '-'));
+            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale13, &f_cal2, &truncate_str(&self.pokestop.name, 25, '-'));
 
-        if let Some(timestamp) = self.pokestop.lure_expiration {
-            let v_exit = Local.timestamp(timestamp, 0);
-            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 82, 34, scale12, &f_cal2, &v_exit.format("%T").to_string());
-        }
+            if let Some(timestamp) = self.pokestop.lure_expiration {
+                let v_exit = Local.timestamp(timestamp, 0);
+                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 82, 34, scale12, &f_cal2, &v_exit.format("%T").to_string());
+            }
 
-        image::imageops::overlay(&mut background, &map, 0, 58);
+            image::imageops::overlay(&mut background, &map, 0, 58);
 
-        save_image(&background, &img_path_str).await
+            let bytes = save_image(&background, &img_path).await?;
+
+            if let Some(url) = &CONFIG.images.bot_pub {
+                Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)))
+            }
+            else {
+                Ok(Image::Bytes(bytes))
+            }
+        }).await
     }
 }
 
@@ -957,68 +958,81 @@ impl Message for InvasionMessage {
         }
     }
 
-    async fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
+    async fn _get_image(&self, map: image::DynamicImage) -> Result<Image, ()> {
         let now = Local::now();
         let img_path_str = format!("{}img_sent/invasion_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.invasion.pokestop_id, self.invasion.grunt_type.map(|id| id.to_string()).unwrap_or_else(String::new));
-        let img_path = Path::new(&img_path_str);
 
-        if img_path.exists() {
-            let mut image = File::open(&img_path).await.map_err(|e| error!("error opening invasion image {}: {}", img_path_str, e))?;
-            let mut bytes = Vec::new();
-            image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading invasion image {}: {}", img_path_str, e))?;
-            return Ok(bytes);
-        }
-
-        // let f_cal1 = {
-        //     let font = format!("{}fonts/calibri.ttf", CONFIG.images.sender);
-        //     open_font(&font).await?
-        // };
-        let f_cal2 = {
-            let font = format!("{}fonts/calibrib.ttf", CONFIG.images.sender);
-            open_font(&font).await?
-        };
-        // let scale11 = rusttype::Scale::uniform(16f32);
-        let scale12 = rusttype::Scale::uniform(17f32);
-        let scale13 = rusttype::Scale::uniform(18f32);
-        // let scale18 = rusttype::Scale::uniform(23f32);
-
-        let mut background = {
-            let path = format!("{}images/msg-bgs/msg-invasion.png", CONFIG.images.sender);
-            open_image(&path).await?
-        };
-
-        if let Some(id) = self.invasion.grunt_type {
-            let lock = GRUNTS.read().await;
-            if let Some(grunt) = lock.get(&id) {
-                if let Some(sex) = &grunt.sex {
-                    let icon = {
-                        let path = format!("{}img/grunts/{}.png", CONFIG.images.assets, sex);
-                        open_image(&path).await?
-                    };
-                    image::imageops::overlay(&mut background, &icon, 5, 5);
+        IMG_CACHE.get(img_path_str.into(), |img_path| async move {
+            if img_path.exists() {
+                if let Some(url) = &CONFIG.images.bot_pub {
+                    return Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)));
                 }
-
-                if let Some(element) = &grunt.element {
-                    let icon = {
-                        let path = format!("{}img/pkmns/types/{}{}.png", CONFIG.images.assets, &element[0..1].to_uppercase(), &element[1..]);
-                        open_image(&path).await?
-                    };
-                    let icon = image::DynamicImage::ImageRgba8(image::imageops::resize(&icon, 24, 24, image::imageops::FilterType::Triangle));
-                    image::imageops::overlay(&mut background, &icon, 32, 32);
+                else {
+                    let mut image = File::open(&img_path).await.map_err(|e| error!("error opening invasion image {}: {}", img_path.display(), e))?;
+                    let mut bytes = Vec::new();
+                    image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading invasion image {}: {}", img_path.display(), e))?;
+                    return Ok(Image::Bytes(bytes));
                 }
             }
-        }
 
-        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale13, &f_cal2, &truncate_str(&self.invasion.name, 25, '-'));
+            // let f_cal1 = {
+            //     let font = format!("{}fonts/calibri.ttf", CONFIG.images.sender);
+            //     open_font(&font).await?
+            // };
+            let f_cal2 = {
+                let font = format!("{}fonts/calibrib.ttf", CONFIG.images.sender);
+                open_font(&font).await?
+            };
+            // let scale11 = rusttype::Scale::uniform(16f32);
+            let scale12 = rusttype::Scale::uniform(17f32);
+            let scale13 = rusttype::Scale::uniform(18f32);
+            // let scale18 = rusttype::Scale::uniform(23f32);
 
-        if let Some(timestamp) = self.invasion.incident_expire_timestamp {
-            let v_exit = Local.timestamp(timestamp, 0);
-            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 82, 34, scale12, &f_cal2, &v_exit.format("%T").to_string());
-        }
+            let mut background = {
+                let path = format!("{}images/msg-bgs/msg-invasion.png", CONFIG.images.sender).into();
+                open_image(&path).await?
+            };
 
-        image::imageops::overlay(&mut background, &map, 0, 58);
+            if let Some(id) = self.invasion.grunt_type {
+                let lock = GRUNTS.read().await;
+                if let Some(grunt) = lock.get(&id) {
+                    if let Some(sex) = &grunt.sex {
+                        let icon = {
+                            let path = format!("{}img/grunts/{}.png", CONFIG.images.assets, sex).into();
+                            open_image(&path).await?
+                        };
+                        image::imageops::overlay(&mut background, &icon, 5, 5);
+                    }
 
-        save_image(&background, &img_path_str).await
+                    if let Some(element) = &grunt.element {
+                        let icon = {
+                            let path = format!("{}img/pkmns/types/{}{}.png", CONFIG.images.assets, &element[0..1].to_uppercase(), &element[1..]).into();
+                            open_image(&path).await?
+                        };
+                        let icon = image::DynamicImage::ImageRgba8(image::imageops::resize(&icon, 24, 24, image::imageops::FilterType::Triangle));
+                        image::imageops::overlay(&mut background, &icon, 32, 32);
+                    }
+                }
+            }
+
+            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale13, &f_cal2, &truncate_str(&self.invasion.name, 25, '-'));
+
+            if let Some(timestamp) = self.invasion.incident_expire_timestamp {
+                let v_exit = Local.timestamp(timestamp, 0);
+                imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 82, 34, scale12, &f_cal2, &v_exit.format("%T").to_string());
+            }
+
+            image::imageops::overlay(&mut background, &map, 0, 58);
+
+            let bytes = save_image(&background, &img_path).await?;
+
+            if let Some(url) = &CONFIG.images.bot_pub {
+                Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)))
+            }
+            else {
+                Ok(Image::Bytes(bytes))
+            }
+        }).await
     }
 }
 
@@ -1051,16 +1065,21 @@ impl Message for WeatherMessage {
         })
     }
 
-    async fn get_image(&self, _: image::DynamicImage) -> Result<Vec<u8>, ()> {
+    async fn _get_image(&self, _: image::DynamicImage) -> Result<Image, ()> {
+        Err(())
+    }
+
+    async fn get_image(&self) -> Result<Image, ()> {
         let timestamp = Local.timestamp(self.watch.expire, 0);
         let img_path_str = format!("{}img_sent/poke_{}_{}_{}_{}.png", CONFIG.images.bot, timestamp.format("%Y%m%d%H").to_string(), self.watch.encounter_id, self.watch.pokemon_id, self.watch.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new));
 
-        let img_path = Path::new(&img_path_str);
+        // no need for OnceBarrier
+        let img_path = PathBuf::from(&img_path_str);
         if img_path.exists() {
             let mut image = File::open(&img_path).await.map_err(|e| error!("error opening pokemon image {}: {}", img_path_str, e))?;
             let mut bytes = Vec::new();
             image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading pokemon image {}: {}", img_path_str, e))?;
-            Ok(bytes)
+            Ok(Image::Bytes(bytes))
         }
         else {
             error!("pokemon image {} not found", img_path_str);
@@ -1132,48 +1151,61 @@ impl Message for GymMessage {
         })
     }
 
-    async fn get_image(&self, map: image::DynamicImage) -> Result<Vec<u8>, ()> {
+    async fn _get_image(&self, map: image::DynamicImage) -> Result<Image, ()> {
         let now = Local::now();
         let img_path_str = format!("{}img_sent/gym_{}_{}_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.gym.id, self.gym.team.get_id(), 6 - self.gym.slots_available, if self.gym.ex_raid_eligible { 1 } else { 0 });
-        let img_path = Path::new(&img_path_str);
 
-        if img_path.exists() {
-            let mut image = File::open(&img_path).await.map_err(|e| error!("error opening raid image {}: {}", img_path_str, e))?;
-            let mut bytes = Vec::new();
-            image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading raid image {}: {}", img_path_str, e))?;
-            return Ok(bytes);
-        }
+        IMG_CACHE.get(img_path_str.into(), |img_path| async move {
+            if img_path.exists() {
+                if let Some(url) = &CONFIG.images.bot_pub {
+                    return Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)));
+                }
+                else {
+                    let mut image = File::open(&img_path).await.map_err(|e| error!("error opening raid image {}: {}", img_path.display(), e))?;
+                    let mut bytes = Vec::new();
+                    image.read_to_end(&mut bytes).await.map_err(|e| error!("error reading raid image {}: {}", img_path.display(), e))?;
+                    return Ok(Image::Bytes(bytes));
+                }
+            }
 
-        // let f_cal1 = {
-        //     let font = format!("{}fonts/calibri.ttf", CONFIG.images.sender);
-        //     open_font(&font).await?
-        // };
-        let f_cal2 = {
-            let font = format!("{}fonts/calibrib.ttf", CONFIG.images.sender);
-            open_font(&font).await?
-        };
-        // let scale11 = rusttype::Scale::uniform(16f32);
-        let scale12 = rusttype::Scale::uniform(17f32);
-        // let scale18 = rusttype::Scale::uniform(23f32);
+            // let f_cal1 = {
+            //     let font = format!("{}fonts/calibri.ttf", CONFIG.images.sender);
+            //     open_font(&font).await?
+            // };
+            let f_cal2 = {
+                let font = format!("{}fonts/calibrib.ttf", CONFIG.images.sender);
+                open_font(&font).await?
+            };
+            // let scale11 = rusttype::Scale::uniform(16f32);
+            let scale12 = rusttype::Scale::uniform(17f32);
+            // let scale18 = rusttype::Scale::uniform(23f32);
 
-        let mut background = {
-            let path = format!("{}images/msg-bgs/msg-raid-sm-t{}{}.png", CONFIG.images.sender, self.gym.team.get_id(), if self.gym.ex_raid_eligible { "-ex" } else { "" });
-            open_image(&path).await?
-        };
-        let gym = {
-            let path = format!("{}img/pkmns/gym_images/t{}m{}p{}.png", CONFIG.images.assets, self.gym.team.get_id(), 6 - self.gym.slots_available, if self.gym.ex_raid_eligible { 1 } else { 0 });
-            open_image(&path).await?
-        };
+            let mut background = {
+                let path = format!("{}images/msg-bgs/msg-raid-sm-t{}{}.png", CONFIG.images.sender, self.gym.team.get_id(), if self.gym.ex_raid_eligible { "-ex" } else { "" }).into();
+                open_image(&path).await?
+            };
+            let gym = {
+                let path = format!("{}img/pkmns/gym_images/t{}m{}p{}.png", CONFIG.images.assets, self.gym.team.get_id(), 6 - self.gym.slots_available, if self.gym.ex_raid_eligible { 1 } else { 0 }).into();
+                open_image(&path).await?
+            };
 
-        image::imageops::overlay(&mut background, &gym, 4, 11);
+            image::imageops::overlay(&mut background, &gym, 4, 11);
 
-        // imagettftext($mBg, 12, 0, 63, 47, 0x00000000, $f_cal2, (strlen($v_name) > 26 ? substr($v_name, 0, 25) . ".." : ($v_name == "" ? "-" : $v_name)));
-        imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 35, scale12, &f_cal2, &truncate_str(&self.gym.name, 30, '-'));
-    
-        // imagecopymerge($mBg, $mMap, 0, ($v_pkmnid == 0 ? 83 : 136), 0, 0, 280, 101, 100);
-        image::imageops::overlay(&mut background, &map, 0, 83);
+            // imagettftext($mBg, 12, 0, 63, 47, 0x00000000, $f_cal2, (strlen($v_name) > 26 ? substr($v_name, 0, 25) . ".." : ($v_name == "" ? "-" : $v_name)));
+            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 35, scale12, &f_cal2, &truncate_str(&self.gym.name, 30, '-'));
+        
+            // imagecopymerge($mBg, $mMap, 0, ($v_pkmnid == 0 ? 83 : 136), 0, 0, 280, 101, 100);
+            image::imageops::overlay(&mut background, &map, 0, 83);
 
-        save_image(&background, &img_path_str).await
+            let bytes = save_image(&background, &img_path).await?;
+
+            if let Some(url) = &CONFIG.images.bot_pub {
+                Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)))
+            }
+            else {
+                Ok(Image::Bytes(bytes))
+            }
+        }).await
     }
 }
 
@@ -1227,19 +1259,59 @@ impl<'a> Message for DeviceTierMessage<'a> {
         ))
     }
 
-    async fn get_image(&self, _: image::DynamicImage) -> Result<Vec<u8>, ()> {
+    async fn _get_image(&self, _: image::DynamicImage) -> Result<Image, ()> {
+        Err(())
+    }
+
+    async fn get_image(&self) -> Result<Image, ()> {
         let mut image: image::RgbaImage = QrCode::with_version(self.tier.url.as_bytes(), Version::Normal(5), EcLevel::H).unwrap()
             .render::<image::Rgba<u8>>()
             .min_dimensions(400, 400)
             .max_dimensions(400, 400)
             .build();
 
-        let logo = open_image(&format!("{}img/logo.png", CONFIG.images.assets)).await?;
+        let path = format!("{}img/logo.png", CONFIG.images.assets).into();
+        let logo = open_image(&path).await?;
 
         image::imageops::overlay(&mut image, &logo, 150, 150);
 
         let mut out = Vec::new();
         image::DynamicImage::ImageRgba8(image).write_to(&mut out, image::ImageOutputFormat::Png).map_err(|e| error!("error converting qrcode image: {}", e))?;
-        Ok(out)
+        Ok(Image::Bytes(out))
+    }
+}
+
+pub struct LagMessage {
+    pub lag: u64,
+}
+
+#[async_trait]
+impl Message for LagMessage {
+    async fn send(&self, chat_id: &str, _: Image, _: &str) -> Result<(), ()> {
+        send_message(CONFIG.telegram.alert_bot_token.as_ref().ok_or_else(|| error!("Telegram alert bot token not configured"))?, chat_id, &self.get_caption().await?, None, None, None, None, None)
+            .await
+            .map(|_| ())
+            .map_err(|_| ())
+    }
+
+    fn get_latitude(&self) -> f64 {
+        0_f64
+    }
+
+    fn get_longitude(&self) -> f64 {
+        0_f64
+    }
+
+    async fn get_caption(&self) -> Result<String, ()> {
+        Ok(format!("{} <b>ATTENZIONE!</b>\n<code>      ───────</code>\nLe tue configurazioni generano troppi messaggi, per preservare le prestazioni del bot anche per gli altri utenti hai perso {} potenziali scansioni.",
+            String::from_utf8(vec![0xE2, 0x9A, 0xA0]).map_err(|e| error!("error converting warning icon: {}", e))?, self.lag))
+    }
+
+    async fn _get_image(&self, _: image::DynamicImage) -> Result<Image, ()> {
+        Err(())
+    }
+
+    async fn get_image(&self) -> Result<Image, ()> {
+        Ok(Image::Bytes(Vec::new()))
     }
 }

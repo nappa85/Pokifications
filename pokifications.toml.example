@@ -2,14 +2,17 @@
 address = "0.0.0.0"#0.0.0.0 accepts from any address
 port = 8080
 safeword = ""
+queue_size = 1
+lru_size = 1
 
 [database]
 url = "mysql://user:password@host/database"
 
 [images]
-sent = "/path/to/img_sent/"
-source = "/path/to/sources/"
-assets = "/path/to/assets"
+bot = "/path/to/bot/"
+bot_pub = "http://public/url/to/bot/"
+sender = "/path/to/sender/"
+assets = "/path/to/assets/"
 
 [osm]
 tile_url = ""
@@ -21,4 +24,3 @@ alert_bot_token = ""
 alert_chat = ""
 version_chat = ""
 timeout = 1
-cache_chat = ""

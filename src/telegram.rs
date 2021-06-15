@@ -1,3 +1,4 @@
+use std::time::Duration;
 
 use reqwest::{Body, Client, Method, Url, RequestBuilder, multipart::{Form, Part}};
 
@@ -5,52 +6,46 @@ use serde_json::{json, value::Value};
 
 use rand::{thread_rng, Rng, distributions::Alphanumeric};
 
-use tokio::{spawn, time::{Duration, Instant, interval_at, sleep}, sync::RwLock};
-
-use chrono::offset::Local;
-
-use once_cell::sync::Lazy;
-
-use log::{error, warn};
+use log::error;
 
 use crate::config::CONFIG;
 
-pub static RATE_LIMITER: Lazy<RwLock<(usize, Vec<String>)>> = Lazy::new(|| RwLock::new((0, Vec::new())));
+// pub static RATE_LIMITER: Lazy<RwLock<(usize, Vec<String>)>> = Lazy::new(|| RwLock::new((0, Vec::new())));
 
-const TELEGRAM_MESSAGES_PER_SECOND: usize = 30;
+// const TELEGRAM_MESSAGES_PER_SECOND: usize = 30;
 
-/// Telegram accepts only 30 messages per second global, and only 1 message per chat per second
-async fn wall(chat_id: String) {
-    let mut delays: usize = 0;
-    loop {
-        // check with read lock, to make a write lock only if necessary
-        let mut skip = {
-            let rt = RATE_LIMITER.read().await;
-            rt.0 >= TELEGRAM_MESSAGES_PER_SECOND || rt.1.contains(&chat_id)
-        };
-        if !skip {
-            let mut rt = RATE_LIMITER.write().await;
-            if rt.0 >= TELEGRAM_MESSAGES_PER_SECOND || rt.1.contains(&chat_id) {
-                skip = true;
-            }
-            else {
-                rt.0 += 1;
-                rt.1.push(chat_id.clone());
-            }
-        }
-        if skip {
-            delays += 1;
-            let now = Local::now();
-            sleep(Duration::from_nanos(1_000_000_000_u64 - (now.timestamp_subsec_nanos() as u64))).await;
-        }
-        else {
-            break;
-        }
-    }
-    if delays > 0 {
-        warn!("Too many Telegram messages for user {}, message delayed {} times", chat_id, delays);
-    }
-}
+// /// Telegram accepts only 30 messages per second global, and only 1 message per chat per second
+// async fn wall(chat_id: String) {
+//     let mut delays: usize = 0;
+//     loop {
+//         // check with read lock, to make a write lock only if necessary
+//         let mut skip = {
+//             let rt = RATE_LIMITER.read().await;
+//             rt.0 >= TELEGRAM_MESSAGES_PER_SECOND || rt.1.contains(&chat_id)
+//         };
+//         if !skip {
+//             let mut rt = RATE_LIMITER.write().await;
+//             if rt.0 >= TELEGRAM_MESSAGES_PER_SECOND || rt.1.contains(&chat_id) {
+//                 skip = true;
+//             }
+//             else {
+//                 rt.0 += 1;
+//                 rt.1.push(chat_id.clone());
+//             }
+//         }
+//         if skip {
+//             delays += 1;
+//             let now = Local::now();
+//             sleep(Duration::from_nanos(1_000_000_000_u64 - (now.timestamp_subsec_nanos() as u64))).await;
+//         }
+//         else {
+//             break;
+//         }
+//     }
+//     if delays > 0 {
+//         warn!("Too many Telegram messages for user {}, message delayed {} times", chat_id, delays);
+//     }
+// }
 
 pub enum CallResult {
     Body((u16, String)),
@@ -59,12 +54,13 @@ pub enum CallResult {
 
 #[derive(Clone, Debug)]
 pub enum Image {
-    FileId(String),
+    // FileId(String),
+    FileUrl(String),
     Bytes(Vec<u8>),
 }
 
-pub async fn call_telegram(chat_id: String, req: RequestBuilder) -> Result<String, CallResult> {
-    wall(chat_id).await;
+pub async fn call_telegram(/*chat_id: String, */req: RequestBuilder) -> Result<String, CallResult> {
+    // wall(chat_id).await;
 
     let res = if let Some(t) = CONFIG.telegram.timeout {
             req.timeout(Duration::from_secs(t))
@@ -134,7 +130,7 @@ pub async fn send_message(bot_token: &str, chat_id: &str, text: &str, parse_mode
     let req = client.request(Method::POST, url)
         .header("Content-Type", "application/json")
         .json(&body);
-    call_telegram(chat_id.to_string(), req).await
+    call_telegram(req).await
 }
 
 
@@ -169,8 +165,11 @@ pub async fn send_photo(bot_token: &str, chat_id: &str, photo: Image, caption: O
     }
 
     match photo {
-        Image::FileId(file_id) => {
-            form = form.text("photo", file_id);
+        // Image::FileId(file_id) => {
+        //     form = form.text("photo", file_id);
+        // },
+        Image::FileUrl(url) => {
+            form = form.text("photo", url);
         },
         Image::Bytes(bytes) => {
             form = form.part("photo", Part::stream(Body::from(bytes)).file_name("image.png").mime_str("image/png").map_err(|e| {
@@ -184,20 +183,20 @@ pub async fn send_photo(bot_token: &str, chat_id: &str, photo: Image, caption: O
     let req = client.request(Method::POST, url)
         .header("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
         .multipart(form);
-    call_telegram(chat_id.to_string(), req).await
+    call_telegram(req).await
 }
 
-pub fn init() {
-    spawn(async {
-        // start next leap second
-        let now = Local::now();
-        let mut interval = interval_at(Instant::now() + Duration::from_nanos(1_000_000_000_u64 - (now.timestamp_subsec_nanos() as u64)), Duration::from_secs(1));
-        loop {
-            interval.tick().await;
+// pub fn init() {
+//     spawn(async {
+//         // start next leap second
+//         let now = Local::now();
+//         let mut interval = interval_at(Instant::now() + Duration::from_nanos(1_000_000_000_u64 - (now.timestamp_subsec_nanos() as u64)), Duration::from_secs(1));
+//         loop {
+//             interval.tick().await;
 
-            let mut rt = RATE_LIMITER.write().await;
-            rt.0 = 0;
-            rt.1.clear();
-        }
-    });
-}
+//             let mut rt = RATE_LIMITER.write().await;
+//             rt.0 = 0;
+//             rt.1.clear();
+//         }
+//     });
+// }
