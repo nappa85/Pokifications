@@ -34,6 +34,7 @@ use crate::telegram::send_message;
 
 static BOT_CONFIGS: Lazy<RwLock<HashMap<String, config::BotConfig>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 static WATCHES: Lazy<RwLock<HashMap<String, Vec<Watch>>>> = Lazy::new(|| RwLock::new(HashMap::new()));
+#[allow(clippy::type_complexity)]
 static SENDER: Lazy<broadcast::Sender<Arc<(DateTime<Local>, Request)>>> = Lazy::new(|| {
     let (tx, _) = broadcast::channel(CONFIG.service.queue_size);
     tx
@@ -284,6 +285,7 @@ impl BotConfigs {
         Ok(results)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn load_user(configs: &mut HashMap<String, config::BotConfig>, enabled: u8, user_id: String, config: String, beta: u8, status: u8, city_id: u16, scadenza: i64, sent: u32) -> Result<LoadResult, ()> {
         if enabled > 0 && beta > 0 && status > 0 {
             if sent < MAX_NOTIFICATIONS_PER_HOUR {

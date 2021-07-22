@@ -965,6 +965,7 @@ impl BotPkmn {
             res
         }
 
+        #[allow(clippy::too_many_arguments)]
         fn filter_iv(atkf: Option<&u8>, atkv: Option<&u8>, deff: Option<&u8>, defv: Option<&u8>, staf: Option<&u8>, stav: Option<&u8>, atk: Option<&u8>, def: Option<&u8>, sta: Option<&u8>) -> Option<Option<String>> {
             let mut res = String::new();
             match atkf {
