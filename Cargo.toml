@@ -1,6 +1,6 @@
 [package]
 name = "pokifications"
-version = "2.0.0"
+version = "2.0.1"
 authors = ["Marco Napetti <marco.napetti@gmail.com>"]
 edition = "2018"
 
@@ -17,8 +17,8 @@ lru = "0.6"
 async-trait = "0.1"
 stream_throttle = "0.4"
 log = "0.4"
-mysql_async = "0.27"
-env_logger = "0.8"
+mysql_async = "0.28"
+env_logger = "0.9"
 chrono = "0.4"
 imageproc = "0.22"
 image = { version = "0.23.6", default-features = false, features = ["png", "jpeg"] } # forced by imageproc

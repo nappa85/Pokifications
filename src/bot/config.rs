@@ -543,7 +543,7 @@ impl BotConfig {
                         return Ok(WeatherMessage {
                             watch: watch.clone(),
                             // actual_weather: weather.clone(),
-                            debug: if self.debug == Some(true) { Some(time.clone()) } else { None },
+                            debug: if self.debug == Some(true) { Some(time) } else { None },
                         })
                     }
                 }

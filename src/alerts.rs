@@ -51,7 +51,7 @@ pub fn init() {
                 }
 
                 if !alerts.is_empty() {
-                    send_message(bot_token, chat_id, &alerts.join("\n\n"), None, None, None, None, None).await.ok();
+                    send_message(bot_token, chat_id, &alerts.join("\n\n")).send().await.ok();
                 }
             }
         }

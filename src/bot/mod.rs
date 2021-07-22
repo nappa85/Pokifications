@@ -225,7 +225,10 @@ impl BotConfigs {
         };
 
         spawn(async move {
-            send_message(&CONFIG.telegram.bot_token, &user_id, &msg, Some("HTML"), None, None, None, None).await
+            send_message(&CONFIG.telegram.bot_token, &user_id, &msg)
+                .set_parse_mode("HTML")
+                .send()
+                .await
                 .map_err(|_| ())
                 .ok();
         });

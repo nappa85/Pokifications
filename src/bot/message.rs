@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -51,14 +51,14 @@ async fn open_font(path: &str) -> Result<rusttype::Font<'static>, ()> {
     rusttype::Font::try_from_vec(data).ok_or_else(|| error!("error decoding font {}", path))
 }
 
-async fn open_image(path: &PathBuf) -> Result<image::DynamicImage, ()> {
+async fn open_image(path: &Path) -> Result<image::DynamicImage, ()> {
     let mut file = File::open(path).await.map_err(|e| error!("error opening image {}: {}", path.display(), e))?;
     let mut data = Vec::new();
     file.read_to_end(&mut data).await.map_err(|e| error!("error reading image {}: {}", path.display(), e))?;
     image::load_from_memory_with_format(&data, image::ImageFormat::Png).map_err(|e| error!("error opening image {}: {}", path.display(), e))
 }
 
-async fn save_image(img: &image::DynamicImage, path: &PathBuf) -> Result<Vec<u8>, ()> {
+async fn save_image(img: &image::DynamicImage, path: &Path) -> Result<Vec<u8>, ()> {
     let mut out = Vec::new();
     img.write_to(&mut out, image::ImageOutputFormat::Png).map_err(|e| error!("error converting image {}: {}", path.display(), e))?;
 
@@ -105,7 +105,11 @@ fn get_mega_desc(evo: &Option<u8>) -> &str {
 #[async_trait]
 pub trait Message {
     async fn send(&self, chat_id: &str, image: Image, map_type: &str) -> Result<(), ()> {
-        match send_photo(&CONFIG.telegram.bot_token, chat_id, image, Some(&self.get_caption().await?), None, None, None, Some(self.message_button(chat_id, map_type)?)).await {
+        let caption = self.get_caption().await?;
+        let temp = send_photo(&CONFIG.telegram.bot_token, chat_id, image)
+            .set_caption(&caption)
+            .set_reply_markup(self.message_button(chat_id, map_type)?);
+        match temp.send().await {
             Ok(_) => {
                 let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
                 self.update_stats(&mut conn).await?;
@@ -149,7 +153,7 @@ pub trait Message {
             }
 
             let map = super::map::Map::new(&CONFIG.osm.tile_url, 14, 280, 101, self.get_latitude(), self.get_longitude());
-            let marker = format!("{}img/marker.png", CONFIG.images.assets).into();
+            let marker: PathBuf = format!("{}img/marker.png", CONFIG.images.assets).into();
             let image = map.get_map(open_image(&marker).await.ok()).await?;
 
             save_image(&image, &map_path).await?;
@@ -345,7 +349,7 @@ impl Message for PokemonMessage {
 
             // $mBg = null;
             let mut background = {
-                let path = format!("{}{}", CONFIG.images.sender, match self.iv {
+                let path: PathBuf = format!("{}{}", CONFIG.images.sender, match self.iv {
                     Some(i) if i < 80f32 => "images/msg-bgs/msg-poke-big-norm.png",
                     Some(i) if (80f32..90f32).contains(&i) => "images/msg-bgs/msg-poke-big-med.png",
                     Some(i) if (90f32..100f32).contains(&i) => "images/msg-bgs/msg-poke-big-hi.png",
@@ -357,7 +361,7 @@ impl Message for PokemonMessage {
 
             let pokemon = match self.pokemon.form {
                 Some(form) if form > 0 => {
-                    let image = format!("{}img/pkmns/shuffle/{}-{}.png",
+                    let image: PathBuf = format!("{}img/pkmns/shuffle/{}-{}.png",
                         CONFIG.images.assets,
                         self.pokemon.pokemon_id,
                         form
@@ -365,7 +369,7 @@ impl Message for PokemonMessage {
                     match open_image(&image).await {
                         Ok(img) => img,
                         Err(_) => {
-                            let image = format!("{}img/pkmns/shuffle/{}.png",
+                            let image: PathBuf = format!("{}img/pkmns/shuffle/{}.png",
                                 CONFIG.images.assets,
                                 self.pokemon.pokemon_id
                             ).into();
@@ -374,7 +378,7 @@ impl Message for PokemonMessage {
                     }
                 },
                 _ => {
-                    let image = format!("{}img/pkmns/shuffle/{}.png",
+                    let image: PathBuf = format!("{}img/pkmns/shuffle/{}.png",
                         CONFIG.images.assets,
                         self.pokemon.pokemon_id
                     ).into();
@@ -386,7 +390,7 @@ impl Message for PokemonMessage {
 
             match self.pokemon.gender {
                 Gender::Male | Gender::Female => {
-                    let path = format!("{}img/{}.png", CONFIG.images.assets, if self.pokemon.gender == Gender::Female { "female" } else { "male" }).into();
+                    let path: PathBuf = format!("{}img/{}.png", CONFIG.images.assets, if self.pokemon.gender == Gender::Female { "female" } else { "male" }).into();
                     let icon = open_image(&path).await?;
                     image::imageops::overlay(&mut background, &icon, 32, 32);
                 }
@@ -635,7 +639,7 @@ impl Message for RaidMessage {
             let (mut background, pokemon) = match self.raid.pokemon_id {
                 Some(pkmn_id) if pkmn_id > 0 => {
                     // $mBg = imagecreatefrompng("images/msg-bgs/msg-raid-big-t" . $v_team . ".png");
-                    let path = format!("{}images/msg-bgs/msg-raid-big-t{}{}.png", CONFIG.images.sender, self.raid.team_id.get_id(), if self.raid.ex_raid_eligible { "-ex" } else { "" }).into();
+                    let path: PathBuf = format!("{}images/msg-bgs/msg-raid-big-t{}{}.png", CONFIG.images.sender, self.raid.team_id.get_id(), if self.raid.ex_raid_eligible { "-ex" } else { "" }).into();
                     let mut background = open_image(&path).await?;
 
                     let evo = match self.raid.evolution {
@@ -648,7 +652,7 @@ impl Message for RaidMessage {
                     // $mPoke = imagecreatefrompng("../../assets/img/pkmns/shuffle/" . $v_pkmnid . ".png");
                     let pokemon = match self.raid.form {
                         Some(form) if form > 0 => {
-                            let image = format!("{}img/pkmns/shuffle/{}-{}{}.png",
+                            let image: PathBuf = format!("{}img/pkmns/shuffle/{}-{}{}.png",
                                 CONFIG.images.assets,
                                 pkmn_id,
                                 form,
@@ -657,7 +661,7 @@ impl Message for RaidMessage {
                             match open_image(&image).await {
                                 Ok(img) => img,
                                 Err(_) => {
-                                    let image = format!("{}img/pkmns/shuffle/{}{}.png",
+                                    let image: PathBuf = format!("{}img/pkmns/shuffle/{}{}.png",
                                         CONFIG.images.assets,
                                         pkmn_id,
                                         evo
@@ -665,7 +669,7 @@ impl Message for RaidMessage {
                                     match open_image(&image).await {
                                         Ok(img) => img,
                                         Err(_) => {
-                                            let image = format!("{}img/pkmns/shuffle/{}.png",
+                                            let image: PathBuf = format!("{}img/pkmns/shuffle/{}.png",
                                                 CONFIG.images.assets,
                                                 pkmn_id
                                             ).into();
@@ -676,7 +680,7 @@ impl Message for RaidMessage {
                             }
                         },
                         _ => {
-                            let image = format!("{}img/pkmns/shuffle/{}{}.png",
+                            let image: PathBuf = format!("{}img/pkmns/shuffle/{}{}.png",
                                 CONFIG.images.assets,
                                 pkmn_id,
                                 evo
@@ -684,7 +688,7 @@ impl Message for RaidMessage {
                             match open_image(&image).await {
                                 Ok(img) => img,
                                 Err(_) => {
-                                    let image = format!("{}img/pkmns/shuffle/{}.png",
+                                    let image: PathBuf = format!("{}img/pkmns/shuffle/{}.png",
                                         CONFIG.images.assets,
                                         pkmn_id
                                     ).into();
@@ -696,7 +700,7 @@ impl Message for RaidMessage {
 
                     match self.raid.gender {
                         Gender::Male | Gender::Female => {
-                            let path = format!("{}img/{}.png", CONFIG.images.assets, if self.raid.gender == Gender::Female { "female" } else { "male" }).into();
+                            let path: PathBuf = format!("{}img/{}.png", CONFIG.images.assets, if self.raid.gender == Gender::Female { "female" } else { "male" }).into();
                             let icon = open_image(&path).await?;
                             image::imageops::overlay(&mut background, &icon, 32, 50);
                         }
@@ -750,11 +754,11 @@ impl Message for RaidMessage {
                 },
                 _ => {
                     let mut background = {
-                        let path = format!("{}images/msg-bgs/msg-raid-sm-t{}{}.png", CONFIG.images.sender, self.raid.team_id.get_id(), if self.raid.ex_raid_eligible { "-ex" } else { "" }).into();
+                        let path: PathBuf = format!("{}images/msg-bgs/msg-raid-sm-t{}{}.png", CONFIG.images.sender, self.raid.team_id.get_id(), if self.raid.ex_raid_eligible { "-ex" } else { "" }).into();
                         open_image(&path).await?
                     };
                     let pokemon = {
-                        let path = format!("{}images/raid_{}.png", CONFIG.images.sender, self.raid.level).into();
+                        let path: PathBuf = format!("{}images/raid_{}.png", CONFIG.images.sender, self.raid.level).into();
                         open_image(&path).await?
                     };
 
@@ -887,12 +891,12 @@ impl Message for LureMessage {
             // let scale18 = rusttype::Scale::uniform(23f32);
 
             let mut background = {
-                let path = format!("{}images/msg-bgs/msg-lure.png", CONFIG.images.sender).into();
+                let path: PathBuf = format!("{}images/msg-bgs/msg-lure.png", CONFIG.images.sender).into();
                 open_image(&path).await?
             };
 
             let icon = {
-                let path = format!("{}img/items/{}.png", CONFIG.images.assets, self.pokestop.lure_id).into();
+                let path: PathBuf = format!("{}img/items/{}.png", CONFIG.images.assets, self.pokestop.lure_id).into();
                 open_image(&path).await?
             };
             image::imageops::overlay(&mut background, &icon, 5, 5);
@@ -989,7 +993,7 @@ impl Message for InvasionMessage {
             // let scale18 = rusttype::Scale::uniform(23f32);
 
             let mut background = {
-                let path = format!("{}images/msg-bgs/msg-invasion.png", CONFIG.images.sender).into();
+                let path: PathBuf = format!("{}images/msg-bgs/msg-invasion.png", CONFIG.images.sender).into();
                 open_image(&path).await?
             };
 
@@ -998,7 +1002,7 @@ impl Message for InvasionMessage {
                 if let Some(grunt) = lock.get(&id) {
                     if let Some(sex) = &grunt.sex {
                         let icon = {
-                            let path = format!("{}img/grunts/{}.png", CONFIG.images.assets, sex).into();
+                            let path: PathBuf = format!("{}img/grunts/{}.png", CONFIG.images.assets, sex).into();
                             open_image(&path).await?
                         };
                         image::imageops::overlay(&mut background, &icon, 5, 5);
@@ -1006,7 +1010,7 @@ impl Message for InvasionMessage {
 
                     if let Some(element) = &grunt.element {
                         let icon = {
-                            let path = format!("{}img/pkmns/types/{}{}.png", CONFIG.images.assets, &element[0..1].to_uppercase(), &element[1..]).into();
+                            let path: PathBuf = format!("{}img/pkmns/types/{}{}.png", CONFIG.images.assets, &element[0..1].to_uppercase(), &element[1..]).into();
                             open_image(&path).await?
                         };
                         let icon = image::DynamicImage::ImageRgba8(image::imageops::resize(&icon, 24, 24, image::imageops::FilterType::Triangle));
@@ -1181,11 +1185,11 @@ impl Message for GymMessage {
             // let scale18 = rusttype::Scale::uniform(23f32);
 
             let mut background = {
-                let path = format!("{}images/msg-bgs/msg-raid-sm-t{}{}.png", CONFIG.images.sender, self.gym.team.get_id(), if self.gym.ex_raid_eligible { "-ex" } else { "" }).into();
+                let path: PathBuf = format!("{}images/msg-bgs/msg-raid-sm-t{}{}.png", CONFIG.images.sender, self.gym.team.get_id(), if self.gym.ex_raid_eligible { "-ex" } else { "" }).into();
                 open_image(&path).await?
             };
             let gym = {
-                let path = format!("{}img/pkmns/gym_images/t{}m{}p{}.png", CONFIG.images.assets, self.gym.team.get_id(), 6 - self.gym.slots_available, if self.gym.ex_raid_eligible { 1 } else { 0 }).into();
+                let path: PathBuf = format!("{}img/pkmns/gym_images/t{}m{}p{}.png", CONFIG.images.assets, self.gym.team.get_id(), 6 - self.gym.slots_available, if self.gym.ex_raid_eligible { 1 } else { 0 }).into();
                 open_image(&path).await?
             };
 
@@ -1217,7 +1221,9 @@ pub struct DeviceTierMessage<'a> {
 #[async_trait]
 impl<'a> Message for DeviceTierMessage<'a> {
     async fn send(&self, chat_id: &str, image: Image, _: &str) -> Result<(), ()> {
-        send_photo(CONFIG.telegram.alert_bot_token.as_ref().ok_or_else(|| error!("Telegram alert bot token not configured"))?, chat_id, image, Some(&self.get_caption().await?), None, None, None, None)
+        send_photo(CONFIG.telegram.alert_bot_token.as_ref().ok_or_else(|| error!("Telegram alert bot token not configured"))?, chat_id, image)
+            .set_caption(&self.get_caption().await?)
+            .send()
             .await
             .map(|_| ())
             .map_err(|_| ())
@@ -1270,7 +1276,7 @@ impl<'a> Message for DeviceTierMessage<'a> {
             .max_dimensions(400, 400)
             .build();
 
-        let path = format!("{}img/logo.png", CONFIG.images.assets).into();
+        let path: PathBuf = format!("{}img/logo.png", CONFIG.images.assets).into();
         let logo = open_image(&path).await?;
 
         image::imageops::overlay(&mut image, &logo, 150, 150);
@@ -1288,7 +1294,8 @@ pub struct LagMessage {
 #[async_trait]
 impl Message for LagMessage {
     async fn send(&self, chat_id: &str, _: Image, _: &str) -> Result<(), ()> {
-        send_message(CONFIG.telegram.alert_bot_token.as_ref().ok_or_else(|| error!("Telegram alert bot token not configured"))?, chat_id, &self.get_caption().await?, None, None, None, None, None)
+        send_message(CONFIG.telegram.alert_bot_token.as_ref().ok_or_else(|| error!("Telegram alert bot token not configured"))?, chat_id, &self.get_caption().await?)
+            .send()
             .await
             .map(|_| ())
             .map_err(|_| ())
