@@ -18,6 +18,8 @@ use once_cell::sync::Lazy;
 
 use log::{info, error, debug, warn};
 
+use rocketmap_entities::{Request, Watch, DeviceTier};
+
 mod config;
 mod message;
 mod map;
@@ -26,7 +28,6 @@ mod file_cache;
 
 use message::{Message, DeviceTierMessage, LagMessage};
 
-use crate::entities::{Request, Watch, DeviceTier};
 use crate::lists::{CITIES, CITYSTATS, CITYPARKS, City, CityStats};
 use crate::config::CONFIG;
 use crate::db::MYSQL;

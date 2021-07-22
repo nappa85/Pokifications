@@ -8,7 +8,6 @@
 //!
 //! A notifications daemon alternative to PokeAlarm
 
-mod entities;
 mod db;
 mod config;
 mod bot;

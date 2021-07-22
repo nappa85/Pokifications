@@ -18,9 +18,10 @@ use async_trait::async_trait;
 
 use log::error;
 
+use rocketmap_entities::{DeviceTier, Gender, GymDetails, Pokemon, Pokestop, Raid, Watch};
+
 use super::{BotConfigs, file_cache::FileCache};
 
-use crate::entities::{DeviceTier, Gender, GymDetails, Pokemon, Pokestop, Raid, Watch};
 use crate::lists::{LIST, MOVES, FORMS, GRUNTS};
 use crate::config::CONFIG;
 use crate::db::MYSQL;

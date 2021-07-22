@@ -17,8 +17,9 @@ use log::error;
 
 use log::info;
 
+use rocketmap_entities::{Pokemon, Pokestop, Raid, Request, Gender, PvpRanking, GymDetails, Weather};
+
 // use crate::lists::COMMON;
-use crate::entities::{Pokemon, Pokestop, Raid, Request, Gender, PvpRanking, GymDetails, Weather};
 use crate::lists::{CITIES, LIST, FORMS};
 use crate::db::MYSQL;
 // use crate::telegram::Image;
@@ -1195,7 +1196,7 @@ mod tests {
 
     use super::BotConfig;
 
-    use crate::entities::{Request, Pokemon, Raid, Pokestop};
+    use rocketmap_entities::{Request, Pokemon, Raid, Pokestop};
 
     #[test]
     fn bot_config() {
