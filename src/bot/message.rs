@@ -207,7 +207,7 @@ pub trait Message {
 #[derive(Debug)]
 pub struct PokemonMessage {
     pub pokemon: Pokemon,
-    pub iv: Option<f32>,
+    pub iv: Option<u8>,
     pub distance: f64,
     pub direction: String,
     pub debug: Option<String>,
@@ -277,7 +277,7 @@ impl Message for PokemonMessage {
                     Some(id) => LIST.read().await.get(&id).map(|f| format!(" ({})", f.name)),
                     None => None,
                 }.unwrap_or_else(String::new),
-                iv.round(),
+                iv,
                 self.pokemon.weather.and_then(|id| meteo_icon(id).ok()).unwrap_or_else(String::new),
                 match (self.pokemon.cp, self.pokemon.pokemon_level) {
                     (Some(cp), Some(level)) => format!("PL {} | Lv {}\n", cp, level),
@@ -351,10 +351,10 @@ impl Message for PokemonMessage {
             // $mBg = null;
             let mut background = {
                 let path: PathBuf = format!("{}{}", CONFIG.images.sender, match self.iv {
-                    Some(i) if i < 80f32 => "images/msg-bgs/msg-poke-big-norm.png",
-                    Some(i) if (80f32..90f32).contains(&i) => "images/msg-bgs/msg-poke-big-med.png",
-                    Some(i) if (90f32..100f32).contains(&i) => "images/msg-bgs/msg-poke-big-hi.png",
-                    Some(i) if i >= 100f32 => "images/msg-bgs/msg-poke-big-top.png",
+                    Some(i) if i < 80 => "images/msg-bgs/msg-poke-big-norm.png",
+                    Some(i) if (80..90).contains(&i) => "images/msg-bgs/msg-poke-big-med.png",
+                    Some(i) if (90..100).contains(&i) => "images/msg-bgs/msg-poke-big-hi.png",
+                    Some(i) if i >= 100 => "images/msg-bgs/msg-poke-big-top.png",
                     _ => "images/msg-bgs/msg-poke-sm.png",
                 }).into();
                 open_image(&path).await?
@@ -441,15 +441,15 @@ impl Message for PokemonMessage {
                 imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 200 - (dm / 2) as u32, 64, scale11, &f_cal1, &m_move2);
 
                 let v_ivcolor = match self.iv {
-                    Some(i) if i == 0f32 => image::Rgba::<u8>([0x2D, 0x90, 0xFF, 0]),//0x002D90FF, // NULL Azzurro
-                    Some(i) if (80f32..90f32).contains(&i) => image::Rgba::<u8>([0xFF, 0x62, 0x14, 0]),//0x00FF6214, // MED Arancione
-                    Some(i) if (90f32..100f32).contains(&i) => image::Rgba::<u8>([0xFF, 0, 0, 0]),//0x00FF0000, // HI Rosso
-                    Some(i) if i >= 100f32 => image::Rgba::<u8>([0xDC, 0, 0xEA, 0]),//0x00DC00EA, // TOP Viola
+                    Some(i) if i == 0 => image::Rgba::<u8>([0x2D, 0x90, 0xFF, 0]),//0x002D90FF, // NULL Azzurro
+                    Some(i) if (80..90).contains(&i) => image::Rgba::<u8>([0xFF, 0x62, 0x14, 0]),//0x00FF6214, // MED Arancione
+                    Some(i) if (90..100).contains(&i) => image::Rgba::<u8>([0xFF, 0, 0, 0]),//0x00FF0000, // HI Rosso
+                    Some(i) if i >= 100 => image::Rgba::<u8>([0xDC, 0, 0xEA, 0]),//0x00DC00EA, // TOP Viola
                     _ => image::Rgba::<u8>([0, 0, 0, 0]),//0x00000000,
                 };
                 // $dm = imagettfbbox(13, 0, $f_cal2, "IV " . $v_iv . " %");
                 // imagettftext($mBg, 13, 0, 80 - (abs($dm[4] - $dm[6]) / 2), 100, $v_ivcolor, $f_cal2, "IV " . $v_iv . " %");
-                let text = format!("IV {:.0}%", iv.round());
+                let text = format!("IV {:.0}%", iv);
                 let dm = get_text_width(&f_cal2, scale13, &text);
                 imageproc::drawing::draw_text_mut(&mut background, v_ivcolor, 80 - (dm / 2) as u32, 87, scale13, &f_cal2, &text);
 

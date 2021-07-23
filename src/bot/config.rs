@@ -213,12 +213,12 @@ impl BotConfig {
         let loc = self.locs.get_pokemon_settings();
         let pos = (input.latitude, input.longitude);
         let iv = match (input.individual_attack, input.individual_defense, input.individual_stamina) {
-            (Some(atk), Some(def), Some(sta)) => Some((f32::from(atk + def + sta) / 45f32) * 100f32),
+            (Some(atk), Some(def), Some(sta)) => Some(((f64::from(atk + def + sta) / 45_f64) * 100_f64).round() as u8),
             _ => None,
         };
         let mut debug = format!("Scansione avvenuta alle {}\n", now.format("%T").to_string());
 
-        if (self.pkmn.p1 == Some(1) && iv == Some(100_f32)) || (self.pkmn.p0 == Some(1) && iv == Some(0_f32)) {
+        if (self.pkmn.p1 == Some(1) && iv == Some(100)) || (self.pkmn.p0 == Some(1) && iv == Some(0)) {
             let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &self.locs.p[2]))?).max(0.1);
             let dist = BotLocs::calc_dist(loc, pos)?;
             if dist <= rad {
@@ -309,7 +309,7 @@ impl BotConfig {
         else if badge {
             debug.push_str("\nEccezione per medaglia");
         }
-        else if let Some(s) = BotPkmn::filter(filter, iv, input.pokemon_level.as_ref()) {
+        else if let Some(s) = BotPkmn::filter(filter, iv.as_ref(), input.pokemon_level.as_ref()) {
             debug.push_str(&format!("\nFiltro orario attivo e {}", s));
         }
         else {
@@ -752,22 +752,22 @@ impl BotPkmn {
      * 21: ultra check
      * 22: Ultra
      */
-    fn filter(filter: &[u8], iv: Option<f32>, lvl: Option<&u8>) -> Option<String> {
+    fn filter(filter: &[u8], iv: Option<&u8>, lvl: Option<&u8>) -> Option<String> {
         if filter.get(1) >= Some(&1) && filter.get(3) == Some(&1) {
             // IV e PL attivi
             if filter.get(7) == Some(&1) {
-                if iv >= filter.get(2).map(|i| f32::from(*i)) || lvl >= filter.get(4) {
+                if iv >= filter.get(2) || lvl >= filter.get(4) {
                     return Some(format!("IV >= {} O LVL >= {}", filter.get(2).unwrap_or(&0), filter.get(4).unwrap_or(&0)));
                 }
             }
-            else if iv >= filter.get(2).map(|i| f32::from(*i)) && lvl >= filter.get(4) {
+            else if iv >= filter.get(2) && lvl >= filter.get(4) {
                 return Some(format!("IV >= {} E LVL >= {}", filter.get(2).unwrap_or(&0), filter.get(4).unwrap_or(&0)));
             }
             None
         }
         else if filter.get(1) >= Some(&1) || filter.get(3) == Some(&1) {
             // IV o PL attivi
-            if filter.get(1) >= Some(&1) && iv >= filter.get(2).map(|i| f32::from(*i)) {
+            if filter.get(1) >= Some(&1) && iv >= filter.get(2) {
                 return Some(format!("IV >= {}", filter.get(2).unwrap_or(&0)));
             }
             if filter.get(3) == Some(&1) && lvl >= filter.get(4) {
@@ -1136,23 +1136,23 @@ impl BotTime {
         }
     }
 
-    fn bypass(&self, iv: Option<f32>, lvl: Option<u8>) -> Option<String> {
+    fn bypass(&self, iv: Option<u8>, lvl: Option<u8>) -> Option<String> {
         if self.fi[0] == 1 && self.fl[0] == 1 {
             if self.fc == 1 {
-                if iv >= Some(f32::from(self.fi[1])) || lvl >= Some(self.fl[1]) {
+                if iv >= Some(self.fi[1]) || lvl >= Some(self.fl[1]) {
                     return Some(format!("IV >= {} O LVL >= {}", self.fi[1], self.fl[1]));
                 }
                 None
             }
             else {
-                if iv >= Some(f32::from(self.fi[1])) && lvl >= Some(self.fl[1]) {
+                if iv >= Some(self.fi[1]) && lvl >= Some(self.fl[1]) {
                     return Some(format!("IV >= {} E LVL >= {}", self.fi[1], self.fl[1]));
                 }
                 None
             }
         }
         else {
-            if self.fi[0] == 1 && iv >= Some(f32::from(self.fi[1])) {
+            if self.fi[0] == 1 && iv >= Some(self.fi[1]) {
                 return Some(format!("IV >= {}", self.fi[1]));
             }
             if self.fl[0] == 1 && lvl >= Some(self.fl[1]) {

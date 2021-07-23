@@ -724,7 +724,7 @@ mod tests {
             pokemon: serde_json::from_str(
                     r#"{"latitude":43.889,"last_modified_time":1564175718,"gender":2,"weight":1.48829138278961,"individual_stamina":13,"cp":656,"individual_attack":15,"pokemon_level":30,"spawnpoint_id":"A54016D1","disappear_time_verified":true,"form":0,"individual_defense":4,"first_seen":1564174573,"pokestop_id":"e5bab95925c040ba8ba9d480665f94dc.16","encounter_id":"12854125514185017067","longitude":12.909,"costume":0,"move_1":216,"disappear_time":1564175797,"move_2":58,"weather":1,"pokemon_id":339,"height":0.409816652536392}"#
                 ).unwrap(),
-            iv: Some(100_f32),
+            iv: Some(100),
             distance: 0_f64,
             direction: String::new(),
             debug: None,
@@ -740,7 +740,7 @@ mod tests {
             pokemon: serde_json::from_str(
                     r#"{"latitude":43.771081,"last_modified_time":1564175718,"gender":2,"weight":null,"individual_stamina":null,"cp":null,"individual_attack":null,"pokemon_level":null,"spawnpoint_id":"None","disappear_time_verified":false,"form":0,"individual_defense":null,"first_seen":1564175718,"pokestop_id":"34eadde33a9a412e9cf74a6137b38d48.16","encounter_id":"1432619712785063368","longitude":11.266252,"costume":0,"move_1":null,"disappear_time":1564176918,"move_2":null,"weather":0,"pokemon_id":109,"height":null}"#
                 ).unwrap(),
-            iv: Some(100_f32),
+            iv: Some(100),
             distance: 0_f64,
             direction: String::new(),
             debug: None,
