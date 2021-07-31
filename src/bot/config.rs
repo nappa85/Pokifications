@@ -417,7 +417,7 @@ impl BotConfig {
 
     async fn submit_pokestop(&self, now: &DateTime<Local>, input: &Pokestop) -> Result<LureMessage, ()> {
         let lure = self.lure.as_ref().ok_or(())?;
-        if lure.n == 0 || input.lure_id.and_then(|i| (i > 0).then(|| i)).is_none() || input.lure_expiration <= Some(now.timestamp()) {
+        if lure.n == 0 || input.lure_id.unwrap_or_default() == 0 || input.lure_expiration <= Some(now.timestamp()) {
             return Err(());
         }
 
