@@ -562,7 +562,7 @@ impl Message for RaidMessage {
         };
 
         let caption = if let Some(pokemon_id) = self.raid.pokemon_id.and_then(|id| if id > 0 { Some(id) } else { None }) {
-            let gender = self.raid.gender.get_glyph();
+            let gender = self.raid.gender.as_ref().map(|g| g.get_glyph()).unwrap_or_default();
             // $t_corpo = $icon_raid . " "; // Battaglia
             // $t_corpo .= "RAID " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]) . " iniziato\n";
             // $t_corpo .= "\xf0\x9f\x93\x8d " . (strlen($gym_name) > 36 ? substr($gym_name, 0, 35) . ".." : $gym_name) . "\n";
@@ -581,7 +581,7 @@ impl Message for RaidMessage {
                     Some(id) if id == 3 => " (Mega Y)",
                     _ => "",
                 },
-                String::from_utf8(if self.raid.ex_raid_eligible { vec![0xE2, 0x9B, 0xB3] } else { vec![0xf0, 0x9f, 0x93, 0x8d] }).map_err(|e| error!("error parsing POI icon: {}", e))?,
+                String::from_utf8(if self.raid.ex_raid_eligible == Some(true) { vec![0xE2, 0x9B, 0xB3] } else { vec![0xf0, 0x9f, 0x93, 0x8d] }).map_err(|e| error!("error parsing POI icon: {}", e))?,
                 self.raid.gym_name,
                 String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92]).map_err(|e| error!("error parsing clock icon: {}", e))?,
                 Local.timestamp(self.raid.end, 0).format("%T").to_string()
@@ -595,7 +595,7 @@ impl Message for RaidMessage {
             format!("{} RAID liv. {}\n{} {}\n{} Schiude: {}",//debug
                 String::from_utf8(vec![0xf0, 0x9f, 0xa5, 0x9a]).map_err(|e| error!("error parsing egg icon: {}", e))?,
                 self.raid.level,
-                String::from_utf8(if self.raid.ex_raid_eligible { vec![0xE2, 0x9B, 0xB3] } else { vec![0xf0, 0x9f, 0x93, 0x8d] }).map_err(|e| error!("error parsing POI icon: {}", e))?,
+                String::from_utf8(if self.raid.ex_raid_eligible == Some(true) { vec![0xE2, 0x9B, 0xB3] } else { vec![0xf0, 0x9f, 0x93, 0x8d] }).map_err(|e| error!("error parsing POI icon: {}", e))?,
                 self.raid.gym_name,
                 String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92]).map_err(|e| error!("error parsing clock icon: {}", e))?,
                 Local.timestamp(self.raid.start, 0).format("%T").to_string()
@@ -640,7 +640,7 @@ impl Message for RaidMessage {
             let (mut background, pokemon) = match self.raid.pokemon_id {
                 Some(pkmn_id) if pkmn_id > 0 => {
                     // $mBg = imagecreatefrompng("images/msg-bgs/msg-raid-big-t" . $v_team . ".png");
-                    let path: PathBuf = format!("{}images/msg-bgs/msg-raid-big-t{}{}.png", CONFIG.images.sender, self.raid.team_id.get_id(), if self.raid.ex_raid_eligible { "-ex" } else { "" }).into();
+                    let path: PathBuf = format!("{}images/msg-bgs/msg-raid-big-t{}{}.png", CONFIG.images.sender, self.raid.team_id.get_id(), if self.raid.ex_raid_eligible == Some(true) { "-ex" } else { "" }).into();
                     let mut background = open_image(&path).await?;
 
                     let evo = match self.raid.evolution {
@@ -699,13 +699,10 @@ impl Message for RaidMessage {
                         },
                     };
 
-                    match self.raid.gender {
-                        Gender::Male | Gender::Female => {
-                            let path: PathBuf = format!("{}img/{}.png", CONFIG.images.assets, if self.raid.gender == Gender::Female { "female" } else { "male" }).into();
-                            let icon = open_image(&path).await?;
-                            image::imageops::overlay(&mut background, &icon, 32, 50);
-                        }
-                        _ => {},
+                    if let Some(Gender::Male | Gender::Female) = self.raid.gender {
+                        let path: PathBuf = format!("{}img/{}.png", CONFIG.images.assets, if self.raid.gender == Some(Gender::Female) { "female" } else { "male" }).into();
+                        let icon = open_image(&path).await?;
+                        image::imageops::overlay(&mut background, &icon, 32, 50);
                     }
 
                     // imagettftext($mBg, 12, 0, 82, 71, 0x00000000, $f_cal2, $v_end);
@@ -755,7 +752,7 @@ impl Message for RaidMessage {
                 },
                 _ => {
                     let mut background = {
-                        let path: PathBuf = format!("{}images/msg-bgs/msg-raid-sm-t{}{}.png", CONFIG.images.sender, self.raid.team_id.get_id(), if self.raid.ex_raid_eligible { "-ex" } else { "" }).into();
+                        let path: PathBuf = format!("{}images/msg-bgs/msg-raid-sm-t{}{}.png", CONFIG.images.sender, self.raid.team_id.get_id(), if self.raid.ex_raid_eligible == Some(true) { "-ex" } else { "" }).into();
                         open_image(&path).await?
                     };
                     let pokemon = {
@@ -827,9 +824,9 @@ impl Message for LureMessage {
      * 505 => "Modulo Esca Pluviale",
      */
     async fn get_caption(&self) -> Result<String, ()> {
-        if let Some(timestamp) = self.pokestop.lure_expiration {
+        if let (Some(timestamp), Some(lure_id)) = (self.pokestop.lure_expiration, self.pokestop.lure_id) {
             let caption = format!("{} {}\n{} {}\n{} {}",
-                match self.pokestop.lure_id {
+                match lure_id {
                     501 => String::from_utf8(vec![0xE2, 0x98, 0xA2]).map_err(|e| error!("error parsing lure icon: {}", e))?,
                     502 => String::from_utf8(vec![0xE2, 0x9D, 0x84]).map_err(|e| error!("error parsing glacial lure icon: {}", e))?,
                     503 => String::from_utf8(vec![0xF0, 0x9F, 0x8D, 0x83]).map_err(|e| error!("error parsing mossy lure icon: {}", e))?,
@@ -837,7 +834,7 @@ impl Message for LureMessage {
                     505 => String::from_utf8(vec![0xF0, 0x9F, 0x8C, 0xA7]).map_err(|e| error!("error parsing rainy lure icon: {}", e))?,
                     _ => String::new(),
                 },
-                match self.pokestop.lure_id {
+                match lure_id {
                     501 => "Modulo Esca",
                     502 => "Modulo Esca Glaciale",
                     503 => "Modulo Esca Silvestre",
@@ -846,7 +843,7 @@ impl Message for LureMessage {
                     _ => "",
                 },
                 String::from_utf8(vec![0xf0, 0x9f, 0x93, 0x8d]).map_err(|e| error!("error parsing POI icon: {}", e))?,
-                self.pokestop.name,
+                self.pokestop.name.as_deref().unwrap_or("Sconosciuto"),
                 String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92]).map_err(|e| error!("error parsing clock icon: {}", e))?,
                 Local.timestamp(timestamp, 0).format("%T").to_string()
             );
@@ -863,7 +860,7 @@ impl Message for LureMessage {
 
     async fn _get_image(&self, map: image::DynamicImage) -> Result<Image, ()> {
         let now = Local::now();
-        let img_path_str = format!("{}img_sent/lure_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.pokestop.pokestop_id, self.pokestop.lure_id);
+        let img_path_str = format!("{}img_sent/lure_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.pokestop.pokestop_id, self.pokestop.lure_id.unwrap_or_default());
 
         IMG_CACHE.get(img_path_str.into(), |img_path| async move {
             if img_path.exists() {
@@ -897,12 +894,12 @@ impl Message for LureMessage {
             };
 
             let icon = {
-                let path: PathBuf = format!("{}img/items/{}.png", CONFIG.images.assets, self.pokestop.lure_id).into();
+                let path: PathBuf = format!("{}img/items/{}.png", CONFIG.images.assets, self.pokestop.lure_id.unwrap_or_default()).into();
                 open_image(&path).await?
             };
             image::imageops::overlay(&mut background, &icon, 5, 5);
 
-            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale13, &f_cal2, &truncate_str(&self.pokestop.name, 25, '-'));
+            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale13, &f_cal2, &truncate_str(self.pokestop.name.as_deref().unwrap_or("Sconosciuto"), 25, '-'));
 
             if let Some(timestamp) = self.pokestop.lure_expiration {
                 let v_exit = Local.timestamp(timestamp, 0);
@@ -948,7 +945,7 @@ impl Message for InvasionMessage {
                     None => None,
                 }.unwrap_or_else(String::new),
                 String::from_utf8(vec![0xf0, 0x9f, 0x93, 0x8d]).map_err(|e| error!("error parsing POI icon: {}", e))?,
-                self.invasion.name,
+                self.invasion.name.as_deref().unwrap_or("Sconosciuto"),
                 String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92]).map_err(|e| error!("error parsing clock icon: {}", e))?,
                 Local.timestamp(timestamp, 0).format("%T").to_string()
             );
@@ -1020,7 +1017,7 @@ impl Message for InvasionMessage {
                 }
             }
 
-            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale13, &f_cal2, &truncate_str(&self.invasion.name, 25, '-'));
+            imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale13, &f_cal2, &truncate_str(self.invasion.name.as_deref().unwrap_or("Sconosciuto"), 25, '-'));
 
             if let Some(timestamp) = self.invasion.incident_expire_timestamp {
                 let v_exit = Local.timestamp(timestamp, 0);
@@ -1158,7 +1155,7 @@ impl Message for GymMessage {
 
     async fn _get_image(&self, map: image::DynamicImage) -> Result<Image, ()> {
         let now = Local::now();
-        let img_path_str = format!("{}img_sent/gym_{}_{}_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.gym.id, self.gym.team.get_id(), 6 - self.gym.slots_available, if self.gym.ex_raid_eligible { 1 } else { 0 });
+        let img_path_str = format!("{}img_sent/gym_{}_{}_{}_{}_{}.png", CONFIG.images.bot, now.format("%Y%m%d%H").to_string(), self.gym.id, self.gym.team.get_id(), 6 - self.gym.slots_available, if self.gym.ex_raid_eligible == Some(true) { 1 } else { 0 });
 
         IMG_CACHE.get(img_path_str.into(), |img_path| async move {
             if img_path.exists() {
@@ -1186,11 +1183,11 @@ impl Message for GymMessage {
             // let scale18 = rusttype::Scale::uniform(23f32);
 
             let mut background = {
-                let path: PathBuf = format!("{}images/msg-bgs/msg-raid-sm-t{}{}.png", CONFIG.images.sender, self.gym.team.get_id(), if self.gym.ex_raid_eligible { "-ex" } else { "" }).into();
+                let path: PathBuf = format!("{}images/msg-bgs/msg-raid-sm-t{}{}.png", CONFIG.images.sender, self.gym.team.get_id(), if self.gym.ex_raid_eligible == Some(true) { "-ex" } else { "" }).into();
                 open_image(&path).await?
             };
             let gym = {
-                let path: PathBuf = format!("{}img/pkmns/gym_images/t{}m{}p{}.png", CONFIG.images.assets, self.gym.team.get_id(), 6 - self.gym.slots_available, if self.gym.ex_raid_eligible { 1 } else { 0 }).into();
+                let path: PathBuf = format!("{}img/pkmns/gym_images/t{}m{}p{}.png", CONFIG.images.assets, self.gym.team.get_id(), 6 - self.gym.slots_available, if self.gym.ex_raid_eligible == Some(true) { 1 } else { 0 }).into();
                 open_image(&path).await?
             };
 

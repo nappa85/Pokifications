@@ -341,7 +341,7 @@ impl BotConfig {
         let pokemon_id = input.pokemon_id.and_then(|id| if id > 0 { Some(id.to_string()) } else { None });
         let loc = self.locs.get_raid_settings();
         let pos = (input.latitude, input.longitude);
-        if self.raid.x != Some(1) || !input.ex_raid_eligible {
+        if self.raid.x != Some(1) || input.ex_raid_eligible != Some(true) {
             if self.raid.s == 0 && pokemon_id.is_some() {
                 #[cfg(test)]
                 info!("Raid discarded for disabled raids");
@@ -378,8 +378,8 @@ impl BotConfig {
             return Err(());
         }
 
-        if self.raid.x == Some(1) && input.ex_raid_eligible {
-            debug.push_str(&"\nBypass Palestre EX abilitato");
+        if self.raid.x == Some(1) && input.ex_raid_eligible == Some(true) {
+            debug.push_str("\nBypass Palestre EX abilitato");
         }
         else {
             match input.pokemon_id {
@@ -391,7 +391,7 @@ impl BotConfig {
                         return Err(());
                     }
                     else {
-                        debug.push_str(&"\nPokémon presente nella lista raidboss abilitati");
+                        debug.push_str("\nPokémon presente nella lista raidboss abilitati");
                     }
                 },
                 _ => {
@@ -402,7 +402,7 @@ impl BotConfig {
                         return Err(());
                     }
                     else {
-                        debug.push_str(&"\nLivello uovo abilitato");
+                        debug.push_str("\nLivello uovo abilitato");
                     }
                 },
             }
@@ -417,7 +417,7 @@ impl BotConfig {
 
     async fn submit_pokestop(&self, now: &DateTime<Local>, input: &Pokestop) -> Result<LureMessage, ()> {
         let lure = self.lure.as_ref().ok_or(())?;
-        if lure.n == 0 || input.lure_id == 0 || input.lure_expiration <= Some(now.timestamp()) {
+        if lure.n == 0 || input.lure_id.and_then(|i| (i > 0).then(|| i)).is_none() || input.lure_expiration <= Some(now.timestamp()) {
             return Err(());
         }
 
@@ -436,11 +436,13 @@ impl BotConfig {
         }
 
         if lure.f == 1 {
-            if !lure.l.contains(&((input.lure_id - 500) as u8)) {
-                return Err(());
-            }
-            else {
-                debug.push_str("\nEsca presente nella lista delle esche abilitate");
+            if let Some(lure_id) = input.lure_id {
+                if !lure.l.contains(&((lure_id - 500) as u8)) {
+                    return Err(());
+                }
+                else {
+                    debug.push_str("\nEsca presente nella lista delle esche abilitate");
+                }
             }
         }
         else {
