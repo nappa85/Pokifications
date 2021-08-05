@@ -4,11 +4,13 @@ use futures_util::stream::unfold;
 
 use stream_throttle::{ThrottlePool, ThrottleRate, ThrottledStream};
 
-use tokio::{spawn, sync::{RwLock, RwLockWriteGuard, broadcast}, time::interval};
+use tokio::{spawn, sync::{RwLock, RwLockWriteGuard, broadcast, Mutex}, time::interval};
 
 use mysql_async::{from_row, prelude::Queryable, params};
 
 use chrono::{Local, DateTime, Timelike, offset::TimeZone};
+
+use lru_time_cache::LruCache;
 
 use geo::Point;
 
@@ -40,6 +42,7 @@ static SENDER: Lazy<broadcast::Sender<Arc<(DateTime<Local>, Request)>>> = Lazy::
     let (tx, _) = broadcast::channel(CONFIG.service.queue_size);
     tx
 });
+static SENT_CACHE: Lazy<Mutex<LruCache<String, ()>>> = Lazy::new(|| Mutex::new(LruCache::with_expiry_duration(Duration::from_secs(3600))));//1 hour cache
 
 const RATE_LIMITER_CHECK_INTERVAL: u8 = 10;
 const MAX_NOTIFICATIONS_PER_HOUR: u32 = 500;
@@ -454,7 +457,15 @@ impl BotConfigs {
     // }
 
     pub async fn submit(now: DateTime<Local>, inputs: Vec<Request>) {
-        for input in inputs.into_iter() {
+        let mut lock = SENT_CACHE.lock().await;
+        for input in inputs.into_iter().filter(|r| match r {
+            Request::Reload(_) |
+            Request::ReloadCity(_) |
+            Request::StartWatch(_) |
+            Request::StopWatch(_) |
+            Request::DeviceTier(_) => true,
+            _ => lock.notify_insert(format!("{:?}", r), ()).0.is_none(),
+        }) {
             // non config-related requests
             match input {
                 Request::Reload(user_ids) => {

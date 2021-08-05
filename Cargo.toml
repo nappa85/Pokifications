@@ -1,6 +1,6 @@
 [package]
 name = "pokifications"
-version = "2.0.2"
+version = "2.1.0"
 authors = ["Marco Napetti <marco.napetti@gmail.com>"]
 edition = "2018"
 
@@ -27,4 +27,5 @@ qrcode = "0.12"
 rand = "0.8"
 geo = { version = "0.18", features = ["use-serde"] }
 geo-raycasting = "0.3"
+lru_time_cache = "0.11"
 rocketmap-entities = { git = "https://github.com/nappa85/rocketmap-entities.git" }
