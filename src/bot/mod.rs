@@ -20,7 +20,7 @@ use once_cell::sync::Lazy;
 
 use log::{info, error, debug, warn};
 
-use rocketmap_entities::{Request, Watch, DeviceTier};
+use rocketmap_entities::{Request, RequestId, Watch, DeviceTier};
 
 mod config;
 mod message;
@@ -458,14 +458,7 @@ impl BotConfigs {
 
     pub async fn submit(now: DateTime<Local>, inputs: Vec<Request>) {
         let mut lock = SENT_CACHE.lock().await;
-        for input in inputs.into_iter().filter(|r| match r {
-            Request::Reload(_) |
-            Request::ReloadCity(_) |
-            Request::StartWatch(_) |
-            Request::StopWatch(_) |
-            Request::DeviceTier(_) => true,
-            _ => lock.notify_insert(format!("{:?}", r), ()).0.is_none(),
-        }) {
+        for input in inputs.into_iter().filter(|r| r.get_id().and_then(|id| lock.notify_insert(id, ()).0).is_none()) {
             // non config-related requests
             match input {
                 Request::Reload(user_ids) => {
