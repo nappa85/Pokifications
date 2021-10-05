@@ -23,7 +23,7 @@ pub static MOVES: Lazy<RwLock<HashMap<u16, String>>> = Lazy::new(|| RwLock::new(
 
 pub static FORMS: Lazy<RwLock<HashMap<u16, Form>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 
-pub static GRUNTS: Lazy<RwLock<HashMap<u8, GruntType>>> = Lazy::new(|| RwLock::new(HashMap::new()));
+pub static GRUNTS: Lazy<RwLock<HashMap<u16, GruntType>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 
 pub static CITIES: Lazy<RwLock<HashMap<u16, City>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 
@@ -49,7 +49,7 @@ pub struct Form {
 }
 
 pub struct GruntType {
-    pub id: u8,
+    pub id: u16,
     pub name: String,
     pub sex: Option<String>,
     pub element: Option<String>,

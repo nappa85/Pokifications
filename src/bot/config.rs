@@ -437,7 +437,7 @@ impl BotConfig {
 
         if lure.f == 1 {
             if let Some(lure_id) = input.lure_id {
-                if !lure.l.contains(&((lure_id - 500) as u8)) {
+                if !lure.l.contains(&((lure_id - 500) as u16)) {
                     return Err(());
                 }
                 else {
@@ -1178,7 +1178,7 @@ pub struct BotQest {
 pub struct BotPkst {
     pub n: u8,
     pub f: u8,
-    pub l: Vec<u8>,
+    pub l: Vec<u16>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
