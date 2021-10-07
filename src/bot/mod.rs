@@ -30,7 +30,7 @@ mod file_cache;
 
 use message::{Message, DeviceTierMessage, LagMessage};
 
-use crate::lists::{CITIES, CITYSTATS, CITYPARKS, City, CityStats};
+use crate::{Platform, lists::{CITIES, CITYSTATS, CITYPARKS, City, CityStats}};
 use crate::config::CONFIG;
 use crate::db::MYSQL;
 use crate::telegram::send_message;
@@ -38,7 +38,7 @@ use crate::telegram::send_message;
 static BOT_CONFIGS: Lazy<RwLock<HashMap<String, config::BotConfig>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 static WATCHES: Lazy<RwLock<HashMap<String, Vec<Watch>>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 #[allow(clippy::type_complexity)]
-static SENDER: Lazy<broadcast::Sender<Arc<(DateTime<Local>, Request)>>> = Lazy::new(|| {
+static SENDER: Lazy<broadcast::Sender<Arc<(DateTime<Local>, Platform, Request)>>> = Lazy::new(|| {
     let (tx, _) = broadcast::channel(CONFIG.service.queue_size);
     tx
 });
@@ -313,10 +313,10 @@ impl BotConfigs {
                                     },
                                     _ => return None,
                                 };
-                                let (time, req) = temp.as_ref();
+                                let (time, platform, req) = temp.as_ref();
                                 let lock = BOT_CONFIGS.read().await;
                                 let conf = lock.get(&user_id)?;
-                                if let Ok(msg) = conf.submit(time, req).await {
+                                if let Ok(msg) = conf.submit(time, platform, req).await {
                                     res = (user_id.clone(), msg, conf.more.l.clone());
                                     break;
                                 }
@@ -456,7 +456,7 @@ impl BotConfigs {
     //     }
     // }
 
-    pub async fn submit(now: DateTime<Local>, inputs: Vec<Request>) {
+    pub async fn submit(now: DateTime<Local>, inputs: Vec<Request>, platform: Platform) {
         let mut lock = SENT_CACHE.lock().await;
         for input in inputs.into_iter().filter(|r| r.get_id().and_then(|id| lock.notify_insert(id, ()).0).is_none()) {
             // non config-related requests
@@ -531,7 +531,7 @@ impl BotConfigs {
             //         }
             //     });
             // }
-            SENDER.send(Arc::new((now, input))).map_err(|e| error!("Stream send error: {}", e)).ok();
+            SENDER.send(Arc::new((now, platform, input))).map_err(|e| error!("Stream send error: {}", e)).ok();
         }
     }
 

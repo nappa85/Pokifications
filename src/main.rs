@@ -41,7 +41,7 @@ use crate::db::MYSQL;
 //     Ok(())
 // }
 
-async fn parse(now: DateTime<Local>, bytes: Vec<u8>) -> Result<(), ()> {
+async fn parse(now: DateTime<Local>, bytes: Vec<u8>, platform: Platform) -> Result<(), ()> {
     // let bytes2 = bytes.clone();
 
     // spawn(async move {
@@ -71,13 +71,56 @@ async fn parse(now: DateTime<Local>, bytes: Vec<u8>) -> Result<(), ()> {
             )
             .filter(Result::is_ok)
             .map(Result::unwrap)
-            .collect()
-        ).await;
+            .collect(),
+        platform
+    ).await;
     Ok(())
 }
 
+#[derive(Copy, Clone, Debug)]
+/// Scan platform
+pub enum Platform {
+    /// Unknown
+    Unknown,
+    /// ReadDeviceMap
+    Rdm,
+    /// Map-a-Droid
+    Mad,
+}
+
+impl std::fmt::Display for Platform {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            Platform::Unknown => "",
+            Platform::Rdm => " su iOS",
+            Platform::Mad => " su Android",
+        })
+    }
+}
+
+fn check_safeword(req: &Request<Body>) -> Option<Platform> {
+    if config::CONFIG.service.safeword.is_none() && config::CONFIG.service.rdm_safeword.is_none() && config::CONFIG.service.rdm_safeword.is_none() {
+        None
+    }
+    else {
+        let path = Some(req.uri().path().trim_matches('/'));
+        if path == config::CONFIG.service.safeword.as_deref() {
+            Some(Platform::Unknown)
+        }
+        else if path == config::CONFIG.service.rdm_safeword.as_deref() {
+            Some(Platform::Rdm)
+        }
+        else if path == config::CONFIG.service.mad_safeword.as_deref() {
+            Some(Platform::Mad)
+        }
+        else {
+            None
+        }
+    }
+}
+
 async fn service(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
-    if config::CONFIG.service.safeword.is_none() || Some(req.uri().path().trim_matches('/')) == config::CONFIG.service.safeword.as_deref() {
+    if let Some(platform) = check_safeword(&req) {
         let now = Local::now();
         let bytes = req.into_body()
             .map_ok(|c| c.to_vec())
@@ -90,7 +133,7 @@ async fn service(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
 
         //spawn an independent future to parse the stream
         spawn(async move {
-            parse(now, bytes).await.ok();
+            parse(now, bytes, platform).await.ok();
         });
     }
 

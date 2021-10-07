@@ -2,6 +2,8 @@
 address = "0.0.0.0"#0.0.0.0 accepts from any address
 port = 8080
 safeword = ""
+rdm_safeword = ""
+mad_safeword = ""
 queue_size = 1
 lru_size = 1
 

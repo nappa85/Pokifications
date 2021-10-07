@@ -24,6 +24,8 @@ pub struct Service {
     pub address: Option<String>,
     pub port: Option<u32>,
     pub safeword: Option<String>,
+    pub rdm_safeword: Option<String>,
+    pub mad_safeword: Option<String>,
     pub queue_size: usize,
     pub lru_size: usize,
 }
