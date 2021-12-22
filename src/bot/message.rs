@@ -16,7 +16,7 @@ use once_cell::sync::Lazy;
 
 use async_trait::async_trait;
 
-use log::error;
+use tracing::error;
 
 use rocketmap_entities::{DeviceTier, Gender, GymDetails, Pokemon, Pokestop, Raid, Watch};
 

@@ -95,7 +95,7 @@ mod tests {
 
     #[test]
     fn alert() {
-        env_logger::try_init().ok();
+        tracing_subscriber::fmt::try_init().ok();
 
         let now = Local::now().timestamp();
 

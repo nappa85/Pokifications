@@ -18,7 +18,7 @@ use geo_raycasting::RayCasting;
 
 use once_cell::sync::Lazy;
 
-use log::{info, error, debug, warn};
+use tracing::{info, error, debug, warn};
 
 use rocketmap_entities::{Request, RequestId, Watch, DeviceTier};
 
@@ -722,7 +722,7 @@ mod tests {
 
     #[tokio::test]
     async fn pokemon_image_iv() {
-        env_logger::try_init().ok();
+        tracing_subscriber::fmt::try_init().ok();
 
         let message = PokemonMessage {
             pokemon: serde_json::from_str(
@@ -738,7 +738,7 @@ mod tests {
 
     #[tokio::test]
     async fn pokemon_image_no_iv() {
-        env_logger::try_init().ok();
+        tracing_subscriber::fmt::try_init().ok();
 
         let message = PokemonMessage {
             pokemon: serde_json::from_str(
@@ -754,7 +754,7 @@ mod tests {
 
     #[tokio::test]
     async fn raid_image_egg() {
-        env_logger::try_init().ok();
+        tracing_subscriber::fmt::try_init().ok();
 
         let message = RaidMessage {
             raid: serde_json::from_str(
@@ -768,7 +768,7 @@ mod tests {
 
     #[tokio::test]
     async fn raid_image_raidboss() {
-        env_logger::try_init().ok();
+        tracing_subscriber::fmt::try_init().ok();
 
         let message = RaidMessage {
             raid: serde_json::from_str(
@@ -782,7 +782,7 @@ mod tests {
 
     #[tokio::test]
     async fn invasion_image() {
-        env_logger::try_init().ok();
+        tracing_subscriber::fmt::try_init().ok();
 
         let message = InvasionMessage {
             invasion: serde_json::from_str(
@@ -795,7 +795,7 @@ mod tests {
 
     #[tokio::test]
     async fn gym_image() {
-        env_logger::try_init().ok();
+        tracing_subscriber::fmt::try_init().ok();
 
         let message = GymMessage {
             gym: serde_json::from_str(

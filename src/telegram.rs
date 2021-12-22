@@ -6,7 +6,7 @@ use serde_json::{json, value::Value};
 
 use rand::{thread_rng, Rng, distributions::Alphanumeric};
 
-use log::error;
+use tracing::error;
 
 use crate::config::CONFIG;
 
@@ -78,12 +78,12 @@ pub async fn call_telegram(/*chat_id: String, */req: RequestBuilder) -> Result<S
     let success = res.status().is_success();
     let status = res.status().as_u16();
 
-    let debug = format!("response from Telegram: {:?}", res);
+    let sdebug = format!("response from Telegram: {:?}", res);
 
     let body = res.text()
         .await
         .map_err(|e| {
-            error!("error while encoding {}: {}", debug, e);
+            error!("error while encoding {}: {}", sdebug, e);
             CallResult::Empty
         })?;
 
@@ -91,7 +91,7 @@ pub async fn call_telegram(/*chat_id: String, */req: RequestBuilder) -> Result<S
         Ok(body)
     }
     else {
-        error!("error {}\n{}", debug, body);
+        error!("error {}\n{}", sdebug, body);
         Err(CallResult::Body((status, body)))
     }
 }

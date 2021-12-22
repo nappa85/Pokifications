@@ -10,7 +10,7 @@ use tokio::{spawn, time::{Duration, Instant, interval_at}, sync::RwLock};
 
 use once_cell::sync::Lazy;
 
-use log::error;
+use tracing::error;
 
 use crate::db::MYSQL;
 

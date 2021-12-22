@@ -96,13 +96,13 @@ impl<'a> Map<'a> {
         let zero_index = x_row.enumerate()
             .find(|(_, x)| x == &0)
             .map(|(i, _)| i as i32)
-            .ok_or_else(|| log::error!("0 index not found"))?;
+            .ok_or_else(|| tracing::error!("0 index not found"))?;
         let x_left = (zero_index * (self.tile_width as i32) + lat_center_diff) as u32;
         // y_top = y_row.index(0) * self.tile_height + lon_center_diff
         let zero_index = y_row.enumerate()
             .find(|(_, x)| x == &0)
             .map(|(i, _)| i as i32)
-            .ok_or_else(|| log::error!("0 index not found"))?;
+            .ok_or_else(|| tracing::error!("0 index not found"))?;
         let y_top = (zero_index * (self.tile_height as i32) + lon_center_diff) as u32;
 
         // image_width = tiles_x * self.tile_width
@@ -165,23 +165,23 @@ impl<'a> Map<'a> {
             .replace("{z}", &self.zoom.to_string())
             .replace("{x}", &x.to_string())
             .replace("{y}", &y.to_string());
-        let url = reqwest::Url::parse(&tile_url).map_err(|e| log::error!("error building tile url: {}", e))?;
+        let url = reqwest::Url::parse(&tile_url).map_err(|e| tracing::error!("error building tile url: {}", e))?;
 
         let res = reqwest::get(url)
             .await
-            .map_err(|e| log::error!("error retrieving tile {}: {}", tile_url, e))?;
+            .map_err(|e| tracing::error!("error retrieving tile {}: {}", tile_url, e))?;
 
         if !res.status().is_success() {
-            log::error!("tile {} retriever failed with status code {}", tile_url, res.status());
+            tracing::error!("tile {} retriever failed with status code {}", tile_url, res.status());
             Err(())
         }
         else {
             let bytes = res.bytes()
                 .await
-                .map_err(|e| log::error!("error reading tile {}: {}", tile_url, e))?;
+                .map_err(|e| tracing::error!("error reading tile {}: {}", tile_url, e))?;
 
             image::load_from_memory(&bytes)
-                .map_err(|e| log::error!("error loading tile {}: {}", tile_url, e))
+                .map_err(|e| tracing::error!("error loading tile {}: {}", tile_url, e))
         }
     }
 }

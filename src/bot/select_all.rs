@@ -2,7 +2,7 @@ use std::{future::Future, pin::Pin, task::{Context, Poll}, time::Duration};
 
 use futures_util::{stream::{self, Stream, StreamExt}};
 
-use log::error;
+use tracing::error;
 
 use once_cell::sync::Lazy;
 
