@@ -146,6 +146,8 @@ async fn service(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
 async fn main() -> Result<(), ()> {
     tracing_subscriber::fmt::init();
 
+    rocketmap_entities::gamemaster::init();
+
     //retrieve address and port, defaulting if not configured
     let addr = format!(
             "{}:{}",
