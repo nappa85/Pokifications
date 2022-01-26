@@ -20,7 +20,7 @@ use once_cell::sync::Lazy;
 
 use tracing::{info, error, debug, warn};
 
-use rocketmap_entities::{Request, RequestId, Watch, DeviceTier};
+use rocketmap_entities::{RequestId, Watch, DeviceTier};
 
 mod config;
 mod message;
@@ -30,10 +30,12 @@ mod file_cache;
 
 use message::{Message, DeviceTierMessage, LagMessage};
 
-use crate::{Platform, lists::{CITIES, CITYSTATS, CITYPARKS, City, CityStats}};
+use crate::{Platform, lists::{CITIES, CITYSTATS, CITYPARKS, CityStats, PokemonCache, FormCache, CostumeCache}};
 use crate::config::CONFIG;
 use crate::db::MYSQL;
 use crate::telegram::send_message;
+
+type Request = rocketmap_entities::Request<PokemonCache, FormCache, CostumeCache>;
 
 static BOT_CONFIGS: Lazy<RwLock<HashMap<String, config::BotConfig>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 static WATCHES: Lazy<RwLock<HashMap<String, Vec<Watch>>>> = Lazy::new(|| RwLock::new(HashMap::new()));
@@ -143,37 +145,23 @@ impl BotConfigs {
     }
 
     async fn reload_city(city_id: u16) -> Result<(), ()> {
+        crate::lists::load_cities().await?;
+
         let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+
         let res = conn.exec_iter(
-                "SELECT id, name, coordinates, scadenza, monitor, admins_users FROM city WHERE id = :id",
+                "SELECT user_id FROM utenti WHERE city_id = :id",
                 params! {
-                    "id" => city_id,
+                    "id" => city_id
                 }
-            ).await.map_err(|e| error!("MySQL query error: get city\n{}", e))?;
+            ).await.map_err(|e| error!("MySQL query error: get city users\n{}", e))?;
+        // let (_, user_ids) = res.collect_and_drop().await.map_err(|e| error!("MySQL collect error: {}", e))?;
+        let user_ids = res.map_and_drop(|mut row| row.take::<u64, _>("user_id").map(|i| i.to_string()).unwrap_or_else(String::new)).await.map_err(|e| error!("MySQL collect error: {}", e))?;
 
-        if !res.is_empty() {
-            {
-                let mut cities = CITIES.write().await;
-                res.for_each_and_drop(|row| {
-                    let city: City = row.into();
-                    cities.insert(city.id, city);
-                }).await.map_err(|e| error!("MySQL for_each error: {}", e))?
-            }
-
-            let res = conn.exec_iter(
-                    "SELECT user_id FROM utenti WHERE city_id = :id",
-                    params! {
-                        "id" => city_id
-                    }
-                ).await.map_err(|e| error!("MySQL query error: get city users\n{}", e))?;
-            // let (_, user_ids) = res.collect_and_drop().await.map_err(|e| error!("MySQL collect error: {}", e))?;
-            let user_ids = res.map_and_drop(|mut row| row.take::<u64, _>("user_id").map(|i| i.to_string()).unwrap_or_else(String::new)).await.map_err(|e| error!("MySQL collect error: {}", e))?;
-
-            let mut lock = BOT_CONFIGS.write().await;
-            let res = Self::load(&mut lock, Some(user_ids)).await?;
-            for (user_id, result) in res {
-                Self::notify_user(user_id, result, true)?;
-            }
+        let mut lock = BOT_CONFIGS.write().await;
+        let res = Self::load(&mut lock, Some(user_ids)).await?;
+        for (user_id, result) in res {
+            Self::notify_user(user_id, result, true)?;
         }
 
         Ok(())
@@ -538,7 +526,7 @@ impl BotConfigs {
     fn update_park_stats(point: Point<f64>, pokemon_id: u16, encounter_id: String) {
         spawn(async move {
             let city = {
-                let lock = CITIES.read().await;
+                let lock = CITIES.load();
                 lock.iter().find_map(|(id, city)| {
                     if city.coordinates.within(&point) {
                         Some(*id)
@@ -550,7 +538,7 @@ impl BotConfigs {
             };
 
             if let Some(city_id) = city {
-                let lock = CITYPARKS.read().await;
+                let lock = CITYPARKS.load();
                 if let Some(parks) = lock.get(&city_id) {
                     for park in parks {
                         if park.coordinates.within(&point) {
@@ -579,7 +567,7 @@ impl BotConfigs {
                 let point: Point<f64> = (p.latitude, p.longitude).into();
 
                 spawn(async move {
-                    for (id, city) in CITIES.read().await.iter() {
+                    for (id, city) in CITIES.load().iter() {
                         if city.coordinates.within(&point) {
                             let update = {
                                 let lock = CITYSTATS.read().await;
@@ -606,7 +594,7 @@ impl BotConfigs {
                 let point: Point<f64> = (r.latitude, r.longitude).into();
 
                 spawn(async move {
-                    for (id, city) in CITIES.read().await.iter() {
+                    for (id, city) in CITIES.load().iter() {
                         if city.coordinates.within(&point) {
                             let update = {
                                 let lock = CITYSTATS.read().await;
@@ -628,7 +616,7 @@ impl BotConfigs {
                 let point: Point<f64> = (i.latitude, i.longitude).into();
 
                 spawn(async move {
-                    for (id, city) in CITIES.read().await.iter() {
+                    for (id, city) in CITIES.load().iter() {
                         if city.coordinates.within(&point) {
                             let update = {
                                 let lock = CITYSTATS.read().await;
@@ -650,7 +638,7 @@ impl BotConfigs {
                 let point: Point<f64> = (q.latitude, q.longitude).into();
 
                 spawn(async move {
-                    for (id, city) in CITIES.read().await.iter() {
+                    for (id, city) in CITIES.load().iter() {
                         if city.coordinates.within(&point) {
                             let update = {
                                 let lock = CITYSTATS.read().await;

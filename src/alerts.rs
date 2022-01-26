@@ -22,9 +22,10 @@ pub fn init() {
                 let timestamp = now.timestamp();
 
                 let mut alerts = Vec::new();
-                for (city_id, stats) in CITYSTATS.read().await.iter() {
-                    let lock = CITIES.read().await;
-                    let city = match lock.get(city_id) {
+                let citystats = CITYSTATS.read().await;
+                for (city_id, stats) in citystats.iter() {
+                    let cities = CITIES.load();
+                    let city = match cities.get(city_id) {
                         Some(c) => c,
                         None => continue,
                     };

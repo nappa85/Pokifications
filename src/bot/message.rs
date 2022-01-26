@@ -267,14 +267,14 @@ impl Message for PokemonMessage {
             let gender = self.pokemon.gender.get_glyph();
             format!("{} {}{}{}{} ({:.0}%){}\n{}{:.1} km {} | {}",
                 icon,
-                LIST.read().await.get(&self.pokemon.pokemon_id).map(|p| p.name.to_uppercase()).unwrap_or_else(String::new),
+                LIST.load().get(&self.pokemon.pokemon_id).map(|p| p.name.to_uppercase()).unwrap_or_else(String::new),
                 gender,
                 match self.pokemon.form {
-                    Some(id) => FORMS.read().await.get(&id).and_then(|f| if f.hidden { None } else { Some(format!(" ({})", f.name)) }),
+                    Some(id) => FORMS.load().get(&id).and_then(|f| if f.hidden { None } else { Some(format!(" ({})", f.name)) }),
                     None => None,
                 }.unwrap_or_else(String::new),
                 match self.pokemon.display_pokemon_id {
-                    Some(id) => LIST.read().await.get(&id).map(|f| format!(" ({})", f.name)),
+                    Some(id) => LIST.load().get(&id).map(|f| format!(" ({})", f.name)),
                     None => None,
                 }.unwrap_or_else(String::new),
                 iv,
@@ -295,14 +295,14 @@ impl Message for PokemonMessage {
             let gender = self.pokemon.gender.get_glyph();
             format!("{} {}{}{}{}{}\n{:.1} km {} | {}",
                 icon,
-                LIST.read().await.get(&self.pokemon.pokemon_id).map(|p| p.name.to_uppercase()).unwrap_or_else(String::new),
+                LIST.load().get(&self.pokemon.pokemon_id).map(|p| p.name.to_uppercase()).unwrap_or_else(String::new),
                 gender,
                 match self.pokemon.form {
-                    Some(id) => FORMS.read().await.get(&id).and_then(|f| if f.hidden { None } else { Some(format!(" ({})", f.name)) }),
+                    Some(id) => FORMS.load().get(&id).and_then(|f| if f.hidden { None } else { Some(format!(" ({})", f.name)) }),
                     None => None,
                 }.unwrap_or_else(String::new),
                 match self.pokemon.display_pokemon_id {
-                    Some(id) => LIST.read().await.get(&id).map(|f| format!(" ({})", f.name)),
+                    Some(id) => LIST.load().get(&id).map(|f| format!(" ({})", f.name)),
                     None => None,
                 }.unwrap_or_else(String::new),
                 self.pokemon.weather.and_then(|id| meteo_icon(id).ok()).unwrap_or_else(String::new),
@@ -399,7 +399,7 @@ impl Message for PokemonMessage {
             }
 
             // imagettftext($mBg, 18, 0, 63, 25, 0x00000000, $f_cal2, strtoupper($p_name));
-            let name = LIST.read().await.get(&self.pokemon.pokemon_id).map(|p| {
+            let name = LIST.load().get(&self.pokemon.pokemon_id).map(|p| {
                 // fix nidoran gender
                 let gender = self.pokemon.gender.get_glyph();
                 p.name.replace(&gender, "").to_uppercase()
@@ -407,7 +407,7 @@ impl Message for PokemonMessage {
             imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale18, &f_cal2, &name);
 
             if let Some(id) = self.pokemon.form {
-                if let Some(form_name) = FORMS.read().await.get(&id).and_then(|f| if f.hidden { None } else { Some(&f.name) }) {
+                if let Some(form_name) = FORMS.load().get(&id).and_then(|f| if f.hidden { None } else { Some(&f.name) }) {
                     let dm = get_text_width(&f_cal2, scale18, &name);
                     imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 73 + dm as u32, 7, scale11, &f_cal2, &format!("({})", form_name));
                 }
@@ -426,7 +426,7 @@ impl Message for PokemonMessage {
                 // $dm = imagettfbbox(11, 0, $f_cal1, strtoupper($m_move1));
                 // imagettftext($mBg, 11, 0, 80 - (abs($dm[4] - $dm[6]) / 2), 75, 0x00000000, $f_cal1, strtoupper($m_move1));
                 let m_move1 = match self.pokemon.move_1 {
-                        Some(i) => MOVES.read().await.get(&i).map(|s| s.to_uppercase()),
+                        Some(i) => MOVES.load().get(&i).map(|s| s.to_uppercase()),
                         None => None,
                     }.unwrap_or_else(|| String::from("-"));
                 let dm = get_text_width(&f_cal1, scale11, &m_move1);
@@ -434,7 +434,7 @@ impl Message for PokemonMessage {
                 // $dm = imagettfbbox(11, 0, $f_cal1, strtoupper($m_move2));
                 // imagettftext($mBg, 11, 0, 200 - (abs($dm[4] - $dm[6]) / 2), 75, 0x00000000, $f_cal1, strtoupper($m_move2));
                 let m_move2 = match self.pokemon.move_2 {
-                        Some(i) => MOVES.read().await.get(&i).map(|s| s.to_uppercase()),
+                        Some(i) => MOVES.load().get(&i).map(|s| s.to_uppercase()),
                         None => None,
                     }.unwrap_or_else(|| String::from("-"));
                 let dm = get_text_width(&f_cal1, scale11, &m_move2);
@@ -569,10 +569,10 @@ impl Message for RaidMessage {
             // $t_corpo .= "\xf0\x9f\x95\x92 Termina: " . date("H:i:s", $t_msg["time_end"]);
             format!("{} RAID {}{}{}{} iniziato\n{} {}\n{} Termina: {}",//debug
                 icon,
-                LIST.read().await.get(&pokemon_id).map(|p| p.name.to_uppercase()).unwrap_or_else(String::new),
+                LIST.load().get(&pokemon_id).map(|p| p.name.to_uppercase()).unwrap_or_else(String::new),
                 gender,
                 match self.raid.form {
-                    Some(id) => FORMS.read().await.get(&id).and_then(|f| if f.hidden { None } else { Some(format!(" ({})", f.name)) }),
+                    Some(id) => FORMS.load().get(&id).and_then(|f| if f.hidden { None } else { Some(format!(" ({})", f.name)) }),
                     None => None,
                 }.unwrap_or_else(String::new),
                 match self.raid.evolution {
@@ -718,7 +718,7 @@ impl Message for RaidMessage {
                     // $dm = imagettfbbox(11, 0, $f_cal1, strtoupper($m_move1));
                     // imagettftext($mBg, 11, 0, 80 - (abs($dm[4] - $dm[6]) / 2), 123, 0x00000000, $f_cal1, strtoupper($m_move1));
                     let m_move1 = match self.raid.move_1 {
-                        Some(i) => MOVES.read().await.get(&i).map(|s| s.to_uppercase()),
+                        Some(i) => MOVES.load().get(&i).map(|s| s.to_uppercase()),
                         None => None,
                     }.unwrap_or_else(|| String::from("-"));
                     let dm = get_text_width(&f_cal1, scale11, &m_move1);
@@ -726,18 +726,18 @@ impl Message for RaidMessage {
                     // $dm = imagettfbbox(11, 0, $f_cal1, strtoupper($m_move2));
                     // imagettftext($mBg, 11, 0, 200 - (abs($dm[4] - $dm[6]) / 2), 123, 0x00000000, $f_cal1, strtoupper($m_move2));
                     let m_move2 = match self.raid.move_2 {
-                        Some(i) => MOVES.read().await.get(&i).map(|s| s.to_uppercase()),
+                        Some(i) => MOVES.load().get(&i).map(|s| s.to_uppercase()),
                         None => None,
                     }.unwrap_or_else(|| String::from("-"));
                     let dm = get_text_width(&f_cal1, scale11, &m_move2);
                     imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 200 - (dm / 2) as u32, 111, scale11, &f_cal1, &m_move2);
 
                     // imagettftext($mBg, 18, 0, 63, 25, 0x00000000, $f_cal2, $p_name);
-                    let name = LIST.read().await.get(&pkmn_id).map(|p| p.name.to_uppercase()).unwrap_or_else(String::new);
+                    let name = LIST.load().get(&pkmn_id).map(|p| p.name.to_uppercase()).unwrap_or_else(String::new);
                     imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 63, 7, scale18, &f_cal2, &name);
                     let mut has_form = false;
                     if let Some(id) = self.raid.form {
-                        if let Some(form_name) = FORMS.read().await.get(&id).and_then(|f| if f.hidden { None } else { Some(&f.name) }) {
+                        if let Some(form_name) = FORMS.load().get(&id).and_then(|f| if f.hidden { None } else { Some(&f.name) }) {
                             has_form = true;
                             let dm = get_text_width(&f_cal2, scale18, &name);
                             imageproc::drawing::draw_text_mut(&mut background, image::Rgba::<u8>([0, 0, 0, 0]), 73 + dm as u32, 7, scale11, &f_cal2, &format!("({}) {}", form_name, get_mega_desc(&self.raid.evolution)));
@@ -941,7 +941,10 @@ impl Message for InvasionMessage {
             let caption = format!("{} {}\n{} {}\n{} {}",
                 String::from_utf8(vec![0xC2, 0xAE]).map_err(|e| error!("error parsing R icon: {}", e))?,
                 match self.invasion.grunt_type {
-                    Some(id) => GRUNTS.read().await.get(&id).map(|grunt| grunt.name.clone()),
+                    Some(id) => {
+                        let grunts = GRUNTS.load();
+                        grunts.get(&id).map(|grunt| grunt.name.clone())
+                    },
                     None => None,
                 }.unwrap_or_else(String::new),
                 String::from_utf8(vec![0xf0, 0x9f, 0x93, 0x8d]).map_err(|e| error!("error parsing POI icon: {}", e))?,
@@ -996,7 +999,7 @@ impl Message for InvasionMessage {
             };
 
             if let Some(id) = self.invasion.grunt_type {
-                let lock = GRUNTS.read().await;
+                let lock = GRUNTS.load();
                 if let Some(grunt) = lock.get(&id) {
                     if let Some(sex) = &grunt.sex {
                         let icon = {
