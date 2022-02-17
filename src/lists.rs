@@ -26,8 +26,6 @@ pub static MOVES: Lazy<ArcSwap<HashMap<u16, String>>> = Lazy::new(Default::defau
 
 pub static FORMS: Lazy<ArcSwap<HashMap<u16, Form>>> = Lazy::new(Default::default);
 
-pub static COSTUMES: Lazy<ArcSwap<HashMap<usize, Costume>>> = Lazy::new(Default::default);
-
 pub static GRUNTS: Lazy<ArcSwap<HashMap<u16, GruntType>>> = Lazy::new(Default::default);
 
 pub static CITIES: Lazy<ArcSwap<HashMap<u16, City>>> = Lazy::new(Default::default);
@@ -107,36 +105,6 @@ impl Cache for FormCache {
     fn reverse(name: &str) -> Option<Self::Id> {
         let forms = FORMS.load();
         forms.iter().find(|(_, f)| f.name == name).map(|(id, _)| *id)
-    }
-}
-
-pub struct Costume {
-    pub id: usize,
-    pub name: String,
-}
-
-impl FromRow for Costume {
-    fn from_row_opt(mut row: Row) -> Result<Self, mysql_async::FromRowError> {
-        Ok(Costume {
-            id: row.take("id").expect("MySQL pokemon_costumes.id error"),
-            name: row.take("name").expect("MySQL pokemon_costumes.name error"),
-        })
-    }
-}
-
-#[derive(Debug)]
-pub struct CostumeCache;
-
-impl Cache for CostumeCache {
-    type Id = usize;
-    fn get(id: Self::Id) -> Option<String> {
-        let costumes = COSTUMES.load();
-        costumes.get(&id).map(|f| f.name.clone())
-    }
-
-    fn reverse(name: &str) -> Option<Self::Id> {
-        let costumes = COSTUMES.load();
-        costumes.iter().find(|(_, f)| f.name == name).map(|(id, _)| *id)
     }
 }
 
@@ -317,23 +285,6 @@ async fn load_forms() -> Result<(), ()> {
     Ok(())
 }
 
-async fn load_costumes() -> Result<(), ()> {
-    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-    let res = conn.query_iter("SELECT * FROM pokemon_costumes").await.map_err(|e| error!("MySQL query error: get pokemon costumes\n{}", e))?;
-
-    let data = res.stream_and_drop::<Costume>()
-        .await
-        .map_err(|e| error!("MySQL load_costumes error: {}", e))?
-        .ok_or_else(|| error!("MySQL load_costumes empty"))?
-        .map_ok(|f| (f.id, f))
-        .try_collect()
-        .await
-        .map_err(|e| error!("MySQL load_costumes collect error: {}", e))?;
-    COSTUMES.swap(Arc::new(data));
-
-    Ok(())
-}
-
 async fn load_grunts() -> Result<(), ()> {
     let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
     let res = conn.query_iter("SELECT * FROM grunt_types").await.map_err(|e| error!("MySQL query error: get grunt types\n{}", e))?;
@@ -389,15 +340,14 @@ async fn load_parks() -> Result<(), ()> {
 }
 
 async fn load() {
-    join_all((0_u8..7_u8).map(|i| async move {
+    join_all((0_u8..6_u8).map(|i| async move {
         match i {
             0 => load_pokemons().await,
             1 => load_moves().await,
             2 => load_forms().await,
-            3 => load_costumes().await,
-            4 => load_grunts().await,
-            5 => load_cities().await,
-            6 => load_parks().await,
+            3 => load_grunts().await,
+            4 => load_cities().await,
+            5 => load_parks().await,
             _ => panic!("WTF"),
         }
     })).await;

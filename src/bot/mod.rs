@@ -30,12 +30,12 @@ mod file_cache;
 
 use message::{Message, DeviceTierMessage, LagMessage};
 
-use crate::{Platform, lists::{CITIES, CITYSTATS, CITYPARKS, CityStats, PokemonCache, FormCache, CostumeCache}};
+use crate::{Platform, lists::{CITIES, CITYSTATS, CITYPARKS, CityStats, PokemonCache, FormCache}};
 use crate::config::CONFIG;
 use crate::db::MYSQL;
 use crate::telegram::send_message;
 
-type Request = rocketmap_entities::Request<PokemonCache, FormCache, CostumeCache>;
+type Request = rocketmap_entities::Request<PokemonCache, FormCache>;
 
 static BOT_CONFIGS: Lazy<RwLock<HashMap<String, config::BotConfig>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 static WATCHES: Lazy<RwLock<HashMap<String, Vec<Watch>>>> = Lazy::new(|| RwLock::new(HashMap::new()));
