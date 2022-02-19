@@ -200,7 +200,15 @@ impl BotConfig {
             match input {
                 Request::Pokemon(i) => Ok(Box::new(self.submit_pokemon(now, platform, i)?)),
                 Request::Raid(i) => Ok(Box::new(self.submit_raid(now, platform, i)?)),
-                Request::Pokestop(i) => Ok(Box::new(self.submit_pokestop(now, platform, i)?)),
+                Request::Pokestop(i) => {
+                    // MAD workaround
+                    if i.lure_id.is_none() && i.grunt_type.is_some() {
+                        Ok(Box::new(self.submit_invasion(now, platform, i)?))
+                    }
+                    else {
+                        Ok(Box::new(self.submit_pokestop(now, platform, i)?))
+                    }
+                },
                 Request::Invasion(i) => Ok(Box::new(self.submit_invasion(now, platform, i)?)),
                 Request::GymDetails(i) => Ok(Box::new(self.submit_gym(now, platform, i)?)),
                 Request::Weather(i) => Ok(Box::new(self.submit_weather(now, platform, i).await?)),

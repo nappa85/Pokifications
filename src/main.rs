@@ -30,7 +30,7 @@ use chrono::{DateTime, Local};
 
 use serde_json::value::Value;
 
-use tracing::{info, error};
+use tracing::{info, error, debug};
 
 use crate::db::MYSQL;
 
@@ -64,14 +64,14 @@ async fn parse(now: DateTime<Local>, bytes: Vec<u8>, platform: Platform) -> Resu
     bot::BotConfigs::submit(
         now, 
         configs.into_iter()
-            .map(|v|
+            .map(|v| {
                 // this is a bit of a waste of memory, but there is no other way around
+                debug!("Received {:?} webhook {}", platform, v);
                 serde_json::from_value(v.clone())
                     .map_err(|e| error!("deserialize error: {}\n{}", e, v))
-            )
-            .filter(Result::is_ok)
-            .map(Result::unwrap)
-            .collect(),
+                    .ok()
+            })
+            .flatten(),
         platform
     ).await;
     Ok(())

@@ -444,9 +444,12 @@ impl BotConfigs {
     //     }
     // }
 
-    pub async fn submit(now: DateTime<Local>, inputs: Vec<Request>, platform: Platform) {
+    pub async fn submit<I>(now: DateTime<Local>, inputs: I, platform: Platform)
+    where
+        I: Iterator<Item=Request>,
+    {
         let mut lock = SENT_CACHE.lock().await;
-        for input in inputs.into_iter().filter(|r| r.get_id().and_then(|id| lock.notify_insert(id, ()).0).is_none()) {
+        for input in inputs.filter(|r| r.get_id().and_then(|id| lock.notify_insert(id, ()).0).is_none()) {
             // non config-related requests
             match input {
                 Request::Reload(user_ids) => {
