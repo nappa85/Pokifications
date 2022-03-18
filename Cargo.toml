@@ -4,6 +4,9 @@ version = "2.3.0"
 authors = ["Marco Napetti <marco.napetti@gmail.com>"]
 edition = "2021"
 
+[profile.release]
+strip = true
+
 [dependencies]
 arc-swap = "1.5.0"
 async-trait = "0.1.52"
