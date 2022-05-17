@@ -1,10 +1,13 @@
 use std::time::Duration;
 
-use reqwest::{Body, Client, Method, Url, RequestBuilder, multipart::{Form, Part}};
+use reqwest::{
+    multipart::{Form, Part},
+    Body, Client, Method, RequestBuilder, Url,
+};
 
 use serde_json::{json, value::Value};
 
-use rand::{thread_rng, Rng, distributions::Alphanumeric};
+use rand::{distributions::Alphanumeric, thread_rng, Rng};
 
 use tracing::error;
 
@@ -35,7 +38,7 @@ use crate::config::CONFIG;
 //         }
 //         if skip {
 //             delays += 1;
-//             let now = Local::now();
+//             let now = Utc::now();
 //             sleep(Duration::from_nanos(1_000_000_000_u64 - (now.timestamp_subsec_nanos() as u64))).await;
 //         }
 //         else {
@@ -59,38 +62,36 @@ pub enum Image {
     Bytes(Vec<u8>),
 }
 
-pub async fn call_telegram(/*chat_id: String, */req: RequestBuilder) -> Result<String, CallResult> {
+pub async fn call_telegram(
+    /*chat_id: String, */ req: RequestBuilder,
+) -> Result<String, CallResult> {
     // wall(chat_id).await;
 
     let res = if let Some(t) = CONFIG.telegram.timeout {
-            req.timeout(Duration::from_secs(t))
-        }
-        else {
-            req
-        }
-        .send()
-        .await
-        .map_err(|e| {
-            error!("error calling Telegram: {}", e);
-            CallResult::Empty
-        })?;
+        req.timeout(Duration::from_secs(t))
+    } else {
+        req
+    }
+    .send()
+    .await
+    .map_err(|e| {
+        error!("error calling Telegram: {}", e);
+        CallResult::Empty
+    })?;
 
     let success = res.status().is_success();
     let status = res.status().as_u16();
 
     let sdebug = format!("response from Telegram: {:?}", res);
 
-    let body = res.text()
-        .await
-        .map_err(|e| {
-            error!("error while encoding {}: {}", sdebug, e);
-            CallResult::Empty
-        })?;
+    let body = res.text().await.map_err(|e| {
+        error!("error while encoding {}: {}", sdebug, e);
+        CallResult::Empty
+    })?;
 
     if success {
         Ok(body)
-    }
-    else {
+    } else {
         error!("error {}\n{}", sdebug, body);
         Err(CallResult::Body((status, body)))
     }
@@ -104,7 +105,7 @@ pub struct SendMessage<'a> {
     disable_web_page_preview: Option<bool>,
     disable_notification: Option<bool>,
     reply_to_message_id: Option<i64>,
-    reply_markup: Option<Value>
+    reply_markup: Option<Value>,
 }
 
 impl<'a> SendMessage<'a> {
@@ -129,7 +130,11 @@ impl<'a> SendMessage<'a> {
     //     self
     // }
     pub async fn send(self) -> Result<String, CallResult> {
-        let url = Url::parse(&format!("https://api.telegram.org/bot{}/sendMessage", self.bot_token)).map_err(|e| {
+        let url = Url::parse(&format!(
+            "https://api.telegram.org/bot{}/sendMessage",
+            self.bot_token
+        ))
+        .map_err(|e| {
             error!("error building Telegram URL: {}", e);
             CallResult::Empty
         })?;
@@ -137,29 +142,30 @@ impl<'a> SendMessage<'a> {
             "chat_id": self.chat_id,
             "text": self.text
         });
-    
+
         if let Some(v) = self.parse_mode {
             body["parse_mode"] = Value::from(v);
         }
-    
+
         if let Some(v) = self.disable_web_page_preview {
             body["disable_web_page_preview"] = Value::from(v);
         }
-    
+
         if let Some(v) = self.disable_notification {
             body["disable_notification"] = Value::from(v);
         }
-    
+
         if let Some(v) = self.reply_to_message_id {
             body["reply_to_message_id"] = Value::from(v);
         }
-    
+
         if let Some(v) = self.reply_markup {
             body["reply_markup"] = v;
         }
-    
+
         let client = Client::new();
-        let req = client.request(Method::POST, url)
+        let req = client
+            .request(Method::POST, url)
             .header("Content-Type", "application/json")
             .json(&body);
         call_telegram(req).await
@@ -187,7 +193,7 @@ pub struct SendPhoto<'a> {
     parse_mode: Option<&'a str>,
     disable_notification: Option<bool>,
     reply_to_message_id: Option<i64>,
-    reply_markup: Option<Value>
+    reply_markup: Option<Value>,
 }
 
 impl<'a> SendPhoto<'a> {
@@ -212,7 +218,11 @@ impl<'a> SendPhoto<'a> {
         self
     }
     pub async fn send(self) -> Result<String, CallResult> {
-        let url = Url::parse(&format!("https://api.telegram.org/bot{}/sendPhoto", self.bot_token)).map_err(|e| {
+        let url = Url::parse(&format!(
+            "https://api.telegram.org/bot{}/sendPhoto",
+            self.bot_token
+        ))
+        .map_err(|e| {
             error!("error building Telegram URL: {}", e);
             CallResult::Empty
         })?;
@@ -221,10 +231,9 @@ impl<'a> SendPhoto<'a> {
             .take(30)
             .map(char::from)
             .collect();
-    
-        let mut form = Form::new()
-            .text("chat_id", self.chat_id.to_owned());
-    
+
+        let mut form = Form::new().text("chat_id", self.chat_id.to_owned());
+
         if let Some(v) = self.caption {
             form = form.text("caption", v.to_owned());
         }
@@ -240,25 +249,35 @@ impl<'a> SendPhoto<'a> {
         if let Some(v) = self.reply_markup {
             form = form.text("reply_markup", v.to_string());
         }
-    
+
         match self.photo {
             // Image::FileId(file_id) => {
             //     form = form.text("photo", file_id);
             // },
             Image::FileUrl(url) => {
                 form = form.text("photo", url);
-            },
+            }
             Image::Bytes(bytes) => {
-                form = form.part("photo", Part::stream(Body::from(bytes)).file_name("image.png").mime_str("image/png").map_err(|e| {
-                    error!("error writing multipart mime: {}", e);
-                    CallResult::Empty
-                })?);
-            },
+                form = form.part(
+                    "photo",
+                    Part::stream(Body::from(bytes))
+                        .file_name("image.png")
+                        .mime_str("image/png")
+                        .map_err(|e| {
+                            error!("error writing multipart mime: {}", e);
+                            CallResult::Empty
+                        })?,
+                );
+            }
         }
-    
+
         let client = Client::new();
-        let req = client.request(Method::POST, url)
-            .header("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
+        let req = client
+            .request(Method::POST, url)
+            .header(
+                "Content-Type",
+                &format!("multipart/form-data; boundary={}", boundary),
+            )
             .multipart(form);
         call_telegram(req).await
     }
@@ -280,7 +299,7 @@ pub fn send_photo<'a>(bot_token: &'a str, chat_id: &'a str, photo: Image) -> Sen
 // pub fn init() {
 //     spawn(async {
 //         // start next leap second
-//         let now = Local::now();
+//         let now = Utc::now();
 //         let mut interval = interval_at(Instant::now() + Duration::from_nanos(1_000_000_000_u64 - (now.timestamp_subsec_nanos() as u64)), Duration::from_secs(1));
 //         loop {
 //             interval.tick().await;

@@ -4,11 +4,15 @@ use futures_util::stream::unfold;
 
 use stream_throttle::{ThrottlePool, ThrottleRate, ThrottledStream};
 
-use tokio::{spawn, sync::{RwLock, RwLockWriteGuard, broadcast, Mutex}, time::interval};
+use tokio::{
+    spawn,
+    sync::{broadcast, Mutex, RwLock, RwLockWriteGuard},
+    time::interval,
+};
 
-use mysql_async::{from_row, prelude::Queryable, params};
+use mysql_async::{from_row, params, prelude::Queryable};
 
-use chrono::{Local, DateTime, Timelike, offset::TimeZone};
+use chrono::{offset::TimeZone, DateTime, Timelike, Utc};
 
 use lru_time_cache::LruCache;
 
@@ -18,33 +22,39 @@ use geo_raycasting::RayCasting;
 
 use once_cell::sync::Lazy;
 
-use tracing::{info, error, debug, warn};
+use tracing::{debug, error, info, warn};
 
-use rocketmap_entities::{RequestId, Watch, DeviceTier};
+use rocketmap_entities::{DeviceTier, RequestId, Watch};
 
 mod config;
-mod message;
-mod map;
-mod select_all;
 mod file_cache;
+mod map;
+mod message;
+mod select_all;
 
-use message::{Message, DeviceTierMessage, LagMessage};
+use message::{DeviceTierMessage, LagMessage, Message};
 
-use crate::{Platform, lists::{CITIES, CITYSTATS, CITYPARKS, CityStats, PokemonCache, FormCache}};
 use crate::config::CONFIG;
 use crate::db::MYSQL;
 use crate::telegram::send_message;
+use crate::{
+    lists::{CityStats, FormCache, PokemonCache, CITIES, CITYPARKS, CITYSTATS},
+    Platform,
+};
 
 type Request = rocketmap_entities::Request<PokemonCache, FormCache>;
 
-static BOT_CONFIGS: Lazy<RwLock<HashMap<String, config::BotConfig>>> = Lazy::new(|| RwLock::new(HashMap::new()));
-static WATCHES: Lazy<RwLock<HashMap<String, Vec<Watch>>>> = Lazy::new(|| RwLock::new(HashMap::new()));
+static BOT_CONFIGS: Lazy<RwLock<HashMap<String, config::BotConfig>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
+static WATCHES: Lazy<RwLock<HashMap<String, Vec<Watch>>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
 #[allow(clippy::type_complexity)]
-static SENDER: Lazy<broadcast::Sender<Arc<(DateTime<Local>, Platform, Request)>>> = Lazy::new(|| {
+static SENDER: Lazy<broadcast::Sender<Arc<(DateTime<Utc>, Platform, Request)>>> = Lazy::new(|| {
     let (tx, _) = broadcast::channel(CONFIG.service.queue_size);
     tx
 });
-static SENT_CACHE: Lazy<Mutex<LruCache<String, ()>>> = Lazy::new(|| Mutex::new(LruCache::with_expiry_duration(Duration::from_secs(3600))));//1 hour cache
+static SENT_CACHE: Lazy<Mutex<LruCache<String, ()>>> =
+    Lazy::new(|| Mutex::new(LruCache::with_expiry_duration(Duration::from_secs(3600)))); //1 hour cache
 
 const RATE_LIMITER_CHECK_INTERVAL: u8 = 10;
 const MAX_NOTIFICATIONS_PER_HOUR: u32 = 500;
@@ -83,7 +93,11 @@ impl BotConfigs {
                 // so this is an (ugly) hybrid solution
                 let uids = if index % RATE_LIMITER_CHECK_INTERVAL == 0 {
                     // here we can't use functional-style code because of async
-                    if let Ok(mut conn) = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e)) {
+                    if let Ok(mut conn) = MYSQL
+                        .get_conn()
+                        .await
+                        .map_err(|e| error!("MySQL retrieve connection error: {}", e))
+                    {
                         let query = format!("SELECT b.user_id
                             FROM utenti_config_bot b
                             INNER JOIN utenti u ON u.user_id = b.user_id
@@ -91,21 +105,30 @@ impl BotConfigs {
                             LEFT JOIN utenti_bot_stats s ON s.user_id = b.user_id AND s.day = CURDATE()
                             WHERE b.enabled = 1 AND b.beta = 1 AND u.status != 0 AND (CAST(IFNULL(s.sent, 0) / (HOUR(NOW()) + 1) AS UNSIGNED) > {} OR c.scadenza < UNIX_TIMESTAMP())", MAX_NOTIFICATIONS_PER_HOUR);
 
-                        if let Ok(res) = conn.query_iter(query).await.map_err(|e| error!("MySQL query error: get users to disable\n{}", e)) {
-                            res.map_and_drop(|mut row| row.take("user_id").unwrap_or_else(String::new)).await.map_err(|e| error!("MySQL map error: get users to disable\n{}", e))
-                        }
-                        else {
+                        if let Ok(res) = conn
+                            .query_iter(query)
+                            .await
+                            .map_err(|e| error!("MySQL query error: get users to disable\n{}", e))
+                        {
+                            res.map_and_drop(|mut row| {
+                                row.take("user_id").unwrap_or_else(String::new)
+                            })
+                            .await
+                            .map_err(|e| error!("MySQL map error: get users to disable\n{}", e))
+                        } else {
                             Err(())
                         }
-                    }
-                    else {
+                    } else {
                         Err(())
                     }
-                }
-                else {
+                } else {
                     let lock = BOT_CONFIGS.read().await;
-                    let now = Some(Local::now().timestamp());
-                    Ok(lock.iter().filter(|(_, config)| now > config.scadenza).map(|(id, _)| id.clone()).collect::<Vec<String>>())
+                    let now = Some(Utc::now().timestamp());
+                    Ok(lock
+                        .iter()
+                        .filter(|(_, config)| now > config.scadenza)
+                        .map(|(id, _)| id.clone())
+                        .collect::<Vec<String>>())
                 };
 
                 if let Ok(user_ids) = uids {
@@ -123,11 +146,15 @@ impl BotConfigs {
 
         // load weather watches
         {
-            let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+            let mut conn = MYSQL
+                .get_conn()
+                .await
+                .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
             let res = conn.query_iter("SELECT user_id, encounter_id, pokemon_id, iv, latitude, longitude, expire FROM bot_weather_watches WHERE expire > UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL query error: get weather watches\n{}", e))?;
             let mut lock = WATCHES.write().await;
             res.for_each_and_drop(|row| {
-                let (user_id, encounter_id, pokemon_id, iv, latitude, longitude, expire) = from_row::<(String, String, u16, Option<u8>, f64, f64, i64)>(row);
+                let (user_id, encounter_id, pokemon_id, iv, latitude, longitude, expire) =
+                    from_row::<(String, String, u16, Option<u8>, f64, f64, i64)>(row);
                 let entry = lock.entry(user_id.clone()).or_insert_with(Vec::new);
                 entry.push(Watch {
                     user_id,
@@ -138,25 +165,40 @@ impl BotConfigs {
                     expire,
                     // reference_weather: None,
                 });
-            }).await.map_err(|e| error!("MySQL collect error: {}", e))?;
+            })
+            .await
+            .map_err(|e| error!("MySQL collect error: {}", e))?;
         }
-        
+
         Ok(())
     }
 
     async fn reload_city(city_id: u16) -> Result<(), ()> {
         crate::lists::load_cities().await?;
 
-        let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+        let mut conn = MYSQL
+            .get_conn()
+            .await
+            .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
 
-        let res = conn.exec_iter(
+        let res = conn
+            .exec_iter(
                 "SELECT user_id FROM utenti WHERE city_id = :id",
                 params! {
                     "id" => city_id
-                }
-            ).await.map_err(|e| error!("MySQL query error: get city users\n{}", e))?;
+                },
+            )
+            .await
+            .map_err(|e| error!("MySQL query error: get city users\n{}", e))?;
         // let (_, user_ids) = res.collect_and_drop().await.map_err(|e| error!("MySQL collect error: {}", e))?;
-        let user_ids = res.map_and_drop(|mut row| row.take::<u64, _>("user_id").map(|i| i.to_string()).unwrap_or_else(String::new)).await.map_err(|e| error!("MySQL collect error: {}", e))?;
+        let user_ids = res
+            .map_and_drop(|mut row| {
+                row.take::<u64, _>("user_id")
+                    .map(|i| i.to_string())
+                    .unwrap_or_else(String::new)
+            })
+            .await
+            .map_err(|e| error!("MySQL collect error: {}", e))?;
 
         let mut lock = BOT_CONFIGS.write().await;
         let res = Self::load(&mut lock, Some(user_ids)).await?;
@@ -182,12 +224,12 @@ impl BotConfigs {
                 // SendTelegram($USER["user_id"], $msg);
                 format!("{} <b>Impostazioni modificate!</b>\n<code>      ───────</code>\nLe modifiche sono state applicate.",
                     String::from_utf8(vec![0xe2, 0x84, 0xb9, 0xef, 0xb8, 0x8f]).map_err(|e| error!("error converting info icon: {}", e))?)
-            },
+            }
             LoadResult::Flood => {
                 warn!("User {} is flooding", user_id);
                 format!("{} <b>Troppe notifiche!</b>\n<code>      ───────</code>\nLe tue configurazioni generano troppe notifiche, rivedile per limitarne il numero. ",
                     String::from_utf8(vec![0xE2, 0x9A, 0xA0]).map_err(|e| error!("error converting warning icon: {}", e))?)
-            },
+            }
             LoadResult::Invalid => {
                 if silent {
                     return Ok(());
@@ -196,7 +238,7 @@ impl BotConfigs {
                 warn!("User {} has invalid configs", user_id);
                 format!("{} <b>Impostazioni non valide!</b>\n<code>      ───────</code>\nControlla che i tuoi cursori siano all'interno della tua città di appartenenza.\nSe hai bisogno di spostarti temporaneamente, invia la tua nuova posizione al bot per usarla come posizione temporanea.",
                     String::from_utf8(vec![0xE2, 0x9A, 0xA0]).map_err(|e| error!("error converting warning icon: {}", e))?)
-            },
+            }
             LoadResult::Disabled => {
                 if silent {
                     return Ok(());
@@ -205,7 +247,7 @@ impl BotConfigs {
                 warn!("User {} has been disabled", user_id);
                 format!("{} <b>Impostazioni modificate!</b>\n<code>      ───────</code>\nLe modifiche sono state applicate.\nRicorda di attivare la ricezione delle notifiche con: /start",
                     String::from_utf8(vec![0xe2, 0x84, 0xb9, 0xef, 0xb8, 0x8f]).map_err(|e| error!("error converting info icon: {}", e))?)
-            },
+            }
             LoadResult::Error => {
                 if silent {
                     return Ok(());
@@ -214,7 +256,7 @@ impl BotConfigs {
                 error!("Error reloading configs for user {}", user_id);
                 format!("{} <b>Errore!</b>\n<code>      ───────</code>\nC'è stato un errore applicando le tue nuove impostazioni, se il problema persiste contatta il tuo amministratore di zona.",
                     String::from_utf8(vec![0xF0, 0x9F, 0x9B, 0x91]).map_err(|e| error!("error converting error icon: {}", e))?)
-            },
+            }
         };
 
         spawn(async move {
@@ -238,7 +280,10 @@ impl BotConfigs {
         Ok(())
     }
 
-    async fn load(configs: &mut HashMap<String, config::BotConfig>, user_ids: Option<Vec<String>>) -> Result<HashMap<String, LoadResult>, ()> {
+    async fn load(
+        configs: &mut HashMap<String, config::BotConfig>,
+        user_ids: Option<Vec<String>>,
+    ) -> Result<HashMap<String, LoadResult>, ()> {
         let query = format!("SELECT b.enabled, b.user_id, b.config, b.beta, u.status, c.scadenza, u.city_id, CAST(IFNULL(s.sent, 0) / (HOUR(NOW()) + 1) AS UNSIGNED)
             FROM utenti_config_bot b
             INNER JOIN utenti u ON u.user_id = b.user_id
@@ -251,17 +296,39 @@ impl BotConfigs {
                     Some(format!("b.user_id IN ({})", v.join(", ")))
                 }).unwrap_or_else(|| String::from("b.enabled = 1 AND b.beta = 1 AND u.status != 0")));
 
-        let mut ids = user_ids.unwrap_or_else(|| configs.iter().map(|(id, _)| id.clone()).collect());
+        let mut ids =
+            user_ids.unwrap_or_else(|| configs.iter().map(|(id, _)| id.clone()).collect());
 
-        let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-        let res = conn.query_iter(query).await.map_err(|e| error!("MySQL query error: get users configs\n{}", e))?;
+        let mut conn = MYSQL
+            .get_conn()
+            .await
+            .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+        let res = conn
+            .query_iter(query)
+            .await
+            .map_err(|e| error!("MySQL query error: get users configs\n{}", e))?;
 
         let mut results = HashMap::new();
-        let temp = res.map_and_drop(from_row::<(u8, u64, String, u8, u8, i64, u16, u32)>).await.map_err(|e| error!("MySQL collect error: {}", e))?;
+        let temp = res
+            .map_and_drop(from_row::<(u8, u64, String, u8, u8, i64, u16, u32)>)
+            .await
+            .map_err(|e| error!("MySQL collect error: {}", e))?;
         for (enabled, user_id, config, beta, status, scadenza, city_id, sent) in temp {
             let id = user_id.to_string();
             let pos = ids.iter().position(|i| i == &id);
-            let result = Self::load_user(configs, enabled, id.clone(), config, beta, status, city_id, scadenza, sent).await.unwrap_or(LoadResult::Error);
+            let result = Self::load_user(
+                configs,
+                enabled,
+                id.clone(),
+                config,
+                beta,
+                status,
+                city_id,
+                scadenza,
+                sent,
+            )
+            .await
+            .unwrap_or(LoadResult::Error);
             if result == LoadResult::Ok {
                 if let Some(i) = pos {
                     ids.remove(i);
@@ -278,39 +345,59 @@ impl BotConfigs {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn load_user(configs: &mut HashMap<String, config::BotConfig>, enabled: u8, user_id: String, config: String, beta: u8, status: u8, city_id: u16, scadenza: i64, sent: u32) -> Result<LoadResult, ()> {
+    async fn load_user(
+        configs: &mut HashMap<String, config::BotConfig>,
+        enabled: u8,
+        user_id: String,
+        config: String,
+        beta: u8,
+        status: u8,
+        city_id: u16,
+        scadenza: i64,
+        sent: u32,
+    ) -> Result<LoadResult, ()> {
         if enabled > 0 && beta > 0 && status > 0 {
             if sent < MAX_NOTIFICATIONS_PER_HOUR {
-                let mut config: config::BotConfig = serde_json::from_str(&config).map_err(|e| error!("MySQL utenti_config_bot.config decoding error for user_id {}: {}", user_id, e))?;
+                let mut config: config::BotConfig = serde_json::from_str(&config).map_err(|e| {
+                    error!(
+                        "MySQL utenti_config_bot.config decoding error for user_id {}: {}",
+                        user_id, e
+                    )
+                })?;
                 if config.validate(&user_id, city_id).await? {
                     config.user_id = Some(user_id.clone());
                     config.scadenza = Some(scadenza);
                     if let Some(c) = configs.get_mut(&user_id) {
                         *c = config;
-                    }
-                    else {
+                    } else {
                         configs.insert(user_id.clone(), config);
-                        let stream = unfold((SENDER.subscribe(), user_id), |(mut rx, user_id)| Box::pin(async {
-                            let res: select_all::Message;
-                            loop {
-                                let temp = match rx.recv().await {
-                                    Ok(t) => t,
-                                    Err(broadcast::error::RecvError::Lagged(lag)) => {
-                                        res = (user_id.clone(), Box::new(LagMessage { lag }), String::new());
+                        let stream = unfold((SENDER.subscribe(), user_id), |(mut rx, user_id)| {
+                            Box::pin(async {
+                                let res: select_all::Message;
+                                loop {
+                                    let temp = match rx.recv().await {
+                                        Ok(t) => t,
+                                        Err(broadcast::error::RecvError::Lagged(lag)) => {
+                                            res = (
+                                                user_id.clone(),
+                                                Box::new(LagMessage { lag }),
+                                                String::new(),
+                                            );
+                                            break;
+                                        }
+                                        _ => return None,
+                                    };
+                                    let (time, platform, req) = temp.as_ref();
+                                    let lock = BOT_CONFIGS.read().await;
+                                    let conf = lock.get(&user_id)?;
+                                    if let Ok(msg) = conf.submit(time, platform, req).await {
+                                        res = (user_id.clone(), msg, conf.more.l.clone());
                                         break;
-                                    },
-                                    _ => return None,
-                                };
-                                let (time, platform, req) = temp.as_ref();
-                                let lock = BOT_CONFIGS.read().await;
-                                let conf = lock.get(&user_id)?;
-                                if let Ok(msg) = conf.submit(time, platform, req).await {
-                                    res = (user_id.clone(), msg, conf.more.l.clone());
-                                    break;
+                                    }
                                 }
-                            }
-                            Some((res, (rx, user_id)))
-                        }));
+                                Some((res, (rx, user_id)))
+                            })
+                        });
                         // We can send a single message per telegram chat per second
                         let rate = ThrottleRate::new(1, Duration::from_secs(1));
                         let pool = ThrottlePool::new(rate);
@@ -318,21 +405,21 @@ impl BotConfigs {
                     }
 
                     Ok(LoadResult::Ok)
-                }
-                else {
+                } else {
                     Ok(LoadResult::Invalid)
                 }
-            }
-            else {
+            } else {
                 Ok(LoadResult::Flood)
             }
-        }
-        else {
+        } else {
             Ok(LoadResult::Disabled)
         }
     }
 
-    async fn clean_watches<'a, 'b>(now: i64, watch: &'a Watch) -> RwLockWriteGuard<'b, HashMap<String, Vec<Watch>>> {
+    async fn clean_watches<'a, 'b>(
+        now: i64,
+        watch: &'a Watch,
+    ) -> RwLockWriteGuard<'b, HashMap<String, Vec<Watch>>> {
         // remove expired watches
         let mut lock = WATCHES.write().await;
         for (_, v) in lock.iter_mut() {
@@ -351,11 +438,14 @@ impl BotConfigs {
     }
 
     async fn remove_watches(watch: Box<Watch>) -> Result<(), ()> {
-        let now = Local::now().timestamp();
+        let now = Utc::now().timestamp();
 
         Self::clean_watches(now, &watch).await;
 
-        let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+        let mut conn = MYSQL
+            .get_conn()
+            .await
+            .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
         conn.exec_drop(
             "DELETE FROM bot_weather_watches WHERE expire < UNIX_TIMESTAMP() OR (user_id = :user_id AND encounter_id = :encounter_id AND pokemon_id = :pokemon_id AND iv = :iv AND latitude = :latitude AND longitude = :longitude AND expire = :expire)",
             params! {
@@ -373,13 +463,21 @@ impl BotConfigs {
     }
 
     async fn add_watches(watch: Box<Watch>) -> Result<(), ()> {
-        let now = Local::now().timestamp();
+        let now = Utc::now().timestamp();
 
         let mut lock = Self::clean_watches(now, &watch).await;
 
-        if watch.expire > now && Local::now().hour() != Local.timestamp(watch.expire, 0).hour() && lock.get(&watch.user_id).map(|v| v.contains(&watch)) != Some(true) {
-            let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-            conn.query_drop("DELETE FROM bot_weather_watches WHERE expire < UNIX_TIMESTAMP()").await.map_err(|e| error!("MySQL delete error: {}", e))?;
+        if watch.expire > now
+            && Utc::now().hour() != Utc.timestamp(watch.expire, 0).hour()
+            && lock.get(&watch.user_id).map(|v| v.contains(&watch)) != Some(true)
+        {
+            let mut conn = MYSQL
+                .get_conn()
+                .await
+                .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+            conn.query_drop("DELETE FROM bot_weather_watches WHERE expire < UNIX_TIMESTAMP()")
+                .await
+                .map_err(|e| error!("MySQL delete error: {}", e))?;
             conn.exec_drop(
                 "INSERT INTO bot_weather_watches (user_id, encounter_id, pokemon_id, iv, latitude, longitude, expire) VALUES (:user_id, :encounter_id, :pokemon_id, :iv, :latitude, :longitude, :expire)",
                 params! {
@@ -400,9 +498,9 @@ impl BotConfigs {
         Ok(())
     }
 
-    // async fn submit_weather(weather: Box<Weather>, now: DateTime<Local>) {
+    // async fn submit_weather(weather: Box<Weather>, now: DateTime<Utc>) {
     //     let timestamp = now.timestamp();
-    //     let time = now.format("%T").to_string();
+    //     let time = now.with_timezone(&Rome).format("%T").to_string();
 
     //     let mut remove = Vec::new();
     //     let mut fire = Vec::new();
@@ -430,7 +528,7 @@ impl BotConfigs {
     //         spawn(async move {
     //             let lock = BOT_CONFIGS.read().await;
     //             if let Some(l) = lock.get(&message.watch.user_id).map(|c| c.more.l.clone()) {
-    //                 if let Ok(file_id) = message.prepare(Local::now()).await {
+    //                 if let Ok(file_id) = message.prepare(Utc::now()).await {
     //                     message.send(&message.watch.user_id, file_id, l.as_str()).await
     //                         .map_err(|_| error!("Error sending weather notification"))
     //                         .ok();
@@ -444,12 +542,16 @@ impl BotConfigs {
     //     }
     // }
 
-    pub async fn submit<I>(now: DateTime<Local>, inputs: I, platform: Platform)
+    pub async fn submit<I>(now: DateTime<Utc>, inputs: I, platform: Platform)
     where
-        I: Iterator<Item=Request>,
+        I: Iterator<Item = Request>,
     {
         let mut lock = SENT_CACHE.lock().await;
-        for input in inputs.filter(|r| r.get_id().and_then(|id| lock.notify_insert(id, ()).0).is_none()) {
+        for input in inputs.filter(|r| {
+            r.get_id()
+                .and_then(|id| lock.notify_insert(id, ()).0)
+                .is_none()
+        }) {
             // non config-related requests
             match input {
                 Request::Reload(user_ids) => {
@@ -457,25 +559,25 @@ impl BotConfigs {
                         BotConfigs::reload(user_ids).await.ok();
                     });
                     continue;
-                },
+                }
                 Request::ReloadCity(city_id) => {
                     spawn(async move {
                         BotConfigs::reload_city(city_id).await.ok();
                     });
                     continue;
-                },
+                }
                 Request::StartWatch(watches) => {
                     spawn(async {
                         BotConfigs::add_watches(watches).await.ok();
                     });
                     continue;
-                },
+                }
                 Request::StopWatch(watches) => {
                     spawn(async {
                         BotConfigs::remove_watches(watches).await.ok();
                     });
                     continue;
-                },
+                }
                 // Request::Weather(weather) => {
                 //     spawn(async move {
                 //         BotConfigs::submit_weather(weather, now).await;
@@ -483,20 +585,24 @@ impl BotConfigs {
                 //     continue;
                 // },
                 Request::Pokemon(ref p) => {
-                    BotConfigs::update_park_stats((p.latitude, p.longitude).into(), p.pokemon_id, p.encounter_id.clone());
+                    BotConfigs::update_park_stats(
+                        (p.latitude, p.longitude).into(),
+                        p.pokemon_id,
+                        p.encounter_id.clone(),
+                    );
 
                     BotConfigs::update_city_stats(&input, now.timestamp());
-                },
+                }
                 Request::Raid(_) | Request::Invasion(_) | Request::Quest(_) => {
                     BotConfigs::update_city_stats(&input, now.timestamp());
-                },
+                }
                 Request::DeviceTier(dt) => {
                     spawn(async move {
                         BotConfigs::update_device_tier(&dt).await.ok();
                     });
                     continue;
-                },
-                Request::Weather(_) | Request::Pokestop(_) | Request::GymDetails(_) => {},
+                }
+                Request::Weather(_) | Request::Pokestop(_) | Request::GymDetails(_) => {}
                 _ => debug!("Unmanaged webhook: {:?}", input),
             }
 
@@ -522,7 +628,10 @@ impl BotConfigs {
             //         }
             //     });
             // }
-            SENDER.send(Arc::new((now, platform, input))).map_err(|e| error!("Stream send error: {}", e)).ok();
+            SENDER
+                .send(Arc::new((now, platform, input)))
+                .map_err(|e| error!("Stream send error: {}", e))
+                .ok();
         }
     }
 
@@ -533,8 +642,7 @@ impl BotConfigs {
                 lock.iter().find_map(|(id, city)| {
                     if city.coordinates.within(&point) {
                         Some(*id)
-                    }
-                    else {
+                    } else {
                         None
                     }
                 })
@@ -553,7 +661,7 @@ impl BotConfigs {
                                             "pokemon_id" => pokemon_id,
                                         }).await
                                         .map_err(|e| error!("MySQL query error: insert park stat\n{}", e)).ok();
-                                },
+                                }
                                 Err(e) => error!("MySQL retrieve connection error: {}", e),
                             }
                         }
@@ -566,7 +674,14 @@ impl BotConfigs {
     fn update_city_stats(input: &Request, now: i64) {
         match input {
             Request::Pokemon(p) => {
-                let iv = matches!((p.individual_attack, p.individual_defense, p.individual_stamina), (Some(_), Some(_), Some(_)));
+                let iv = matches!(
+                    (
+                        p.individual_attack,
+                        p.individual_defense,
+                        p.individual_stamina
+                    ),
+                    (Some(_), Some(_), Some(_))
+                );
                 let point: Point<f64> = (p.latitude, p.longitude).into();
 
                 spawn(async move {
@@ -574,7 +689,10 @@ impl BotConfigs {
                         if city.coordinates.within(&point) {
                             let update = {
                                 let lock = CITYSTATS.read().await;
-                                lock.get(id).map(|lock| (!iv && lock.last_pokemon != Some(now)) || (iv && lock.last_iv != Some(now)))
+                                lock.get(id).map(|lock| {
+                                    (!iv && lock.last_pokemon != Some(now))
+                                        || (iv && lock.last_iv != Some(now))
+                                })
                             };
 
                             if update.is_none() || update == Some(true) {
@@ -582,8 +700,7 @@ impl BotConfigs {
                                 let entry = lock.entry(*id).or_insert_with(CityStats::default);
                                 if iv {
                                     entry.last_iv = Some(now);
-                                }
-                                else {
+                                } else {
                                     entry.last_pokemon = Some(now);
                                 }
                             }
@@ -592,7 +709,7 @@ impl BotConfigs {
                         }
                     }
                 });
-            },
+            }
             Request::Raid(r) => {
                 let point: Point<f64> = (r.latitude, r.longitude).into();
 
@@ -614,7 +731,7 @@ impl BotConfigs {
                         }
                     }
                 });
-            },
+            }
             Request::Invasion(i) => {
                 let point: Point<f64> = (i.latitude, i.longitude).into();
 
@@ -636,7 +753,7 @@ impl BotConfigs {
                         }
                     }
                 });
-            },
+            }
             Request::Quest(q) => {
                 let point: Point<f64> = (q.latitude, q.longitude).into();
 
@@ -658,13 +775,16 @@ impl BotConfigs {
                         }
                     }
                 });
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 
     async fn update_device_tier(dt: &DeviceTier) -> Result<(), ()> {
-        let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+        let mut conn = MYSQL
+            .get_conn()
+            .await
+            .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
         if let Some(name) = &dt.name {
             conn.exec_drop(
                     "REPLACE INTO device_tier (id, name, url, release_date, app_version, api_version, reboot, uninstall) VALUES (:id, :name, :url, :release_date, :app_version, :api_version, :reboot, :uninstall)",
@@ -696,9 +816,7 @@ impl BotConfigs {
         }.await.map_err(|e| error!("MySQL query error: update device tier\n{}", e))?;
 
         if let Some(version_chat) = &CONFIG.telegram.version_chat {
-            let message = DeviceTierMessage {
-                tier: dt,
-            };
+            let message = DeviceTierMessage { tier: dt };
             let image = message.get_image().await?;
             message.send(version_chat, image, "").await?;
         }
@@ -709,7 +827,7 @@ impl BotConfigs {
 
 #[cfg(test)]
 mod tests {
-    use super::message::{Message, PokemonMessage, RaidMessage, InvasionMessage, GymMessage};
+    use super::message::{GymMessage, InvasionMessage, Message, PokemonMessage, RaidMessage};
 
     #[tokio::test]
     async fn pokemon_image_iv() {

@@ -1,9 +1,10 @@
 use std::time::Duration;
 
 use tokio::time::interval;
+
 use tokio::spawn;
 
-use chrono::{Local/*, Timelike*/};
+use chrono::Utc;
 
 use crate::config::CONFIG;
 use crate::lists::{CITIES, CITYSTATS};
@@ -13,12 +14,15 @@ const INTERVAL: i64 = 900;
 
 pub fn init() {
     spawn(async {
-        if let (Some(bot_token), Some(chat_id)) = (CONFIG.telegram.alert_bot_token.as_ref(), CONFIG.telegram.alert_chat.as_ref()) {
+        if let (Some(bot_token), Some(chat_id)) = (
+            CONFIG.telegram.alert_bot_token.as_ref(),
+            CONFIG.telegram.alert_chat.as_ref(),
+        ) {
             let mut interval = interval(Duration::from_secs(INTERVAL as u64));
             loop {
                 interval.tick().await;
 
-                let now = Local::now();
+                let now = Utc::now();
                 let timestamp = now.timestamp();
 
                 let mut alerts = Vec::new();
@@ -44,15 +48,28 @@ pub fn init() {
                     //     check_timestamp(&stats.last_raid, timestamp, "Raid", &mut city_alerts);
                     //     check_timestamp(&stats.last_invasion, timestamp, "Invasioni", &mut city_alerts);
                     // }
-                    check_timestamp(&stats.last_quest, timestamp - 86400, "Quest", &mut city_alerts);
+                    check_timestamp(
+                        &stats.last_quest,
+                        timestamp - 86400,
+                        "Quest",
+                        &mut city_alerts,
+                    );
 
                     if !city_alerts.is_empty() {
-                        alerts.push(format!("@{} la zona {} non ha scansioni:\n{}", city.admins_users.join(", @"), city.name, city_alerts.join("\n")));
+                        alerts.push(format!(
+                            "@{} la zona {} non ha scansioni:\n{}",
+                            city.admins_users.join(", @"),
+                            city.name,
+                            city_alerts.join("\n")
+                        ));
                     }
                 }
 
                 if !alerts.is_empty() {
-                    send_message(bot_token, chat_id, &alerts.join("\n\n")).send().await.ok();
+                    send_message(bot_token, chat_id, &alerts.join("\n\n"))
+                        .send()
+                        .await
+                        .ok();
                 }
             }
         }
@@ -75,14 +92,11 @@ fn format_time(seconds: i64) -> String {
     let minutes = (seconds % 3600) / 60;
     if hours > 0 && minutes > 0 {
         format!("{} ore e {} minuti", hours, minutes)
-    }
-    else if hours > 0 {
+    } else if hours > 0 {
         format!("{} ore", hours)
-    }
-    else if minutes > 0 {
+    } else if minutes > 0 {
         format!("{} minuti", minutes)
-    }
-    else {
+    } else {
         // should never happen
         format!("{} secondi", seconds)
     }
@@ -90,7 +104,7 @@ fn format_time(seconds: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Local;
+    use chrono::Utc;
 
     use super::check_timestamp;
 
@@ -98,7 +112,7 @@ mod tests {
     fn alert() {
         tracing_subscriber::fmt::try_init().ok();
 
-        let now = Local::now().timestamp();
+        let now = Utc::now().timestamp();
 
         let mut alerts = Vec::new();
         check_timestamp(&Some(now - 6300), now - 1800, "", &mut alerts);

@@ -67,8 +67,7 @@ impl Config {
         //config file can be the first argument
         let config_file = if args.len() > 1 {
             args.get(1).expect("Cannot retrieve config path").into()
-        }
-        else {
+        } else {
             #[cfg(test)]
             let mut path = PathBuf::from("pokifications");
             #[cfg(not(test))]
@@ -79,9 +78,11 @@ impl Config {
             }
             path
         };
-        let mut toml = File::open(&config_file).unwrap_or_else(|_| panic!("File {} not found", config_file.display()));
+        let mut toml = File::open(&config_file)
+            .unwrap_or_else(|_| panic!("File {} not found", config_file.display()));
         let mut s = String::new();
-        toml.read_to_string(&mut s).expect("Unable to read Toml file");
+        toml.read_to_string(&mut s)
+            .expect("Unable to read Toml file");
         //read config file in toml format
         toml::from_str(&s).expect("Syntax error on Tolm file")
     }

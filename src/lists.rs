@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, future};
+use std::{collections::HashMap, future, sync::Arc};
 
 use arc_swap::ArcSwap;
 
@@ -6,10 +6,18 @@ use futures_util::{future::join_all, TryStreamExt};
 
 use geo::{Point, Polygon};
 
-use mysql_async::{prelude::{Queryable, FromRow}, Row};
+use mysql_async::{
+    prelude::{FromRow, Queryable},
+    Row,
+};
 
 use rocketmap_entities::gamemaster::Cache;
-use tokio::{spawn, time::{Duration, Instant, interval_at}, sync::RwLock};
+
+use tokio::{
+    spawn,
+    sync::RwLock,
+    time::{interval_at, Duration, Instant},
+};
 
 use once_cell::sync::Lazy;
 
@@ -51,7 +59,9 @@ impl FromRow for Pokemon {
             name: row.take("name").expect("MySQL pokemon_list.name error"),
             ptype: row.take("type").expect("MySQL pokemon_list.type error"),
             rarity: row.take("rarity").expect("MySQL pokemon_list.rarity error"),
-            scanned: row.take("scanned").expect("MySQL pokemon_list.scanned error"),
+            scanned: row
+                .take("scanned")
+                .expect("MySQL pokemon_list.scanned error"),
             status: row.take("status").expect("MySQL pokemon_list.status error"),
             raid: row.take("raid").expect("MySQL pokemon_list.raid error"),
         })
@@ -86,8 +96,12 @@ impl FromRow for Form {
         Ok(Form {
             id: row.take("id").expect("MySQL pokemon_forms.id error"),
             name: row.take("name").expect("MySQL pokemon_forms.name error"),
-            pokemon_id: row.take("pokemon_id").expect("MySQL pokemon_forms.pokemon_id error"),
-            hidden: row.take("hidden").expect("MySQL pokemon_forms.hidden error"),
+            pokemon_id: row
+                .take("pokemon_id")
+                .expect("MySQL pokemon_forms.pokemon_id error"),
+            hidden: row
+                .take("hidden")
+                .expect("MySQL pokemon_forms.hidden error"),
         })
     }
 }
@@ -104,7 +118,10 @@ impl Cache for FormCache {
 
     fn reverse(name: &str) -> Option<Self::Id> {
         let forms = FORMS.load();
-        forms.iter().find(|(_, f)| f.name == name).map(|(id, _)| *id)
+        forms
+            .iter()
+            .find(|(_, f)| f.name == name)
+            .map(|(id, _)| *id)
     }
 }
 
@@ -139,17 +156,20 @@ impl FromRow for City {
     fn from_row_opt(mut row: Row) -> Result<Self, mysql_async::FromRowError> {
         let id = row.take("id").expect("MySQL city.id error");
         let name = row.take("name").expect("MySQL city.name error");
-        let coords = row.take::<String, _>("coordinates").expect("MySQL city.coordinates encoding error");
+        let coords = row
+            .take::<String, _>("coordinates")
+            .expect("MySQL city.coordinates encoding error");
         let coords = coords.replace(char::is_whitespace, "");
 
         let poly: Vec<Point<f64>> = if coords.len() < 2 {
             error!("City \"{}\" ({}) has empty coordinates", name, id);
             Vec::new()
-        }
-        else {
-            (&coords[1..(coords.len() - 1)]).split("),(")
+        } else {
+            (&coords[1..(coords.len() - 1)])
+                .split("),(")
                 .map(|s| {
-                    let x_y: Vec<f64> = s.split(',')
+                    let x_y: Vec<f64> = s
+                        .split(',')
                         .map(|s| match s.parse::<f64>() {
                             Ok(f) => f,
                             Err(_) => panic!("Error parsing \"{}\" as a float", s),
@@ -157,8 +177,7 @@ impl FromRow for City {
                         .collect();
                     if x_y.len() == 2 {
                         Some(Point::new(x_y[0], x_y[1]))
-                    }
-                    else {
+                    } else {
                         error!("City \"{}\" ({}) has invalid coordinates", name, id);
                         None
                     }
@@ -173,7 +192,8 @@ impl FromRow for City {
             coordinates: Polygon::new(poly.into(), vec![]),
             scadenza: row.take("scadenza").expect("MySQL city.scadenza error"),
             scan_iv: row.take("monitor").expect("MySQL city.monitor error"),
-            admins_users: row.take::<String, _>("admins_users")
+            admins_users: row
+                .take::<String, _>("admins_users")
                 .expect("MySQL city.admins_users error")
                 .split_whitespace()
                 .map(|s| s.to_owned())
@@ -201,24 +221,30 @@ impl FromRow for CityPark {
     fn from_row_opt(mut row: Row) -> Result<Self, mysql_async::FromRowError> {
         let id = row.take("id").expect("MySQL city_parks.id error");
         let city_id = row.take("city_id").expect("MySQL city_parks.city_id error");
-        let coords = row.take::<String, _>("coordinates").expect("MySQL city_parks.coordinates encoding error");
+        let coords = row
+            .take::<String, _>("coordinates")
+            .expect("MySQL city_parks.coordinates encoding error");
         let coords = coords.replace(char::is_whitespace, "");
 
         let poly: Vec<Point<f64>> = if coords.len() < 2 {
             error!("Park {} has empty coordinates", id);
             Vec::new()
-        }
-        else {
-            (&coords[1..(coords.len() - 1)]).split("),(")
+        } else {
+            (&coords[1..(coords.len() - 1)])
+                .split("),(")
                 .map(|s| {
-                    let x_y: Vec<f64> = s.split(',')
-                        .map(|s| s.parse::<f64>().map_err(|e| error!("Error parsing \"{}\" as a float: {}", s, e)).ok())
+                    let x_y: Vec<f64> = s
+                        .split(',')
+                        .map(|s| {
+                            s.parse::<f64>()
+                                .map_err(|e| error!("Error parsing \"{}\" as a float: {}", s, e))
+                                .ok()
+                        })
                         .flatten()
                         .collect();
                     if x_y.len() == 2 {
                         Some(Point::new(x_y[0], x_y[1]))
-                    }
-                    else {
+                    } else {
                         error!("Park {} has invalid coordinates", id);
                         None
                     }
@@ -236,10 +262,17 @@ impl FromRow for CityPark {
 }
 
 async fn load_pokemons() -> Result<(), ()> {
-    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-    let res = conn.query_iter("SELECT * FROM pokemon_list").await.map_err(|e| error!("MySQL query error: get pokemon list\n{}", e))?;
+    let mut conn = MYSQL
+        .get_conn()
+        .await
+        .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let res = conn
+        .query_iter("SELECT * FROM pokemon_list")
+        .await
+        .map_err(|e| error!("MySQL query error: get pokemon list\n{}", e))?;
 
-    let data = res.stream_and_drop::<Pokemon>()
+    let data = res
+        .stream_and_drop::<Pokemon>()
         .await
         .map_err(|e| error!("MySQL load_pokemons error: {}", e))?
         .ok_or_else(|| error!("MySQL load_pokemons empty"))?
@@ -253,10 +286,17 @@ async fn load_pokemons() -> Result<(), ()> {
 }
 
 async fn load_moves() -> Result<(), ()> {
-    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-    let res = conn.query_iter("SELECT id, move FROM pokemon_moves").await.map_err(|e| error!("MySQL query error: get pokemon moves\n{}", e))?;
+    let mut conn = MYSQL
+        .get_conn()
+        .await
+        .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let res = conn
+        .query_iter("SELECT id, move FROM pokemon_moves")
+        .await
+        .map_err(|e| error!("MySQL query error: get pokemon moves\n{}", e))?;
 
-    let data = res.stream_and_drop::<(u16, String)>()
+    let data = res
+        .stream_and_drop::<(u16, String)>()
         .await
         .map_err(|e| error!("MySQL load_moves error: {}", e))?
         .ok_or_else(|| error!("MySQL load_moves empty"))?
@@ -269,10 +309,17 @@ async fn load_moves() -> Result<(), ()> {
 }
 
 async fn load_forms() -> Result<(), ()> {
-    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-    let res = conn.query_iter("SELECT * FROM pokemon_forms").await.map_err(|e| error!("MySQL query error: get pokemon forms\n{}", e))?;
+    let mut conn = MYSQL
+        .get_conn()
+        .await
+        .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let res = conn
+        .query_iter("SELECT * FROM pokemon_forms")
+        .await
+        .map_err(|e| error!("MySQL query error: get pokemon forms\n{}", e))?;
 
-    let data = res.stream_and_drop::<Form>()
+    let data = res
+        .stream_and_drop::<Form>()
         .await
         .map_err(|e| error!("MySQL load_forms error: {}", e))?
         .ok_or_else(|| error!("MySQL load_forms empty"))?
@@ -286,10 +333,17 @@ async fn load_forms() -> Result<(), ()> {
 }
 
 async fn load_grunts() -> Result<(), ()> {
-    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-    let res = conn.query_iter("SELECT * FROM grunt_types").await.map_err(|e| error!("MySQL query error: get grunt types\n{}", e))?;
+    let mut conn = MYSQL
+        .get_conn()
+        .await
+        .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let res = conn
+        .query_iter("SELECT * FROM grunt_types")
+        .await
+        .map_err(|e| error!("MySQL query error: get grunt types\n{}", e))?;
 
-    let data = res.stream_and_drop::<GruntType>()
+    let data = res
+        .stream_and_drop::<GruntType>()
         .await
         .map_err(|e| error!("MySQL load_grunts error: {}", e))?
         .ok_or_else(|| error!("MySQL load_grunts empty"))?
@@ -303,10 +357,17 @@ async fn load_grunts() -> Result<(), ()> {
 }
 
 pub async fn load_cities() -> Result<(), ()> {
-    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-    let res = conn.query_iter("SELECT id, name, coordinates, scadenza, monitor, admins_users FROM city").await.map_err(|e| error!("MySQL query error: get cities\n{}", e))?;
+    let mut conn = MYSQL
+        .get_conn()
+        .await
+        .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let res = conn
+        .query_iter("SELECT id, name, coordinates, scadenza, monitor, admins_users FROM city")
+        .await
+        .map_err(|e| error!("MySQL query error: get cities\n{}", e))?;
 
-    let data = res.stream_and_drop::<City>()
+    let data = res
+        .stream_and_drop::<City>()
         .await
         .map_err(|e| error!("MySQL load_cities error: {}", e))?
         .ok_or_else(|| error!("MySQL load_cities empty"))?
@@ -320,10 +381,17 @@ pub async fn load_cities() -> Result<(), ()> {
 }
 
 async fn load_parks() -> Result<(), ()> {
-    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-    let res = conn.query_iter("SELECT id, city_id, coordinates FROM city_parks").await.map_err(|e| error!("MySQL query error: get city parks\n{}", e))?;
+    let mut conn = MYSQL
+        .get_conn()
+        .await
+        .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let res = conn
+        .query_iter("SELECT id, city_id, coordinates FROM city_parks")
+        .await
+        .map_err(|e| error!("MySQL query error: get city parks\n{}", e))?;
 
-    let data = res.stream_and_drop::<CityPark>()
+    let data = res
+        .stream_and_drop::<CityPark>()
         .await
         .map_err(|e| error!("MySQL load_cities error: {}", e))?
         .ok_or_else(|| error!("MySQL load_cities empty"))?
@@ -350,7 +418,8 @@ async fn load() {
             5 => load_parks().await,
             _ => panic!("WTF"),
         }
-    })).await;
+    }))
+    .await;
 }
 
 pub async fn init() {

@@ -2,7 +2,7 @@ use std::{future::Future, hash::Hash, sync::Arc};
 
 use lru::LruCache;
 
-use tokio::sync::{OnceCell, Mutex};
+use tokio::sync::{Mutex, OnceCell};
 
 pub struct FileCache<K, V>
 where
@@ -26,20 +26,20 @@ where
     pub async fn get<Create, CreateFut>(&self, key: K, create: Create) -> V
     where
         Create: FnOnce(K) -> CreateFut,
-        CreateFut: Future<Output=V>,
+        CreateFut: Future<Output = V>,
     {
         let mut lock = self.inner.lock().await;
         let oc = if let Some(temp) = lock.get(&key) {
             Arc::clone(temp)
-        }
-        else {
+        } else {
             let oc = Arc::new(OnceCell::new());
             lock.put(key.clone(), Arc::clone(&oc));
             oc
         };
         drop(lock);
-        return oc.get_or_init(|| async move {
-            create(key).await
-        }).await.clone()
+        return oc
+            .get_or_init(|| async move { create(key).await })
+            .await
+            .clone();
     }
 }
