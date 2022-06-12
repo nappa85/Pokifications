@@ -657,8 +657,7 @@ impl BotConfig {
         platform: &Platform,
         input: &GymDetails,
     ) -> Result<GymMessage, ()> {
-        // close debug
-        if self.user_id.as_deref() != Some("25900594") {
+        if self.raid.c != Some(1) {
             return Err(());
         }
 
@@ -666,9 +665,15 @@ impl BotConfig {
         let pos = (input.latitude, input.longitude);
 
         let rad = MAX_DISTANCE
-            .min(BotLocs::convert_to_f64(
-                loc.get(3).unwrap_or_else(|| &self.locs.r[2]),
-            )?)
+            .min(
+                // here we have an optional override that remains even with temp position
+                if self.locs.r.get(3).map(BotLocs::convert_to_i64) == Some(Ok(1)) {
+                    self.locs.r.get(4).map(BotLocs::convert_to_f64).transpose()?.unwrap_or_default()
+                }
+                else {
+                    BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &self.locs.r[2]))?
+                }
+            )
             .max(0.1);
 
         let mut debug = format!(
@@ -903,6 +908,7 @@ impl BotLocs {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BotRaid {
+    pub c: Option<u8>,
     pub u: u8,
     pub s: u8,
     pub l: Vec<u8>,
