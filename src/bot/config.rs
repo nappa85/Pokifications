@@ -17,7 +17,9 @@ use geo_raycasting::RayCasting;
 
 use tracing::{error, info};
 
-use rocketmap_entities::{Gender, GymDetails, Pokemon, Pokestop, PvpRanking, Raid, Weather};
+use rocketmap_entities::{
+    gamemaster, Gender, GymDetails, Pokemon, Pokestop, PvpRanking, Raid, Request, Weather,
+};
 
 use crate::Platform;
 // use crate::lists::COMMON;
@@ -30,7 +32,7 @@ use super::{
         GymMessage, InvasionMessage, LureMessage, Message, PokemonMessage, RaidMessage,
         WeatherMessage,
     },
-    Request, WATCHES,
+    WATCHES,
 };
 
 const MAX_DISTANCE: f64 = 15f64;
@@ -221,12 +223,16 @@ impl BotConfig {
         Ok(true)
     }
 
-    pub async fn submit(
+    pub async fn submit<PC, FC>(
         &self,
         now: &DateTime<Utc>,
         platform: &Platform,
-        input: &Request,
-    ) -> Result<Box<dyn Message + Send + Sync>, ()> {
+        input: &Request<PC, FC>,
+    ) -> Result<Box<dyn Message + Send + Sync>, ()>
+    where
+        PC: gamemaster::Cache<Id = u16>,
+        FC: gamemaster::Cache<Id = u16>,
+    {
         if !self.time.is_active(now)? && self.time.fi[0] == 0 && self.time.fl[0] == 0 {
             #[cfg(test)]
             info!("Webhook discarded for time configs");
@@ -668,11 +674,15 @@ impl BotConfig {
             .min(
                 // here we have an optional override that remains even with temp position
                 if self.locs.r.get(3).map(BotLocs::convert_to_i64) == Some(Ok(1)) {
-                    self.locs.r.get(4).map(BotLocs::convert_to_f64).transpose()?.unwrap_or_default()
-                }
-                else {
+                    self.locs
+                        .r
+                        .get(4)
+                        .map(BotLocs::convert_to_f64)
+                        .transpose()?
+                        .unwrap_or_default()
+                } else {
                     BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &self.locs.r[2]))?
-                }
+                },
             )
             .max(0.1);
 
@@ -1525,9 +1535,9 @@ mod tests {
 
     use crate::Platform;
 
-    use rocketmap_entities::{Pokemon, Pokestop, Raid};
+    use rocketmap_entities::{gamemaster::PokemonWithPvpInfo, Pokemon, Pokestop, Raid};
 
-    use super::Request;
+    use crate::bot::Request;
 
     #[test]
     fn bot_config() {
@@ -1608,5 +1618,47 @@ mod tests {
             )
             .await
             .is_err());
+    }
+
+    #[derive(Debug)]
+    struct FakeCache;
+
+    impl rocketmap_entities::gamemaster::Cache for FakeCache {
+        type Id = u16;
+        fn get(id: Self::Id) -> Option<String> {
+            match id {
+                69 => Some(String::from("bellsprout")),
+                _ => None,
+            }
+        }
+        fn reverse(name: &str) -> Option<Self::Id> {
+            match name {
+                "bellsprout" => Some(69),
+                "weepinbell" => Some(70),
+                "victreebel" => Some(71),
+                _ => None,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn pokemon_pvp_ok() {
+        tracing_subscriber::fmt::try_init().ok();
+
+        rocketmap_entities::gamemaster::load_master_file()
+            .await
+            .unwrap();
+
+        let config = serde_json::from_str::<BotConfig>(r#"{"locs":{"h":["45.558235","12.433863"],"p":["45.564914","12.37436","10"],"r":["45.54964","12.43515","5",0,15],"i":["45.557889","12.433863","0"],"t_p":["44.634571","11.184902","1652056164"],"t_r":["44.643291","10.927879","1645283374"],"t_i":["44.643291","10.927879","1645283374"]},"raid":{"c":1,"u":1,"s":1,"x":1,"l":[5,6],"p":[-5,-6]},"pkmn":{"p1":1,"p0":1,"l":{"69":[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1],"201":[1]}},"time":{"fi":[0,80],"fl":[0,30],"fc":0,"w1":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23],"w2":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]},"lure":{"n":1,"f":0,"l":[]},"invs":{"n":1,"f":0,"l":[]},"more":{"l":"g"},"debug":true}"#).unwrap();
+        let input: PokemonWithPvpInfo<FakeCache, FakeCache> = serde_json::from_str(r#"{"base_catch":0.3334396,"costume":0,"cp":893,"cp_multiplier":0.749761,"disappear_time":1655239379,"display_pokemon_id":null,"encounter_id":"12121595143611067674","form":664,"gender":1,"great_catch":0.4557991,"height":0.645319,"individual_attack":14,"individual_defense":15,"individual_stamina":5,"latitude":45.564914,"longitude":12.433863,"move_1":214,"move_2":118,"pokemon_id":69,"pokemon_level":33.0,"rarity":2,"seen_type":"encounter","spawnpoint_id":4915476003669,"ultra_catch":0.5556972,"verified":true,"weather":1,"weight":4.01554}"#).unwrap();
+        tracing::info!("{:?}", input);
+        assert!(config
+            .submit(
+                &Utc::now(),
+                &Platform::Unknown,
+                &rocketmap_entities::Request::Pokemon(Box::new(input))
+            )
+            .await
+            .is_ok());
     }
 }
