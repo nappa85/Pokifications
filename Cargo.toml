@@ -1,6 +1,6 @@
 [package]
 name = "pokifications"
-version = "2.4.0"
+version = "2.4.1"
 authors = ["Marco Napetti <marco.napetti@gmail.com>"]
 edition = "2021"
 
@@ -13,15 +13,15 @@ async-trait = "0.1.53"
 chrono = "0.4.19"
 chrono-tz = "0.6.1"
 futures-util = "0.3.21"
-geo = { version = "0.20.1", features = ["use-serde"] }
+geo = { version = "0.21.0", features = ["use-serde"] }
 geo-raycasting = "0.3.0"
 hyper = { version = "0.14.18", features = ["http1", "server", "stream", "tcp"] }
 image = { version = "0.23.6", default-features = false, features = ["png", "jpeg"] } # forced by imageproc
 imageproc = "0.22.0"
 lru = "0.7.5"
 lru_time_cache = "0.11.11"
-mysql_async = "0.29.0"
-mysql_common = { version = "0.28.2", features = ["chrono"] }
+mysql_async = "0.30.0"
+mysql_common = { version = "0.29.0", features = ["chrono"] }
 once_cell = "1.10.0"
 qrcode = "0.12.0"
 rand = "0.8.5"
