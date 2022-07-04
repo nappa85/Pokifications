@@ -15,7 +15,7 @@ use geo::Point;
 
 use geo_raycasting::RayCasting;
 
-use tracing::{error, info};
+use tracing::{error, info, debug};
 
 use rocketmap_entities::{
     gamemaster, Gender, GymDetails, Pokemon, Pokestop, PvpRanking, Raid, Request, Weather,
@@ -1104,8 +1104,7 @@ impl BotPkmn {
         match filter.get(9) {
             Some(&1) => {
                 if input.gender != Gender::Male {
-                    #[cfg(test)]
-                    info!("Pokémon discarded for Advanced Filters config: isn't male");
+                    debug!("Pokémon discarded for Advanced Filters config: isn't male");
 
                     return None;
                 } else {
@@ -1114,8 +1113,7 @@ impl BotPkmn {
             }
             Some(&2) => {
                 if input.gender != Gender::Female {
-                    #[cfg(test)]
-                    info!("Pokémon discarded for Advanced Filters config: isn't female");
+                    debug!("Pokémon discarded for Advanced Filters config: isn't female");
 
                     return None;
                 } else {
@@ -1132,8 +1130,7 @@ impl BotPkmn {
             }
             if f > 0 {
                 if Some(f) != input.form {
-                    #[cfg(test)]
-                    info!("Pokémon discarded for Advanced Filters config: wrong form");
+                    debug!("Pokémon discarded for Advanced Filters config: wrong form");
 
                     return None;
                 } else {
@@ -1421,8 +1418,7 @@ impl BotPkmn {
             }
             (None, None, None) => {}
             (Some(None), _, _) | (_, Some(None), _) | (_, _, Some(None)) => {
-                #[cfg(test)]
-                info!("Pokémon discarded for Advanced Filters config");
+                debug!("Pokémon discarded for Advanced Filters config");
 
                 return None;
             }
