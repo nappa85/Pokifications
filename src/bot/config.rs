@@ -1495,8 +1495,8 @@ impl BotPkmn {
             (Some(None), _, _) | (_, Some(None), _) | (_, _, Some(None)) => {
                 if user_id == Some("25900594") {
                     info!(
-                        "{} Pokémon discarded for Advanced Filters config",
-                        input.encounter_id
+                        "{:?} Pokémon discarded for Advanced Filters config",
+                        input
                     );
                 }
 
