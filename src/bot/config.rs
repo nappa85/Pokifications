@@ -1704,7 +1704,7 @@ mod tests {
         fn get(id: Self::Id) -> Option<String> {
             match id {
                 69 => Some(String::from("bellsprout")),
-                // 263 => Some(String::from("zigzagoon")),
+                // 194 => Some(String::from("wooper")),
                 _ => None,
             }
         }
@@ -1713,7 +1713,7 @@ mod tests {
                 "bellsprout" => Some(69),
                 "weepinbell" => Some(70),
                 "victreebel" => Some(71),
-                // "zigzagoon" => Some(263),
+                // "wooper" => Some(194),
                 _ => None,
             }
         }
@@ -1729,7 +1729,7 @@ mod tests {
 
         let config = serde_json::from_str::<BotConfig>(r#"{"locs":{"h":["45.558235","12.433863"],"p":["45.564914","12.37436","10"],"r":["45.54964","12.43515","5",0,15],"i":["45.557889","12.433863","0"],"t_p":["44.634571","11.184902","1652056164"],"t_r":["44.643291","10.927879","1645283374"],"t_i":["44.643291","10.927879","1645283374"]},"raid":{"c":1,"u":1,"s":1,"x":1,"l":[5,6],"p":[-5,-6]},"pkmn":{"p1":1,"p0":1,"l":{"69":[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1],"201":[1]}},"time":{"fi":[0,80],"fl":[0,30],"fc":0,"w1":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23],"w2":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]},"lure":{"n":1,"f":0,"l":[]},"invs":{"n":1,"f":0,"l":[]},"more":{"l":"g"},"debug":true}"#).unwrap();
         let input: PokemonWithPvpInfo<FakeCache, FakeCache> = serde_json::from_str(r#"{"base_catch":0.3334396,"costume":0,"cp":893,"cp_multiplier":0.749761,"disappear_time":1655239379,"display_pokemon_id":null,"encounter_id":"12121595143611067674","form":664,"gender":1,"great_catch":0.4557991,"height":0.645319,"individual_attack":14,"individual_defense":15,"individual_stamina":5,"latitude":45.564914,"longitude":12.433863,"move_1":214,"move_2":118,"pokemon_id":69,"pokemon_level":33.0,"rarity":2,"seen_type":"encounter","spawnpoint_id":4915476003669,"ultra_catch":0.5556972,"verified":true,"weather":1,"weight":4.01554}"#).unwrap();
-        // let input: PokemonWithPvpInfo<FakeCache, FakeCache> = serde_json::from_str(r#"{"base_catch":0.540192,"costume":0,"cp":164,"cp_multiplier":0.462798,"disappear_time":1656950194,"display_pokemon_id":null,"encounter_id":"13178720360385907983","form":945,"gender":2,"great_catch":0.6882081,"height":0.432681,"individual_attack":15,"individual_defense":6,"individual_stamina":13,"latitude":45.43015998572917,"longitude":11.79492617130768,"move_1":241,"move_2":26,"pokemon_id":263,"pokemon_level":12.0,"rarity":1,"seen_type":"encounter","spawnpoint_id":4913132422743,"ultra_catch":0.7885766,"verified":true,"weather":3,"weight":21.3412}"#).unwrap();
+        // let input: PokemonWithPvpInfo<FakeCache, FakeCache> = serde_json::from_str("{\"spawnpoint_id\":\"1293658875297\",\"encounter_id\":\"17152698416612483323\",\"pokemon_id\":194,\"pokestop_id\":null,\"latitude\":44.412012014560645,\"longitude\":8.898968671125694,\"disappear_time\":1656959111,\"disappear_time_verified\":true,\"last_modified_time\":null,\"first_seen\":null,\"gender\":2,\"cp\":192,\"form\":1226,\"costume\":0,\"individual_attack\":6,\"individual_defense\":11,\"individual_stamina\":14,\"cp_multiplier\":0.462798,\"move_1\":216,\"move_2\":96,\"weight\":5.14566,\"height\":0.31296,\"base_catch\":0.4783665,\"great_catch\":0.6232543,\"ultra_catch\":0.7278985,\"boosted_weather\":null,\"def_grade\":null,\"atk_grade\":null,\"rating_attack\":null,\"rating_defense\":null,\"catch_prob_1\":null,\"catch_prob_2\":null,\"catch_prob_3\":null,\"weather\":1,\"weather_boosted_condition\":null,\"pokemon_level\":12,\"s2_cell_id\":null,\"username\":null,\"shiny\":null,\"display_pokemon_id\":null,\"display_gender\":null,\"display_form\":null,\"capture_1\":null,\"capture_2\":null,\"capture_3\":null,\"pvp\":null,\"pvp_rankings_great_league\":null,\"pvp_rankings_ultra_league\":null,\"is_event\":null,\"rarity\":3,\"seen_type\":\"encounter\"}").unwrap();
         tracing::info!("{:?}", input);
         assert!(config
             .submit(
