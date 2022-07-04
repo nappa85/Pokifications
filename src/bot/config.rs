@@ -1196,6 +1196,11 @@ impl BotPkmn {
                             for rank in ranks {
                                 if rank.rank.map(|r| r <= perf) == Some(true) {
                                     return Some(Some(*rank));
+                                } else {
+                                    debug!(
+                                        "{} percentage {:?} < {}",
+                                        input.encounter_id, rank.rank, perf
+                                    );
                                 }
                             }
                         }
@@ -1266,6 +1271,10 @@ impl BotPkmn {
                         write!(res, " ATK {} < {}", atkv.unwrap_or(&0), atk.unwrap_or(&0))
                             .map_err(|_| ())?;
                     } else {
+                        debug!(
+                            "{} ATK {:?} <= {:?}",
+                            input.encounter_id, atkv, atk
+                        );
                         return Ok(Some(None));
                     }
                 }
@@ -1274,6 +1283,10 @@ impl BotPkmn {
                         write!(res, " ATK {} = {}", atkv.unwrap_or(&0), atk.unwrap_or(&0))
                             .map_err(|_| ())?;
                     } else {
+                        debug!(
+                            "{} ATK {:?} != {:?}",
+                            input.encounter_id, atkv, atk
+                        );
                         return Ok(Some(None));
                     }
                 }
@@ -1282,6 +1295,10 @@ impl BotPkmn {
                         write!(res, " ATK {} > {}", atkv.unwrap_or(&0), atk.unwrap_or(&0))
                             .map_err(|_| ())?;
                     } else {
+                        debug!(
+                            "{} ATK {:?} >= {:?}",
+                            input.encounter_id, atkv, atk
+                        );
                         return Ok(Some(None));
                     }
                 }
@@ -1293,6 +1310,10 @@ impl BotPkmn {
                         write!(res, " DEF {} < {}", defv.unwrap_or(&0), def.unwrap_or(&0))
                             .map_err(|_| ())?;
                     } else {
+                        debug!(
+                            "{} DEF {:?} <= {:?}",
+                            input.encounter_id, defv, def
+                        );
                         return Ok(Some(None));
                     }
                 }
@@ -1301,6 +1322,10 @@ impl BotPkmn {
                         write!(res, " DEF {} = {}", defv.unwrap_or(&0), def.unwrap_or(&0))
                             .map_err(|_| ())?;
                     } else {
+                        debug!(
+                            "{} DEF {:?} != {:?}",
+                            input.encounter_id, defv, def
+                        );
                         return Ok(Some(None));
                     }
                 }
@@ -1309,6 +1334,10 @@ impl BotPkmn {
                         write!(res, " DEF {} > {}", defv.unwrap_or(&0), def.unwrap_or(&0))
                             .map_err(|_| ())?;
                     } else {
+                        debug!(
+                            "{} DEF {:?} >= {:?}",
+                            input.encounter_id, defv, def
+                        );
                         return Ok(Some(None));
                     }
                 }
@@ -1320,6 +1349,10 @@ impl BotPkmn {
                         write!(res, " STA {} < {}", stav.unwrap_or(&0), sta.unwrap_or(&0))
                             .map_err(|_| ())?;
                     } else {
+                        debug!(
+                            "{} STA {:?} <= {:?}",
+                            input.encounter_id, stav, sta
+                        );
                         return Ok(Some(None));
                     }
                 }
@@ -1328,6 +1361,10 @@ impl BotPkmn {
                         write!(res, " STA {} = {}", stav.unwrap_or(&0), sta.unwrap_or(&0))
                             .map_err(|_| ())?;
                     } else {
+                        debug!(
+                            "{} STA {:?} != {:?}",
+                            input.encounter_id, stav, sta
+                        );
                         return Ok(Some(None));
                     }
                 }
@@ -1336,6 +1373,10 @@ impl BotPkmn {
                         write!(res, " STA {} > {}", stav.unwrap_or(&0), sta.unwrap_or(&0))
                             .map_err(|_| ())?;
                     } else {
+                        debug!(
+                            "{} STA {:?} >= {:?}",
+                            input.encounter_id, stav, sta
+                        );
                         return Ok(Some(None));
                     }
                 }
