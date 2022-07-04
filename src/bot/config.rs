@@ -419,7 +419,7 @@ impl BotConfig {
         }
 
         if !badge {
-            if let Some(dbg) = BotPkmn::advanced_filters(filter, input, self.user_id.as_deref())? {
+            if let Some(dbg) = BotPkmn::advanced_filters(filter, input)? {
                 debug.push_str(&dbg);
             } else {
                 return Err(());
@@ -1103,7 +1103,7 @@ impl BotPkmn {
      * 21: ultra check
      * 22: Ultra
      */
-    fn advanced_filters(filter: &[u8], input: &Pokemon, user_id: Option<&str>) -> Result<Option<String>, ()> {
+    fn advanced_filters(filter: &[u8], input: &Pokemon) -> Result<Option<String>, ()> {
         if filter.get(16) == Some(&1)
             && input.individual_attack == Some(15)
             && input.individual_defense == Some(15)
@@ -1117,12 +1117,11 @@ impl BotPkmn {
         match filter.get(9) {
             Some(&1) => {
                 if input.gender != Gender::Male {
-                    if user_id == Some("25900594") {
-                        info!(
-                            "{} Pokémon discarded for Advanced Filters config: isn't male",
-                            input.encounter_id
-                        );
-                    }
+                    #[cfg(test)]
+                    info!(
+                        "{} Pokémon discarded for Advanced Filters config: isn't male",
+                        input.encounter_id
+                    );
 
                     return Ok(None);
                 } else {
@@ -1131,12 +1130,11 @@ impl BotPkmn {
             }
             Some(&2) => {
                 if input.gender != Gender::Female {
-                    if user_id == Some("25900594") {
-                        info!(
-                            "{} Pokémon discarded for Advanced Filters config: isn't female",
-                            input.encounter_id
-                        );
-                    }
+                    #[cfg(test)]
+                    info!(
+                        "{} Pokémon discarded for Advanced Filters config: isn't female",
+                        input.encounter_id
+                    );
 
                     return Ok(None);
                 } else {
@@ -1153,12 +1151,11 @@ impl BotPkmn {
             }
             if f > 0 {
                 if Some(f) != input.form {
-                    if user_id == Some("25900594") {
-                        info!(
-                            "{} Pokémon discarded for Advanced Filters config: wrong form",
-                            input.encounter_id
-                        );
-                    }
+                    #[cfg(test)]
+                    info!(
+                        "{} Pokémon discarded for Advanced Filters config: wrong form",
+                        input.encounter_id
+                    );
 
                     return Ok(None);
                 } else {
@@ -1186,12 +1183,11 @@ impl BotPkmn {
                                 if rank.percentage.map(|p| p >= perf) == Some(true) {
                                     return Some(Some(*rank));
                                 } else {
-                                    if user_id == Some("25900594") {
-                                        info!(
-                                            "{} percentage {:?} < {}",
-                                            input.encounter_id, rank.percentage, perf
-                                        );
-                                    }
+                                    #[cfg(test)]
+                                    info!(
+                                        "{} percentage {:?} < {}",
+                                        input.encounter_id, rank.percentage, perf
+                                    );
                                 }
                             }
                         }
@@ -1205,12 +1201,11 @@ impl BotPkmn {
                                 if rank.rank.map(|r| r <= perf) == Some(true) {
                                     return Some(Some(*rank));
                                 } else {
-                                    if user_id == Some("25900594") {
-                                        info!(
-                                            "{} rank {:?} > {}",
-                                            input.encounter_id, rank.rank, perf
-                                        );
-                                    }
+                                    #[cfg(test)]
+                                    info!(
+                                        "{} rank {:?} > {}",
+                                        input.encounter_id, rank.rank, perf
+                                    );
                                 }
                             }
                         }
@@ -1281,12 +1276,12 @@ impl BotPkmn {
                         write!(res, " ATK {} < {}", atkv.unwrap_or(&0), atk.unwrap_or(&0))
                             .map_err(|_| ())?;
                     } else {
-                        if user_id == Some("25900594") {
-                            info!(
-                                "{} ATK {:?} <= {:?}",
-                                input.encounter_id, atkv, atk
-                            );
-                        }
+                        #[cfg(test)]
+                        info!(
+                            "{} ATK {:?} <= {:?}",
+                            input.encounter_id, atkv, atk
+                        );
+
                         return Ok(Some(None));
                     }
                 }
@@ -1295,12 +1290,12 @@ impl BotPkmn {
                         write!(res, " ATK {} = {}", atkv.unwrap_or(&0), atk.unwrap_or(&0))
                             .map_err(|_| ())?;
                     } else {
-                        if user_id == Some("25900594") {
-                            info!(
-                                "{} ATK {:?} != {:?}",
-                                input.encounter_id, atkv, atk
-                            );
-                        }
+                        #[cfg(test)]
+                        info!(
+                            "{} ATK {:?} != {:?}",
+                            input.encounter_id, atkv, atk
+                        );
+
                         return Ok(Some(None));
                     }
                 }
@@ -1309,12 +1304,12 @@ impl BotPkmn {
                         write!(res, " ATK {} > {}", atkv.unwrap_or(&0), atk.unwrap_or(&0))
                             .map_err(|_| ())?;
                     } else {
-                        if user_id == Some("25900594") {
-                            info!(
-                                "{} ATK {:?} >= {:?}",
-                                input.encounter_id, atkv, atk
-                            );
-                        }
+                        #[cfg(test)]
+                        info!(
+                            "{} ATK {:?} >= {:?}",
+                            input.encounter_id, atkv, atk
+                        );
+
                         return Ok(Some(None));
                     }
                 }
@@ -1326,12 +1321,12 @@ impl BotPkmn {
                         write!(res, " DEF {} < {}", defv.unwrap_or(&0), def.unwrap_or(&0))
                             .map_err(|_| ())?;
                     } else {
-                        if user_id == Some("25900594") {
-                            info!(
-                                "{} DEF {:?} <= {:?}",
-                                input.encounter_id, defv, def
-                            );
-                        }
+                        #[cfg(test)]
+                        info!(
+                            "{} DEF {:?} <= {:?}",
+                            input.encounter_id, defv, def
+                        );
+
                         return Ok(Some(None));
                     }
                 }
@@ -1340,12 +1335,12 @@ impl BotPkmn {
                         write!(res, " DEF {} = {}", defv.unwrap_or(&0), def.unwrap_or(&0))
                             .map_err(|_| ())?;
                     } else {
-                        if user_id == Some("25900594") {
-                            info!(
-                                "{} DEF {:?} != {:?}",
-                                input.encounter_id, defv, def
-                            );
-                        }
+                        #[cfg(test)]
+                        info!(
+                            "{} DEF {:?} != {:?}",
+                            input.encounter_id, defv, def
+                        );
+
                         return Ok(Some(None));
                     }
                 }
@@ -1354,12 +1349,12 @@ impl BotPkmn {
                         write!(res, " DEF {} > {}", defv.unwrap_or(&0), def.unwrap_or(&0))
                             .map_err(|_| ())?;
                     } else {
-                        if user_id == Some("25900594") {
-                            info!(
-                                "{} DEF {:?} >= {:?}",
-                                input.encounter_id, defv, def
-                            );
-                        }
+                        #[cfg(test)]
+                        info!(
+                            "{} DEF {:?} >= {:?}",
+                            input.encounter_id, defv, def
+                        );
+
                         return Ok(Some(None));
                     }
                 }
@@ -1371,12 +1366,12 @@ impl BotPkmn {
                         write!(res, " STA {} < {}", stav.unwrap_or(&0), sta.unwrap_or(&0))
                             .map_err(|_| ())?;
                     } else {
-                        if user_id == Some("25900594") {
-                            info!(
-                                "{} STA {:?} <= {:?}",
-                                input.encounter_id, stav, sta
-                            );
-                        }
+                        #[cfg(test)]
+                        info!(
+                            "{} STA {:?} <= {:?}",
+                            input.encounter_id, stav, sta
+                        );
+
                         return Ok(Some(None));
                     }
                 }
@@ -1385,12 +1380,12 @@ impl BotPkmn {
                         write!(res, " STA {} = {}", stav.unwrap_or(&0), sta.unwrap_or(&0))
                             .map_err(|_| ())?;
                     } else {
-                        if user_id == Some("25900594") {
-                            info!(
-                                "{} STA {:?} != {:?}",
-                                input.encounter_id, stav, sta
-                            );
-                        }
+                        #[cfg(test)]
+                        info!(
+                            "{} STA {:?} != {:?}",
+                            input.encounter_id, stav, sta
+                        );
+
                         return Ok(Some(None));
                     }
                 }
@@ -1399,12 +1394,12 @@ impl BotPkmn {
                         write!(res, " STA {} > {}", stav.unwrap_or(&0), sta.unwrap_or(&0))
                             .map_err(|_| ())?;
                     } else {
-                        if user_id == Some("25900594") {
-                            info!(
-                                "{} STA {:?} >= {:?}",
-                                input.encounter_id, stav, sta
-                            );
-                        }
+                        #[cfg(test)]
+                        info!(
+                            "{} STA {:?} >= {:?}",
+                            input.encounter_id, stav, sta
+                        );
+
                         return Ok(Some(None));
                     }
                 }
@@ -1493,12 +1488,11 @@ impl BotPkmn {
             }
             (None, None, None) => {}
             (Some(None), _, _) | (_, Some(None), _) | (_, _, Some(None)) => {
-                if user_id == Some("25900594") {
-                    info!(
-                        "{:?} Pokémon discarded for Advanced Filters config",
-                        serde_json::to_string(input)
-                    );
-                }
+                #[cfg(test)]
+                info!(
+                    "{:?} Pokémon discarded for Advanced Filters config",
+                    serde_json::to_string(input)
+                );
 
                 return Ok(None);
             }
