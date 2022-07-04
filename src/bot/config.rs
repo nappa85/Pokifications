@@ -1496,7 +1496,7 @@ impl BotPkmn {
                 if user_id == Some("25900594") {
                     info!(
                         "{:?} Pokémon discarded for Advanced Filters config",
-                        input
+                        serde_json::to_string(input)
                     );
                 }
 
