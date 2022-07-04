@@ -110,11 +110,9 @@ impl BotConfigs {
                             .await
                             .map_err(|e| error!("MySQL query error: get users to disable\n{}", e))
                         {
-                            res.map_and_drop(|mut row| {
-                                row.take("user_id").unwrap_or_else(String::new)
-                            })
-                            .await
-                            .map_err(|e| error!("MySQL map error: get users to disable\n{}", e))
+                            res.map_and_drop(|mut row| row.take("user_id").unwrap_or_default())
+                                .await
+                                .map_err(|e| error!("MySQL map error: get users to disable\n{}", e))
                         } else {
                             Err(())
                         }

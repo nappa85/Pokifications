@@ -167,7 +167,7 @@ impl FromRow for City {
         } else {
             (&coords[1..(coords.len() - 1)])
                 .split("),(")
-                .map(|s| {
+                .filter_map(|s| {
                     let x_y: Vec<f64> = s
                         .split(',')
                         .map(|s| match s.parse::<f64>() {
@@ -182,7 +182,6 @@ impl FromRow for City {
                         None
                     }
                 })
-                .flatten()
                 .collect()
         };
 
@@ -232,15 +231,14 @@ impl FromRow for CityPark {
         } else {
             (&coords[1..(coords.len() - 1)])
                 .split("),(")
-                .map(|s| {
+                .filter_map(|s| {
                     let x_y: Vec<f64> = s
                         .split(',')
-                        .map(|s| {
+                        .filter_map(|s| {
                             s.parse::<f64>()
                                 .map_err(|e| error!("Error parsing \"{}\" as a float: {}", s, e))
                                 .ok()
                         })
-                        .flatten()
                         .collect();
                     if x_y.len() == 2 {
                         Some(Point::new(x_y[0], x_y[1]))
@@ -249,7 +247,6 @@ impl FromRow for CityPark {
                         None
                     }
                 })
-                .flatten()
                 .collect()
         };
 

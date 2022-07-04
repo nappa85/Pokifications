@@ -68,16 +68,13 @@ async fn parse(now: DateTime<Utc>, bytes: Vec<u8>, platform: Platform) -> Result
 
     bot::BotConfigs::submit(
         now,
-        configs
-            .into_iter()
-            .map(|v| {
-                // this is a bit of a waste of memory, but there is no other way around
-                debug!("Received {:?} webhook {}", platform, v);
-                serde_json::from_value(v.clone())
-                    .map_err(|e| error!("deserialize error: {}\n{}", e, v))
-                    .ok()
-            })
-            .flatten(),
+        configs.into_iter().filter_map(|v| {
+            // this is a bit of a waste of memory, but there is no other way around
+            debug!("Received {:?} webhook {}", platform, v);
+            serde_json::from_value(v.clone())
+                .map_err(|e| error!("deserialize error: {}\n{}", e, v))
+                .ok()
+        }),
         platform,
     )
     .await;

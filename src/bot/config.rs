@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::f64::consts::PI;
+use std::fmt::Write;
 
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +16,7 @@ use geo::Point;
 
 use geo_raycasting::RayCasting;
 
-use tracing::{error, info, debug};
+use tracing::{debug, error, info};
 
 use rocketmap_entities::{
     gamemaster, Gender, GymDetails, Pokemon, Pokestop, PvpRanking, Raid, Request, Weather,
@@ -279,7 +280,7 @@ impl BotConfig {
         let mut debug = format!(
             "Scansione avvenuta{} alle {}\n",
             platform,
-            now.with_timezone(&Rome).format("%T").to_string()
+            now.with_timezone(&Rome).format("%T")
         );
 
         if (self.pkmn.p1 == Some(1) && iv == Some(100))
@@ -292,7 +293,7 @@ impl BotConfig {
                 .max(0.1);
             let dist = BotLocs::calc_dist(loc, pos)?;
             if dist <= rad {
-                debug.push_str(&format!("Bypass IV {:.0}%", iv.unwrap_or_default()));
+                write!(debug, "Bypass IV {:.0}%", iv.unwrap_or_default()).map_err(|_| ())?;
 
                 return Ok(PokemonMessage {
                     pokemon: input.clone(),
@@ -309,6 +310,7 @@ impl BotConfig {
         }
 
         let pokemon_id = input.pokemon_id.to_string();
+        #[allow(clippy::unnecessary_lazy_evaluations)]
         let filter = self.pkmn.l.get(&pokemon_id).ok_or_else(|| {
             #[cfg(test)]
             info!("Pokémon not configured");
@@ -324,16 +326,19 @@ impl BotConfig {
             // $pkmn_rad = ValMinMax($filter[6], 0.1, MAX_DISTANCE);
             let rad = MAX_DISTANCE
                 .min(f64::from(
+                    #[allow(clippy::unnecessary_lazy_evaluations)]
                     *(filter.get(6).ok_or_else(|| {
                         #[cfg(test)]
                         info!("Custom distance but no custom distance value");
                     })?),
                 ))
                 .max(0.1);
-            debug.push_str(&format!(
+            write!(
+                debug,
                 "Distanza personalizzata per Pokémon inferiore a {:.2} km",
                 rad
-            ));
+            )
+            .map_err(|_| ())?;
             rad
         } else {
             // $pkmn_rad = ValMinMax($locs["p"][2], 0.1, MAX_DISTANCE);
@@ -342,10 +347,12 @@ impl BotConfig {
                     loc.get(3).unwrap_or_else(|| &self.locs.p[2]),
                 )?)
                 .max(0.1);
-            debug.push_str(&format!(
+            write!(
+                debug,
                 "Distanza standard per Pokémon inferiore a {:.2} km",
                 rad
-            ));
+            )
+            .map_err(|_| ())?;
             rad
         };
 
@@ -359,7 +366,7 @@ impl BotConfig {
 
             return Err(());
         } else {
-            debug.push_str(&format!(" ({:.2} km)", dist));
+            write!(debug, " ({:.2} km)", dist).map_err(|_| ())?;
         }
 
         let badge = BotPkmn::check_badge(filter, input);
@@ -373,7 +380,7 @@ impl BotConfig {
         //             return Err(());
         //         }
         //         else {
-        //             debug.push_str(&format!("\nPokémon comune ma con IV superiori alla soglia del {:.0}% ({:.0}%)", MIN_IV_LIMIT, i));
+        //             write!(debug,"\nPokémon comune ma con IV superiori alla soglia del {:.0}% ({:.0}%)", MIN_IV_LIMIT, i));
         //         }
         //     }
         //     else {
@@ -386,10 +393,8 @@ impl BotConfig {
 
         if !self.time.is_active(now)? {
             if let Some(s) = self.time.bypass(iv, input.pokemon_level) {
-                debug.push_str(&format!(
-                    "\nFiltro orario non attivo ma eccezione per {}",
-                    s
-                ));
+                write!(debug, "\nFiltro orario non attivo ma eccezione per {}", s)
+                    .map_err(|_| ())?;
             } else {
                 #[cfg(test)]
                 info!(
@@ -402,7 +407,7 @@ impl BotConfig {
         } else if badge {
             debug.push_str("\nEccezione per medaglia");
         } else if let Some(s) = BotPkmn::filter(filter, iv.as_ref(), input.pokemon_level.as_ref()) {
-            debug.push_str(&format!("\nFiltro orario attivo e {}", s));
+            write!(debug, "\nFiltro orario attivo e {}", s).map_err(|_| ())?;
         } else {
             #[cfg(test)]
             info!(
@@ -414,7 +419,7 @@ impl BotConfig {
         }
 
         if !badge {
-            if let Some(dbg) = BotPkmn::advanced_filters(filter, input) {
+            if let Some(dbg) = BotPkmn::advanced_filters(filter, input)? {
                 debug.push_str(&dbg);
             } else {
                 return Err(());
@@ -471,7 +476,7 @@ impl BotConfig {
         let mut debug = format!(
             "Scansione avvenuta{} alle {}\n",
             platform,
-            now.with_timezone(&Rome).format("%T").to_string()
+            now.with_timezone(&Rome).format("%T")
         );
         let dist = BotLocs::calc_dist(loc, pos)?;
         if dist > rad {
@@ -483,10 +488,12 @@ impl BotConfig {
 
             return Err(());
         } else {
-            debug.push_str(&format!(
+            write!(
+                debug,
                 "Distanza per Raid inferiore a {:.2} km ({:.2} km)",
                 rad, dist
-            ));
+            )
+            .map_err(|_| ())?;
         }
 
         if !self.time.is_active(now)? {
@@ -568,16 +575,18 @@ impl BotConfig {
         let mut debug = format!(
             "Scansione avvenuta{} alle {}\n",
             platform,
-            now.with_timezone(&Rome).format("%T").to_string()
+            now.with_timezone(&Rome).format("%T")
         );
         let dist = BotLocs::calc_dist(loc, pos)?;
         if dist > rad {
             return Err(());
         } else {
-            debug.push_str(&format!(
+            write!(
+                debug,
                 "Distanza per Pokéstop inferiore a {:.2} km ({:.2} km)",
                 rad, dist
-            ));
+            )
+            .map_err(|_| ())?;
         }
 
         if lure.f == 1 {
@@ -625,16 +634,18 @@ impl BotConfig {
         let mut debug = format!(
             "Scansione avvenuta{} alle {}\n",
             platform,
-            now.with_timezone(&Rome).format("%T").to_string()
+            now.with_timezone(&Rome).format("%T")
         );
         let dist = BotLocs::calc_dist(loc, pos)?;
         if dist > rad {
             return Err(());
         } else {
-            debug.push_str(&format!(
+            write!(
+                debug,
                 "Distanza per Pokéstop inferiore a {:.2} km ({:.2} km)",
                 rad, dist
-            ));
+            )
+            .map_err(|_| ())?;
         }
 
         if invs.f == 1 {
@@ -689,7 +700,7 @@ impl BotConfig {
         let mut debug = format!(
             "Scansione avvenuta{} alle {}\n",
             platform,
-            now.with_timezone(&Rome).format("%T").to_string()
+            now.with_timezone(&Rome).format("%T")
         );
         let dist = BotLocs::calc_dist(loc, pos)?;
         if dist > rad {
@@ -701,10 +712,12 @@ impl BotConfig {
 
             return Err(());
         } else {
-            debug.push_str(&format!(
+            write!(
+                debug,
                 "Distanza per Palestre inferiore a {:.2} km ({:.2} km)",
                 rad, dist
-            ));
+            )
+            .map_err(|_| ())?;
         }
 
         if !self.time.is_active(now)? {
@@ -1090,13 +1103,13 @@ impl BotPkmn {
      * 21: ultra check
      * 22: Ultra
      */
-    fn advanced_filters(filter: &[u8], input: &Pokemon) -> Option<String> {
+    fn advanced_filters(filter: &[u8], input: &Pokemon) -> Result<Option<String>, ()> {
         if filter.get(16) == Some(&1)
             && input.individual_attack == Some(15)
             && input.individual_defense == Some(15)
             && input.individual_stamina == Some(15)
         {
-            return Some(String::from("\nFiltro avanzato: 100%"));
+            return Ok(Some(String::from("\nFiltro avanzato: 100%")));
         }
 
         let mut dbg = String::new();
@@ -1104,18 +1117,24 @@ impl BotPkmn {
         match filter.get(9) {
             Some(&1) => {
                 if input.gender != Gender::Male {
-                    debug!("Pokémon discarded for Advanced Filters config: isn't male");
+                    debug!(
+                        "{} Pokémon discarded for Advanced Filters config: isn't male",
+                        input.encounter_id
+                    );
 
-                    return None;
+                    return Ok(None);
                 } else {
                     dbg.push_str("\nFiltro avanzato: Sesso maschio");
                 }
             }
             Some(&2) => {
                 if input.gender != Gender::Female {
-                    debug!("Pokémon discarded for Advanced Filters config: isn't female");
+                    debug!(
+                        "{} Pokémon discarded for Advanced Filters config: isn't female",
+                        input.encounter_id
+                    );
 
-                    return None;
+                    return Ok(None);
                 } else {
                     dbg.push_str("\nFiltro avanzato: Sesso femmina");
                 }
@@ -1130,27 +1149,28 @@ impl BotPkmn {
             }
             if f > 0 {
                 if Some(f) != input.form {
-                    debug!("Pokémon discarded for Advanced Filters config: wrong form");
+                    debug!(
+                        "{} Pokémon discarded for Advanced Filters config: wrong form",
+                        input.encounter_id
+                    );
 
-                    return None;
+                    return Ok(None);
                 } else {
                     let forms = FORMS.load();
-                    dbg.push_str(&format!(
+                    write!(
+                        dbg,
                         "\nFiltro avanzato: Forma {}",
                         forms
                             .get(&f)
                             .map(|f| f.name.as_str())
                             .unwrap_or_else(|| "<sconosciuta>")
-                    ));
+                    )
+                    .map_err(|_| ())?;
                 }
             }
         }
 
-        fn filter_rank<'a>(
-            check: Option<&u8>,
-            filter: Option<&u8>,
-            pvp: Option<&'a Vec<PvpRanking>>,
-        ) -> Option<Option<&'a PvpRanking>> {
+        let filter_rank = |check: Option<&u8>, filter: Option<&u8>, pvp: Option<&[PvpRanking]>| {
             match check {
                 Some(&1) => {
                     if let Some(perf) = filter {
@@ -1158,7 +1178,12 @@ impl BotPkmn {
                             let perf = (*perf as f64) / 100_f64;
                             for rank in ranks {
                                 if rank.percentage.map(|p| p >= perf) == Some(true) {
-                                    return Some(Some(rank));
+                                    return Some(Some(*rank));
+                                } else {
+                                    debug!(
+                                        "{} percentage {:?} < {}",
+                                        input.encounter_id, rank.percentage, perf
+                                    );
                                 }
                             }
                         }
@@ -1170,7 +1195,7 @@ impl BotPkmn {
                             let perf = *perf as u16;
                             for rank in ranks {
                                 if rank.rank.map(|r| r <= perf) == Some(true) {
-                                    return Some(Some(rank));
+                                    return Some(Some(*rank));
                                 }
                             }
                         }
@@ -1180,91 +1205,84 @@ impl BotPkmn {
             }
 
             Some(None)
-        }
+        };
 
-        fn rank_to_string(r: &PvpRanking) -> String {
+        let rank_to_string = |r: PvpRanking| {
             let mut res = String::new();
             {
                 let list = LIST.load();
-                res.push_str(&format!(
+                write!(
+                    res,
                     " pokémon {}",
                     list.get(&r.pokemon)
                         .map(|s| s.name.as_str())
                         .unwrap_or_else(|| "<sconosciuto>")
-                ));
+                )
+                .map_err(|_| ())?;
             }
             if let Some(v) = &r.form {
                 if v > &0 {
                     let forms = FORMS.load();
-                    res.push_str(&format!(
+                    write!(
+                        res,
                         " forma {}",
                         forms
                             .get(v)
                             .map(|f| f.name.as_str())
                             .unwrap_or_else(|| "<sconosciuta>")
-                    ));
+                    )
+                    .map_err(|_| ())?;
                 }
             }
             if let Some(v) = &r.cp {
-                res.push_str(&format!(" ps {}", v));
+                write!(res, " ps {}", v).map_err(|_| ())?;
             }
             if let Some(v) = &r.level {
-                res.push_str(&format!(" livello {}", v));
+                write!(res, " livello {}", v).map_err(|_| ())?;
             }
             if let Some(v) = &r.rank {
-                res.push_str(&format!(" rank {}", v));
+                write!(res, " rank {}", v).map_err(|_| ())?;
             }
             if let Some(v) = &r.percentage {
-                res.push_str(&format!(" percentuale {:.1}%", v * 100_f64));
+                write!(res, " percentuale {:.1}%", v * 100_f64).map_err(|_| ())?;
             }
-            res
-        }
+            Ok(res)
+        };
 
-        #[allow(clippy::too_many_arguments)]
-        fn filter_iv(
-            atkf: Option<&u8>,
-            atkv: Option<&u8>,
-            deff: Option<&u8>,
-            defv: Option<&u8>,
-            staf: Option<&u8>,
-            stav: Option<&u8>,
-            atk: Option<&u8>,
-            def: Option<&u8>,
-            sta: Option<&u8>,
-        ) -> Option<Option<String>> {
+        // #[allow(clippy::too_many_arguments)]
+        let filter_iv = |atkf: Option<&u8>,
+                         atkv: Option<&u8>,
+                         deff: Option<&u8>,
+                         defv: Option<&u8>,
+                         staf: Option<&u8>,
+                         stav: Option<&u8>,
+                         atk: Option<&u8>,
+                         def: Option<&u8>,
+                         sta: Option<&u8>| {
             let mut res = String::new();
             match atkf {
                 Some(&1) => {
                     if atkv > atk {
-                        res.push_str(&format!(
-                            " ATK {} < {}",
-                            atkv.unwrap_or(&0),
-                            atk.unwrap_or(&0)
-                        ));
+                        write!(res, " ATK {} < {}", atkv.unwrap_or(&0), atk.unwrap_or(&0))
+                            .map_err(|_| ())?;
                     } else {
-                        return Some(None);
+                        return Ok(Some(None));
                     }
                 }
                 Some(&2) => {
                     if atkv == atk {
-                        res.push_str(&format!(
-                            " ATK {} = {}",
-                            atkv.unwrap_or(&0),
-                            atk.unwrap_or(&0)
-                        ));
+                        write!(res, " ATK {} = {}", atkv.unwrap_or(&0), atk.unwrap_or(&0))
+                            .map_err(|_| ())?;
                     } else {
-                        return Some(None);
+                        return Ok(Some(None));
                     }
                 }
                 Some(&3) => {
                     if atkv < atk {
-                        res.push_str(&format!(
-                            " ATK {} > {}",
-                            atkv.unwrap_or(&0),
-                            atk.unwrap_or(&0)
-                        ));
+                        write!(res, " ATK {} > {}", atkv.unwrap_or(&0), atk.unwrap_or(&0))
+                            .map_err(|_| ())?;
                     } else {
-                        return Some(None);
+                        return Ok(Some(None));
                     }
                 }
                 _ => {}
@@ -1272,35 +1290,26 @@ impl BotPkmn {
             match deff {
                 Some(&1) => {
                     if defv > def {
-                        res.push_str(&format!(
-                            " DEF {} < {}",
-                            defv.unwrap_or(&0),
-                            def.unwrap_or(&0)
-                        ));
+                        write!(res, " DEF {} < {}", defv.unwrap_or(&0), def.unwrap_or(&0))
+                            .map_err(|_| ())?;
                     } else {
-                        return Some(None);
+                        return Ok(Some(None));
                     }
                 }
                 Some(&2) => {
                     if defv == def {
-                        res.push_str(&format!(
-                            " DEF {} = {}",
-                            defv.unwrap_or(&0),
-                            def.unwrap_or(&0)
-                        ));
+                        write!(res, " DEF {} = {}", defv.unwrap_or(&0), def.unwrap_or(&0))
+                            .map_err(|_| ())?;
                     } else {
-                        return Some(None);
+                        return Ok(Some(None));
                     }
                 }
                 Some(&3) => {
                     if defv < def {
-                        res.push_str(&format!(
-                            " DEF {} > {}",
-                            defv.unwrap_or(&0),
-                            def.unwrap_or(&0)
-                        ));
+                        write!(res, " DEF {} > {}", defv.unwrap_or(&0), def.unwrap_or(&0))
+                            .map_err(|_| ())?;
                     } else {
-                        return Some(None);
+                        return Ok(Some(None));
                     }
                 }
                 _ => {}
@@ -1308,45 +1317,36 @@ impl BotPkmn {
             match staf {
                 Some(&1) => {
                     if stav > sta {
-                        res.push_str(&format!(
-                            " STA {} < {}",
-                            stav.unwrap_or(&0),
-                            sta.unwrap_or(&0)
-                        ));
+                        write!(res, " STA {} < {}", stav.unwrap_or(&0), sta.unwrap_or(&0))
+                            .map_err(|_| ())?;
                     } else {
-                        return Some(None);
+                        return Ok(Some(None));
                     }
                 }
                 Some(&2) => {
                     if stav == sta {
-                        res.push_str(&format!(
-                            " STA {} = {}",
-                            stav.unwrap_or(&0),
-                            sta.unwrap_or(&0)
-                        ));
+                        write!(res, " STA {} = {}", stav.unwrap_or(&0), sta.unwrap_or(&0))
+                            .map_err(|_| ())?;
                     } else {
-                        return Some(None);
+                        return Ok(Some(None));
                     }
                 }
                 Some(&3) => {
                     if stav < sta {
-                        res.push_str(&format!(
-                            " STA {} > {}",
-                            stav.unwrap_or(&0),
-                            sta.unwrap_or(&0)
-                        ));
+                        write!(res, " STA {} > {}", stav.unwrap_or(&0), sta.unwrap_or(&0))
+                            .map_err(|_| ())?;
                     } else {
-                        return Some(None);
+                        return Ok(Some(None));
                     }
                 }
                 _ => {}
             }
             if res.is_empty() {
-                None
+                Ok(None)
             } else {
-                Some(Some(res))
+                Ok(Some(Some(res)))
             }
-        }
+        };
 
         // filters are in OR condition
         // None => not checked
@@ -1356,12 +1356,12 @@ impl BotPkmn {
             filter_rank(
                 filter.get(19),
                 filter.get(20),
-                input.pvp_rankings_great_league.as_ref(),
+                input.pvp_rankings_great_league.as_deref(),
             ),
             filter_rank(
                 filter.get(21),
                 filter.get(22),
-                input.pvp_rankings_ultra_league.as_ref(),
+                input.pvp_rankings_ultra_league.as_deref(),
             ),
             filter_iv(
                 filter.get(10),
@@ -1373,58 +1373,67 @@ impl BotPkmn {
                 input.individual_attack.as_ref(),
                 input.individual_defense.as_ref(),
                 input.individual_stamina.as_ref(),
-            ),
+            )?,
         ) {
             (Some(Some(mega)), Some(Some(ultra)), Some(Some(s))) => {
-                dbg.push_str(&format!(
+                write!(
+                    dbg,
                     "\nFiltro avanzato: Mega{}\nFiltro avanzato: Ultra{}\nFiltro avanzato: IV{}",
-                    rank_to_string(mega),
-                    rank_to_string(ultra),
+                    rank_to_string(mega)?,
+                    rank_to_string(ultra)?,
                     s,
-                ));
+                )
+                .map_err(|_| ())?;
             }
             (Some(Some(mega)), Some(Some(ultra)), _) => {
-                dbg.push_str(&format!(
+                write!(
+                    dbg,
                     "\nFiltro avanzato: Mega{}\nFiltro avanzato: Ultra{}",
-                    rank_to_string(mega),
-                    rank_to_string(ultra),
-                ));
+                    rank_to_string(mega)?,
+                    rank_to_string(ultra)?,
+                )
+                .map_err(|_| ())?;
             }
             (Some(Some(mega)), _, Some(Some(s))) => {
-                dbg.push_str(&format!(
+                write!(
+                    dbg,
                     "\nFiltro avanzato: Mega{}\nFiltro avanzato: IV{}",
-                    rank_to_string(mega),
+                    rank_to_string(mega)?,
                     s,
-                ));
+                )
+                .map_err(|_| ())?;
             }
             (Some(Some(mega)), _, _) => {
-                dbg.push_str(&format!("\nFiltro avanzato: Mega{}", rank_to_string(mega),));
+                write!(dbg, "\nFiltro avanzato: Mega{}", rank_to_string(mega)?,).map_err(|_| ())?;
             }
             (_, Some(Some(ultra)), Some(Some(s))) => {
-                dbg.push_str(&format!(
+                write!(
+                    dbg,
                     "\nFiltro avanzato: Ultra{}\nFiltro avanzato: IV{}",
-                    rank_to_string(ultra),
+                    rank_to_string(ultra)?,
                     s,
-                ));
+                )
+                .map_err(|_| ())?;
             }
             (_, Some(Some(ultra)), _) => {
-                dbg.push_str(&format!(
-                    "\nFiltro avanzato: Ultra{}",
-                    rank_to_string(ultra),
-                ));
+                write!(dbg, "\nFiltro avanzato: Ultra{}", rank_to_string(ultra)?,)
+                    .map_err(|_| ())?;
             }
             (_, _, Some(Some(s))) => {
-                dbg.push_str(&format!("\nFiltro avanzato: IV{}", s));
+                write!(dbg, "\nFiltro avanzato: IV{}", s).map_err(|_| ())?;
             }
             (None, None, None) => {}
             (Some(None), _, _) | (_, Some(None), _) | (_, _, Some(None)) => {
-                debug!("Pokémon discarded for Advanced Filters config");
+                debug!(
+                    "{} Pokémon discarded for Advanced Filters config",
+                    input.encounter_id
+                );
 
-                return None;
+                return Ok(None);
             }
         }
 
-        Some(dbg)
+        Ok(Some(dbg))
     }
 }
 

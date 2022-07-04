@@ -349,7 +349,7 @@ impl Message for PokemonMessage {
                 LIST.load()
                     .get(&self.pokemon.pokemon_id)
                     .map(|p| p.name.to_uppercase())
-                    .unwrap_or_else(String::new),
+                    .unwrap_or_default(),
                 gender,
                 match self.pokemon.form {
                     Some(id) => FORMS.load().get(&id).and_then(|f| if f.hidden {
@@ -359,17 +359,17 @@ impl Message for PokemonMessage {
                     }),
                     None => None,
                 }
-                .unwrap_or_else(String::new),
+                .unwrap_or_default(),
                 match self.pokemon.display_pokemon_id {
                     Some(id) => LIST.load().get(&id).map(|f| format!(" ({})", f.name)),
                     None => None,
                 }
-                .unwrap_or_else(String::new),
+                .unwrap_or_default(),
                 iv,
                 self.pokemon
                     .weather
                     .and_then(|id| meteo_icon(id).ok())
-                    .unwrap_or_else(String::new),
+                    .unwrap_or_default(),
                 match (self.pokemon.cp, self.pokemon.pokemon_level) {
                     (Some(cp), Some(level)) => format!("PL {} | Lv {}\n", cp, level),
                     _ => String::new(),
@@ -379,7 +379,6 @@ impl Message for PokemonMessage {
                 Utc.timestamp(self.pokemon.disappear_time, 0)
                     .with_timezone(&Rome)
                     .format("%T")
-                    .to_string()
             )
             .replace(&gender.repeat(2), &gender) //fix nidoran double gender
         } else {
@@ -393,7 +392,7 @@ impl Message for PokemonMessage {
                 LIST.load()
                     .get(&self.pokemon.pokemon_id)
                     .map(|p| p.name.to_uppercase())
-                    .unwrap_or_else(String::new),
+                    .unwrap_or_default(),
                 gender,
                 match self.pokemon.form {
                     Some(id) => FORMS.load().get(&id).and_then(|f| if f.hidden {
@@ -403,22 +402,21 @@ impl Message for PokemonMessage {
                     }),
                     None => None,
                 }
-                .unwrap_or_else(String::new),
+                .unwrap_or_default(),
                 match self.pokemon.display_pokemon_id {
                     Some(id) => LIST.load().get(&id).map(|f| format!(" ({})", f.name)),
                     None => None,
                 }
-                .unwrap_or_else(String::new),
+                .unwrap_or_default(),
                 self.pokemon
                     .weather
                     .and_then(|id| meteo_icon(id).ok())
-                    .unwrap_or_else(String::new),
+                    .unwrap_or_default(),
                 self.distance,
                 dir_icon,
                 Utc.timestamp(self.pokemon.disappear_time, 0)
                     .with_timezone(&Rome)
                     .format("%T")
-                    .to_string()
             )
             .replace(&gender.repeat(2), &gender) //fix nidoran double gender
         };
@@ -434,15 +432,10 @@ impl Message for PokemonMessage {
         let img_path_str = format!(
             "{}img_sent/poke_{}_{}_{}_{}.png",
             CONFIG.images.bot,
-            timestamp
-                .with_timezone(&Rome)
-                .format("%Y%m%d%H")
-                .to_string(),
+            timestamp.with_timezone(&Rome).format("%Y%m%d%H"),
             self.pokemon.encounter_id,
             self.pokemon.pokemon_id,
-            self.iv
-                .map(|iv| format!("{:.0}", iv))
-                .unwrap_or_else(String::new)
+            self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_default()
         );
 
         IMG_CACHE
@@ -556,7 +549,7 @@ impl Message for PokemonMessage {
                         let gender = self.pokemon.gender.get_glyph();
                         p.name.replace(&gender, "").to_uppercase()
                     })
-                    .unwrap_or_else(String::new);
+                    .unwrap_or_default();
                 imageproc::drawing::draw_text_mut(
                     &mut background,
                     image::Rgba::<u8>([0, 0, 0, 0]),
@@ -768,7 +761,7 @@ impl Message for PokemonMessage {
             ) {
                 a.push(json!([{
                     "text": format!("{} Avvia tracciamento Meteo", String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?),
-                    "callback_data": format!("watch|{:.3}|{:.3}|{}|{}|{}|{}", lat, lon, self.pokemon.disappear_time, self.pokemon.encounter_id, self.pokemon.pokemon_id, self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_else(String::new))
+                    "callback_data": format!("watch|{:.3}|{:.3}|{}|{}|{}|{}", lat, lon, self.pokemon.disappear_time, self.pokemon.encounter_id, self.pokemon.pokemon_id, self.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_default())
                 }]));
             }
         }
@@ -845,7 +838,7 @@ impl Message for RaidMessage {
                 LIST.load()
                     .get(&pokemon_id)
                     .map(|p| p.name.to_uppercase())
-                    .unwrap_or_else(String::new),
+                    .unwrap_or_default(),
                 gender,
                 match self.raid.form {
                     Some(id) => FORMS.load().get(&id).and_then(|f| if f.hidden {
@@ -855,7 +848,7 @@ impl Message for RaidMessage {
                     }),
                     None => None,
                 }
-                .unwrap_or_else(String::new),
+                .unwrap_or_default(),
                 match self.raid.evolution {
                     Some(id) if id == 1 => " (Mega)",
                     Some(id) if id == 2 => " (Mega X)",
@@ -874,7 +867,6 @@ impl Message for RaidMessage {
                 Utc.timestamp(self.raid.end, 0)
                     .with_timezone(&Rome)
                     .format("%T")
-                    .to_string()
             )
         } else {
             // $t_corpo = "\xf0\x9f\xa5\x9a "; // Uovo
@@ -898,7 +890,6 @@ impl Message for RaidMessage {
                 Utc.timestamp(self.raid.start, 0)
                     .with_timezone(&Rome)
                     .format("%T")
-                    .to_string()
             )
         };
 
@@ -913,13 +904,13 @@ impl Message for RaidMessage {
         let img_path_str = format!(
             "{}img_sent/raid_{}_{}_{}_{}.png",
             CONFIG.images.bot,
-            now.with_timezone(&Rome).format("%Y%m%d%H").to_string(),
+            now.with_timezone(&Rome).format("%Y%m%d%H"),
             self.raid.gym_id,
             self.raid.start,
             self.raid
                 .pokemon_id
                 .map(|i| i.to_string())
-                .unwrap_or_else(String::new)
+                .unwrap_or_default()
         );
 
         IMG_CACHE
@@ -1109,7 +1100,7 @@ impl Message for RaidMessage {
                             .load()
                             .get(&pkmn_id)
                             .map(|p| p.name.to_uppercase())
-                            .unwrap_or_else(String::new);
+                            .unwrap_or_default();
                         imageproc::drawing::draw_text_mut(
                             &mut background,
                             image::Rgba::<u8>([0, 0, 0, 0]),
@@ -1326,7 +1317,6 @@ impl Message for LureMessage {
                 Utc.timestamp(timestamp, 0)
                     .with_timezone(&Rome)
                     .format("%T")
-                    .to_string()
             );
 
             Ok(match self.debug {
@@ -1343,7 +1333,7 @@ impl Message for LureMessage {
         let img_path_str = format!(
             "{}img_sent/lure_{}_{}_{}.png",
             CONFIG.images.bot,
-            now.with_timezone(&Rome).format("%Y%m%d%H").to_string(),
+            now.with_timezone(&Rome).format("%Y%m%d%H"),
             self.pokestop.pokestop_id,
             self.pokestop.lure_id.unwrap_or_default()
         );
@@ -1473,7 +1463,7 @@ impl Message for InvasionMessage {
                     }
                     None => None,
                 }
-                .unwrap_or_else(String::new),
+                .unwrap_or_default(),
                 String::from_utf8(vec![0xf0, 0x9f, 0x93, 0x8d])
                     .map_err(|e| error!("error parsing POI icon: {}", e))?,
                 self.invasion.name.as_deref().unwrap_or("Sconosciuto"),
@@ -1482,7 +1472,6 @@ impl Message for InvasionMessage {
                 Utc.timestamp(timestamp, 0)
                     .with_timezone(&Rome)
                     .format("%T")
-                    .to_string()
             );
 
             Ok(match self.debug {
@@ -1499,12 +1488,12 @@ impl Message for InvasionMessage {
         let img_path_str = format!(
             "{}img_sent/invasion_{}_{}_{}.png",
             CONFIG.images.bot,
-            now.with_timezone(&Rome).format("%Y%m%d%H").to_string(),
+            now.with_timezone(&Rome).format("%Y%m%d%H"),
             self.invasion.pokestop_id,
             self.invasion
                 .grunt_type
                 .map(|id| id.to_string())
-                .unwrap_or_else(String::new)
+                .unwrap_or_default()
         );
 
         IMG_CACHE
@@ -1667,16 +1656,13 @@ impl Message for WeatherMessage {
         let img_path_str = format!(
             "{}img_sent/poke_{}_{}_{}_{}.png",
             CONFIG.images.bot,
-            timestamp
-                .with_timezone(&Rome)
-                .format("%Y%m%d%H")
-                .to_string(),
+            timestamp.with_timezone(&Rome).format("%Y%m%d%H"),
             self.watch.encounter_id,
             self.watch.pokemon_id,
             self.watch
                 .iv
                 .map(|iv| format!("{:.0}", iv))
-                .unwrap_or_else(String::new)
+                .unwrap_or_default()
         );
 
         // no need for OnceBarrier
@@ -1724,7 +1710,7 @@ impl Message for WeatherMessage {
     //         if let Some(a) = keyboard["inline_keyboard"].as_array_mut() {
     //             a.push(json!([{
     //                 "text": format!("{} Ferma tracciamento Meteo", String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?),
-    //                 "callback_data": format!("stop|{:.3}|{:.3}|{}|{}|{}|{}", lat, lon, self.watch.expire, self.watch.encounter_id, self.watch.pokemon_id, self.watch.iv.map(|iv| iv.to_string()).unwrap_or_else(String::new))
+    //                 "callback_data": format!("stop|{:.3}|{:.3}|{}|{}|{}|{}", lat, lon, self.watch.expire, self.watch.encounter_id, self.watch.pokemon_id, self.watch.iv.map(|iv| iv.to_string()).unwrap_or_default())
     //             }]));
     //         }
     //     }
@@ -1768,7 +1754,7 @@ impl Message for GymMessage {
         let img_path_str = format!(
             "{}img_sent/gym_{}_{}_{}_{}_{}.png",
             CONFIG.images.bot,
-            now.with_timezone(&Rome).format("%Y%m%d%H").to_string(),
+            now.with_timezone(&Rome).format("%Y%m%d%H"),
             self.gym.id,
             self.gym.team.get_id(),
             6 - self.gym.slots_available,
@@ -1929,7 +1915,7 @@ impl<'a> Message for DeviceTierMessage<'a> {
             self.tier.release_date.format("%d/%m/%Y"),
             self.tier.app_version,
             self.tier.api_version,
-            self.tier.name.as_ref().or_else(|| name.as_ref()).ok_or_else(|| error!("Can't find device tier {}", self.tier.id))?,
+            self.tier.name.as_ref().or(name.as_ref()).ok_or_else(|| error!("Can't find device tier {}", self.tier.id))?,
             match (self.tier.reboot, self.tier.uninstall) {
                 (true, true) => "Per installare l’app di scansione, É NECESSARIO DISINSTALLARE LA VECCHIA VERSIONE E RIAVVIARE IL TELEFONO, prima di installare questa versione.",
                 (true, false) => "Per installare l’app di scansione, É NECESSARIO RIAVVIARE IL TELEFONO, prima di installare questa versione (Non è necessario disinstallare prima la vecchia app).",

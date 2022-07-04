@@ -1,6 +1,6 @@
 [package]
 name = "pokifications"
-version = "2.4.1"
+version = "2.5.0"
 authors = ["Marco Napetti <marco.napetti@gmail.com>"]
 edition = "2021"
 
@@ -13,7 +13,7 @@ async-trait = "0.1.53"
 chrono = "0.4.19"
 chrono-tz = "0.6.1"
 futures-util = "0.3.21"
-geo = { version = "0.21.0", features = ["use-serde"] }
+geo = { version = "0.22.0", features = ["use-serde"] }
 geo-raycasting = "0.3.0"
 hyper = { version = "0.14.18", features = ["http1", "server", "stream", "tcp"] }
 image = { version = "0.23.6", default-features = false, features = ["png", "jpeg"] } # forced by imageproc
