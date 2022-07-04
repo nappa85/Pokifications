@@ -1198,7 +1198,7 @@ impl BotPkmn {
                                     return Some(Some(*rank));
                                 } else {
                                     debug!(
-                                        "{} percentage {:?} < {}",
+                                        "{} rank {:?} > {}",
                                         input.encounter_id, rank.rank, perf
                                     );
                                 }
