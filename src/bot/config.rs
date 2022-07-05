@@ -1202,10 +1202,7 @@ impl BotPkmn {
                                     return Some(Some(*rank));
                                 } else {
                                     #[cfg(test)]
-                                    info!(
-                                        "{} rank {:?} > {}",
-                                        input.encounter_id, rank.rank, perf
-                                    );
+                                    info!("{} rank {:?} > {}", input.encounter_id, rank.rank, perf);
                                 }
                             }
                         }
@@ -1277,10 +1274,7 @@ impl BotPkmn {
                             .map_err(|_| ())?;
                     } else {
                         #[cfg(test)]
-                        info!(
-                            "{} ATK {:?} <= {:?}",
-                            input.encounter_id, atkv, atk
-                        );
+                        info!("{} ATK {:?} <= {:?}", input.encounter_id, atkv, atk);
 
                         return Ok(Some(None));
                     }
@@ -1291,10 +1285,7 @@ impl BotPkmn {
                             .map_err(|_| ())?;
                     } else {
                         #[cfg(test)]
-                        info!(
-                            "{} ATK {:?} != {:?}",
-                            input.encounter_id, atkv, atk
-                        );
+                        info!("{} ATK {:?} != {:?}", input.encounter_id, atkv, atk);
 
                         return Ok(Some(None));
                     }
@@ -1305,10 +1296,7 @@ impl BotPkmn {
                             .map_err(|_| ())?;
                     } else {
                         #[cfg(test)]
-                        info!(
-                            "{} ATK {:?} >= {:?}",
-                            input.encounter_id, atkv, atk
-                        );
+                        info!("{} ATK {:?} >= {:?}", input.encounter_id, atkv, atk);
 
                         return Ok(Some(None));
                     }
@@ -1322,10 +1310,7 @@ impl BotPkmn {
                             .map_err(|_| ())?;
                     } else {
                         #[cfg(test)]
-                        info!(
-                            "{} DEF {:?} <= {:?}",
-                            input.encounter_id, defv, def
-                        );
+                        info!("{} DEF {:?} <= {:?}", input.encounter_id, defv, def);
 
                         return Ok(Some(None));
                     }
@@ -1336,10 +1321,7 @@ impl BotPkmn {
                             .map_err(|_| ())?;
                     } else {
                         #[cfg(test)]
-                        info!(
-                            "{} DEF {:?} != {:?}",
-                            input.encounter_id, defv, def
-                        );
+                        info!("{} DEF {:?} != {:?}", input.encounter_id, defv, def);
 
                         return Ok(Some(None));
                     }
@@ -1350,10 +1332,7 @@ impl BotPkmn {
                             .map_err(|_| ())?;
                     } else {
                         #[cfg(test)]
-                        info!(
-                            "{} DEF {:?} >= {:?}",
-                            input.encounter_id, defv, def
-                        );
+                        info!("{} DEF {:?} >= {:?}", input.encounter_id, defv, def);
 
                         return Ok(Some(None));
                     }
@@ -1367,10 +1346,7 @@ impl BotPkmn {
                             .map_err(|_| ())?;
                     } else {
                         #[cfg(test)]
-                        info!(
-                            "{} STA {:?} <= {:?}",
-                            input.encounter_id, stav, sta
-                        );
+                        info!("{} STA {:?} <= {:?}", input.encounter_id, stav, sta);
 
                         return Ok(Some(None));
                     }
@@ -1381,10 +1357,7 @@ impl BotPkmn {
                             .map_err(|_| ())?;
                     } else {
                         #[cfg(test)]
-                        info!(
-                            "{} STA {:?} != {:?}",
-                            input.encounter_id, stav, sta
-                        );
+                        info!("{} STA {:?} != {:?}", input.encounter_id, stav, sta);
 
                         return Ok(Some(None));
                     }
@@ -1395,10 +1368,7 @@ impl BotPkmn {
                             .map_err(|_| ())?;
                     } else {
                         #[cfg(test)]
-                        info!(
-                            "{} STA {:?} >= {:?}",
-                            input.encounter_id, stav, sta
-                        );
+                        info!("{} STA {:?} >= {:?}", input.encounter_id, stav, sta);
 
                         return Ok(Some(None));
                     }

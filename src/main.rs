@@ -10,6 +10,7 @@
 
 mod alerts;
 mod bot;
+mod cleanup;
 mod config;
 mod db;
 mod lists;
@@ -155,6 +156,8 @@ async fn main() -> Result<(), ()> {
     tracing_subscriber::fmt::init();
 
     rocketmap_entities::gamemaster::init();
+
+    cleanup::init();
 
     //retrieve address and port, defaulting if not configured
     let addr = format!(

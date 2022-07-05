@@ -80,7 +80,9 @@ impl Cache for PokemonCache {
 
     fn reverse(name: &str) -> Option<Self::Id> {
         let list = LIST.load();
-        list.iter().find(|(_, p)| p.name.eq_ignore_ascii_case(name)).map(|(id, _)| *id)
+        list.iter()
+            .find(|(_, p)| p.name.eq_ignore_ascii_case(name))
+            .map(|(id, _)| *id)
     }
 }
 
