@@ -453,13 +453,13 @@ impl BotConfig {
         let pos = (input.latitude, input.longitude);
         if self.raid.x != Some(1) || input.ex_raid_eligible != Some(true) {
             if self.raid.s == 0 && pokemon_id.is_some() {
-                // #[cfg(test)]
+                #[cfg(test)]
                 info!("Raid discarded for disabled raids");
 
                 return Err(());
             }
             if self.raid.u == 0 && pokemon_id.is_none() {
-                // #[cfg(test)]
+                #[cfg(test)]
                 info!("Raid discarded for disabled eggs");
 
                 return Err(());
@@ -480,7 +480,7 @@ impl BotConfig {
         );
         let dist = BotLocs::calc_dist(loc, pos)?;
         if dist > rad {
-            // #[cfg(test)]
+            #[cfg(test)]
             info!(
                 "Raid discarded for distance: loc {:?} pos {:?} dist {} rad {}",
                 loc, pos, dist, rad
