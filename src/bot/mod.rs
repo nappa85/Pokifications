@@ -879,7 +879,8 @@ mod tests {
 
         let message = RaidMessage {
             raid: serde_json::from_str(
-                    r#"{"latitude":45.468203,"team_id":2,"start":1564212138,"end":1564214838,"spawn":1564208538,"cp":2527,"ex_raid_eligible":false,"form":63,"gym_id":"03213b28587c4063b81c6d9ed39e5f54.16","gym_name":"Parrocchia di San Pietro in Sala","longitude":9.156488,"move_1":202,"move_2":16,"is_exclusive":false,"gym_url":"http://lh5.ggpht.com/5sxTUTkH0Ch1l-w-jMN8i_2-wz1XVjcPv4EAHTBJunHONWr7KFIWHjnh_RfU0lqKPL4j12sSgQJKyKNqD3-p","level":1,"pokemon_id":52,"gender":1}"#
+                    //r#"{"latitude":45.468203,"team_id":2,"start":1564212138,"end":1564214838,"spawn":1564208538,"cp":2527,"ex_raid_eligible":false,"form":63,"gym_id":"03213b28587c4063b81c6d9ed39e5f54.16","gym_name":"Parrocchia di San Pietro in Sala","longitude":9.156488,"move_1":202,"move_2":16,"is_exclusive":false,"gym_url":"http://lh5.ggpht.com/5sxTUTkH0Ch1l-w-jMN8i_2-wz1XVjcPv4EAHTBJunHONWr7KFIWHjnh_RfU0lqKPL4j12sSgQJKyKNqD3-p","level":1,"pokemon_id":52,"gender":1}"#
+                    r#"{"ar_scan_eligible":false,"costume":0,"cp":0,"end":1658944429,"evolution":0,"ex_raid_eligible":true,"form":0,"gender":0,"gym_id":"117c4217aaaa4eebaeb064b76966e445.11","gym_name":"Unknown","gym_url":"http://lh3.googleusercontent.com/QXW8OzeZkWHECP_Gii3MOzfTpWhue8Z_Kw14_Fzp8i9chSs1pDCFQbYBA0xZ_FKkSvnv4Q30nh_-70EEnOX8GptaGV0","is_exclusive":false,"latitude":45.517574,"level":5,"longitude":9.19395,"move_1":0,"move_2":0,"partner_id":0,"pokemon_id":0,"power_up_end_timestamp":0,"power_up_level":0,"power_up_points":30,"spawn":1658939629,"sponsor_id":0,"start":1658940829,"team_id":3}"#
                 ).unwrap(),
             distance: 0_f64,
             debug: None,
