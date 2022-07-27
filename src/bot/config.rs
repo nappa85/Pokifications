@@ -498,7 +498,9 @@ impl BotConfig {
 
         if !self.time.is_active(now)? {
             // #[cfg(test)]
+            if self.user_id.as_deref() == Some("25900594") {
             info!("Raid discarded for time config");
+            }
 
             return Err(());
         }
@@ -512,10 +514,12 @@ impl BotConfig {
                         && !self.raid.p.contains(&(-(input.level as i16)))
                     {
                         // #[cfg(test)]
+                        if self.user_id.as_deref() == Some("25900594") {
                         info!(
                             "Raid discarded for disabled raidboss: raidboss {} config {:?}",
                             pkmn_id, self.raid.p
                         );
+                        }
 
                         return Err(());
                     } else {
@@ -525,10 +529,12 @@ impl BotConfig {
                 _ => {
                     if !self.raid.l.contains(&input.level) {
                         // #[cfg(test)]
+                        if self.user_id.as_deref() == Some("25900594") {
                         info!(
                             "Raid discarded for disabled egg level: level {} config {:?}",
                             input.level, self.raid.l
                         );
+                        }
 
                         return Err(());
                     } else {
