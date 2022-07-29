@@ -1,8 +1,6 @@
-use std::collections::HashMap;
-use std::f64::consts::PI;
-use std::fmt::Write;
+use std::{borrow::Cow, collections::HashMap, f64::consts::PI, fmt::Write, ops::Neg};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use serde_json::Value as JsonValue;
 
@@ -508,9 +506,7 @@ impl BotConfig {
         } else {
             match input.pokemon_id {
                 Some(pkmn_id) if pkmn_id > 0 => {
-                    if !self.raid.p.contains(&(pkmn_id as i16))
-                        && !self.raid.p.contains(&(-(input.level as i16)))
-                    {
+                    if !self.raid.p.iter().any(|p| p == input) {
                         #[cfg(test)]
                         info!(
                             "Raid discarded for disabled raidboss: raidboss {} config {:?}",
@@ -935,7 +931,7 @@ pub struct BotRaid {
     pub u: u8,
     pub s: u8,
     pub l: Vec<u8>,
-    pub p: Vec<i16>,
+    pub p: Vec<PkmnRaid>,
     pub x: Option<u8>,
 }
 
@@ -1469,6 +1465,63 @@ impl BotPkmn {
         }
 
         Ok(Some(dbg))
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum PkmnRaid {
+    RaildLevel(u8),
+    Pokemon(u16),
+    PokemonForm(u16, u16),
+}
+
+#[derive(Deserialize)]
+enum IntOrStr<'a> {
+    Int(i16),
+    Str(Cow<'a, str>),
+}
+
+impl<'de> Deserialize<'de> for PkmnRaid {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let temp = IntOrStr::deserialize(deserializer)?;
+        Ok(match temp {
+            IntOrStr::Int(i) if i < 0 => PkmnRaid::RaildLevel(i.abs() as u8),
+            IntOrStr::Int(i) => PkmnRaid::Pokemon(i as u16),
+            IntOrStr::Str(s) => {
+                let mut parts = s.split('-').map(str::parse::<u16>);
+                match (parts.next(), parts.next()) {
+                    (Some(Ok(pokemon_id)), Some(Ok(form_id))) => {
+                        PkmnRaid::PokemonForm(pokemon_id, form_id)
+                    }
+                    (Some(Ok(pokemon_id)), None) => PkmnRaid::Pokemon(pokemon_id),
+                    _ => return Err(serde::de::Error::custom("Invalid PkmnRaid")),
+                }
+            }
+        })
+    }
+}
+
+impl Serialize for PkmnRaid {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            PkmnRaid::RaildLevel(level) => (*level as i8).neg().serialize(serializer),
+            PkmnRaid::Pokemon(pokemon_id) => pokemon_id.serialize(serializer),
+            PkmnRaid::PokemonForm(pokemon_id, form_id) => {
+                format!("{}-{}", pokemon_id, form_id).serialize(serializer)
+            }
+        }
+    }
+}
+
+impl PartialEq<Raid> for PkmnRaid {
+    fn eq(&self, raid: &Raid) -> bool {
+        match self {
+            PkmnRaid::RaildLevel(level) => &raid.level == level,
+            PkmnRaid::Pokemon(pokemon_id) => raid.pokemon_id.as_ref() == Some(pokemon_id),
+            PkmnRaid::PokemonForm(pokemon_id, form_id) => {
+                raid.pokemon_id.as_ref() == Some(pokemon_id) && raid.form.as_ref() == Some(form_id)
+            }
+        }
     }
 }
 

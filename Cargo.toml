@@ -1,6 +1,6 @@
 [package]
 name = "pokifications"
-version = "2.5.2"
+version = "2.6.0"
 authors = ["Marco Napetti <marco.napetti@gmail.com>"]
 edition = "2021"
 
