@@ -1,6 +1,7 @@
 use std::env;
 use std::fs::File;
 use std::io::Read;
+use std::num::NonZeroUsize;
 #[cfg(test)]
 use std::path::PathBuf;
 
@@ -27,7 +28,7 @@ pub struct Service {
     pub rdm_safeword: Option<String>,
     pub mad_safeword: Option<String>,
     pub queue_size: usize,
-    pub lru_size: usize,
+    pub lru_size: NonZeroUsize,
 }
 
 #[derive(Deserialize)]

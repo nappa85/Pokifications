@@ -1,4 +1,4 @@
-use std::{future::Future, hash::Hash, sync::Arc};
+use std::{future::Future, hash::Hash, num::NonZeroUsize, sync::Arc};
 
 use lru::LruCache;
 
@@ -17,7 +17,7 @@ where
     K: Hash + Eq + Clone,
     V: Clone,
 {
-    pub fn new(size: usize) -> Self {
+    pub fn new(size: NonZeroUsize) -> Self {
         FileCache {
             inner: Mutex::new(LruCache::new(size)),
         }
@@ -37,9 +37,8 @@ where
             oc
         };
         drop(lock);
-        return oc
-            .get_or_init(|| async move { create(key).await })
+        oc.get_or_init(|| async move { create(key).await })
             .await
-            .clone();
+            .clone()
     }
 }

@@ -438,7 +438,7 @@ impl BotConfigs {
     async fn remove_watches(watch: Box<Watch>) -> Result<(), ()> {
         let now = Utc::now().timestamp();
 
-        Self::clean_watches(now, &watch).await;
+        let _ = Self::clean_watches(now, &watch).await;
 
         let mut conn = MYSQL
             .get_conn()

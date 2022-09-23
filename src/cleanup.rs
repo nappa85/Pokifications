@@ -27,12 +27,7 @@ async fn cleanup() -> Result<(), ()> {
         .await
         .map_err(|e| error!("cleanup error: can't read dir {}", e))
     {
-        if file
-            .file_name()
-            .to_str()
-            .and_then(|f| f.split('_').skip(1).next())
-            == Some(search.as_str())
-        {
+        if file.file_name().to_str().and_then(|f| f.split('_').nth(1)) == Some(search.as_str()) {
             if let Err(e) = remove_file(file.path()).await {
                 error!("cleanup error: can't remove file {}", e);
             }

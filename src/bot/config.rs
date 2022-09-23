@@ -313,7 +313,7 @@ impl BotConfig {
             #[cfg(test)]
             info!("Pokémon not configured");
         })?;
-        if filter.get(0) == Some(&0) {
+        if filter.first() == Some(&0) {
             #[cfg(test)]
             info!("Pokémon disabled");
 
@@ -1486,7 +1486,7 @@ impl<'de> Deserialize<'de> for PkmnRaid {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let temp = IntOrStr::deserialize(deserializer)?;
         Ok(match temp {
-            IntOrStr::Int(i) if i < 0 => PkmnRaid::RaildLevel(i.abs() as u8),
+            IntOrStr::Int(i) if i < 0 => PkmnRaid::RaildLevel(i.unsigned_abs() as u8),
             IntOrStr::Int(i) => PkmnRaid::Pokemon(i as u16),
             IntOrStr::Str(s) => {
                 let mut parts = s.split('-').map(str::parse::<u16>);

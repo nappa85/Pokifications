@@ -167,7 +167,7 @@ impl FromRow for City {
             error!("City \"{}\" ({}) has empty coordinates", name, id);
             Vec::new()
         } else {
-            (&coords[1..(coords.len() - 1)])
+            coords[1..(coords.len() - 1)]
                 .split("),(")
                 .filter_map(|s| {
                     let x_y: Vec<f64> = s
@@ -231,7 +231,7 @@ impl FromRow for CityPark {
             error!("Park {} has empty coordinates", id);
             Vec::new()
         } else {
-            (&coords[1..(coords.len() - 1)])
+            coords[1..(coords.len() - 1)]
                 .split("),(")
                 .filter_map(|s| {
                     let x_y: Vec<f64> = s
