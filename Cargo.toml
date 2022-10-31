@@ -14,7 +14,7 @@ chrono = "0.4.22"
 chrono-tz = "0.6.3"
 futures-util = "0.3.24"
 geo = { version = "0.23.0", features = ["use-serde"] }
-geo-raycasting = "0.3.0"
+geo-raycasting = "0.4.0"
 hyper = { version = "0.14.20", features = ["http1", "server", "stream", "tcp"] }
 image = { version = "^0.23.6", default-features = false, features = ["png", "jpeg"] } # forced by imageproc
 imageproc = "^0.22.0"
