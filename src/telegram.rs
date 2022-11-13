@@ -62,22 +62,16 @@ pub enum Image {
     Bytes(Vec<u8>),
 }
 
-pub async fn call_telegram(
-    /*chat_id: String, */ req: RequestBuilder,
-) -> Result<String, CallResult> {
+pub async fn call_telegram(/*chat_id: String, */ req: RequestBuilder) -> Result<String, CallResult> {
     // wall(chat_id).await;
 
-    let res = if let Some(t) = CONFIG.telegram.timeout {
-        req.timeout(Duration::from_secs(t))
-    } else {
-        req
-    }
-    .send()
-    .await
-    .map_err(|e| {
-        error!("error calling Telegram: {}", e);
-        CallResult::Empty
-    })?;
+    let res = if let Some(t) = CONFIG.telegram.timeout { req.timeout(Duration::from_secs(t)) } else { req }
+        .send()
+        .await
+        .map_err(|e| {
+            error!("error calling Telegram: {}", e);
+            CallResult::Empty
+        })?;
 
     let success = res.status().is_success();
     let status = res.status().as_u16();
@@ -130,11 +124,7 @@ impl<'a> SendMessage<'a> {
     //     self
     // }
     pub async fn send(self) -> Result<String, CallResult> {
-        let url = Url::parse(&format!(
-            "https://api.telegram.org/bot{}/sendMessage",
-            self.bot_token
-        ))
-        .map_err(|e| {
+        let url = Url::parse(&format!("https://api.telegram.org/bot{}/sendMessage", self.bot_token)).map_err(|e| {
             error!("error building Telegram URL: {}", e);
             CallResult::Empty
         })?;
@@ -164,10 +154,7 @@ impl<'a> SendMessage<'a> {
         }
 
         let client = Client::new();
-        let req = client
-            .request(Method::POST, url)
-            .header("Content-Type", "application/json")
-            .json(&body);
+        let req = client.request(Method::POST, url).header("Content-Type", "application/json").json(&body);
         call_telegram(req).await
     }
 }
@@ -218,19 +205,11 @@ impl<'a> SendPhoto<'a> {
         self
     }
     pub async fn send(self) -> Result<String, CallResult> {
-        let url = Url::parse(&format!(
-            "https://api.telegram.org/bot{}/sendPhoto",
-            self.bot_token
-        ))
-        .map_err(|e| {
+        let url = Url::parse(&format!("https://api.telegram.org/bot{}/sendPhoto", self.bot_token)).map_err(|e| {
             error!("error building Telegram URL: {}", e);
             CallResult::Empty
         })?;
-        let boundary: String = thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(30)
-            .map(char::from)
-            .collect();
+        let boundary: String = thread_rng().sample_iter(&Alphanumeric).take(30).map(char::from).collect();
 
         let mut form = Form::new().text("chat_id", self.chat_id.to_owned());
 
@@ -260,13 +239,10 @@ impl<'a> SendPhoto<'a> {
             Image::Bytes(bytes) => {
                 form = form.part(
                     "photo",
-                    Part::stream(Body::from(bytes))
-                        .file_name("image.png")
-                        .mime_str("image/png")
-                        .map_err(|e| {
-                            error!("error writing multipart mime: {}", e);
-                            CallResult::Empty
-                        })?,
+                    Part::stream(Body::from(bytes)).file_name("image.png").mime_str("image/png").map_err(|e| {
+                        error!("error writing multipart mime: {}", e);
+                        CallResult::Empty
+                    })?,
                 );
             }
         }
@@ -274,10 +250,7 @@ impl<'a> SendPhoto<'a> {
         let client = Client::new();
         let req = client
             .request(Method::POST, url)
-            .header(
-                "Content-Type",
-                &format!("multipart/form-data; boundary={}", boundary),
-            )
+            .header("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
             .multipart(form);
         call_telegram(req).await
     }

@@ -18,15 +18,8 @@ async fn cleanup() -> Result<(), ()> {
         .await
         .map_err(|e| error!("cleanup error: can't open dir {}", e))?;
 
-    let search = (Utc::now() - Duration::hours(2))
-        .with_timezone(&Rome)
-        .format("%Y%m%d%H")
-        .to_string();
-    while let Ok(Some(file)) = dir
-        .next_entry()
-        .await
-        .map_err(|e| error!("cleanup error: can't read dir {}", e))
-    {
+    let search = (Utc::now() - Duration::hours(2)).with_timezone(&Rome).format("%Y%m%d%H").to_string();
+    while let Ok(Some(file)) = dir.next_entry().await.map_err(|e| error!("cleanup error: can't read dir {}", e)) {
         if file.file_name().to_str().and_then(|f| f.split('_').nth(1)) == Some(search.as_str()) {
             if let Err(e) = remove_file(file.path()).await {
                 error!("cleanup error: can't remove file {}", e);

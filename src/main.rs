@@ -1,5 +1,5 @@
-#![deny(warnings)]
-#![allow(where_clauses_object_safety)]
+// #![deny(warnings)]
+// #![allow(where_clauses_object_safety)]
 #![deny(missing_docs)]
 
 //! # pokifications
@@ -51,16 +51,11 @@ async fn parse(now: DateTime<Utc>, bytes: Vec<u8>, platform: Platform) -> Result
 
     let body = String::from_utf8(bytes).map_err(|e| error!("encoding error: {}", e))?;
     // split the serialization in two passes, this way a single error doesn't break the entire block
-    let configs: Vec<Value> =
-        serde_json::from_str(&body).map_err(|e| error!("deserialize error: {}\n{}", e, body))?;
+    let configs: Vec<Value> = serde_json::from_str(&body).map_err(|e| error!("deserialize error: {}\n{}", e, body))?;
 
     let count = configs.len();
     spawn(async move {
-        if let Ok(mut conn) = MYSQL
-            .get_conn()
-            .await
-            .map_err(|e| error!("MySQL retrieve connection error: {}", e))
-        {
+        if let Ok(mut conn) = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e)) {
             conn.query_drop(format!("INSERT INTO bot_stats (day, events) VALUES (CURDATE(), {0}) ON DUPLICATE KEY UPDATE events = events + {0}", count)).await
                 .map_err(|e| error!("MySQL update bot stats error: {}", e))
                 .ok();
@@ -72,9 +67,7 @@ async fn parse(now: DateTime<Utc>, bytes: Vec<u8>, platform: Platform) -> Result
         configs.into_iter().filter_map(|v| {
             // this is a bit of a waste of memory, but there is no other way around
             debug!("Received {:?} webhook {}", platform, v);
-            serde_json::from_value(v.clone())
-                .map_err(|e| error!("deserialize error: {}\n{}", e, v))
-                .ok()
+            serde_json::from_value(v.clone()).map_err(|e| error!("deserialize error: {}\n{}", e, v)).ok()
         }),
         platform,
     )
@@ -130,15 +123,10 @@ fn check_safeword(req: &Request<Body>) -> Option<Platform> {
 async fn service(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
     if let Some(platform) = check_safeword(&req) {
         let now = Utc::now();
-        let bytes = req
-            .into_body()
-            .map_ok(|c| c.to_vec())
-            .try_concat()
-            .await
-            .map_err(|e| {
-                error!("concat error: {}", e);
-                e
-            })?;
+        let bytes = req.into_body().map_ok(|c| c.to_vec()).try_concat().await.map_err(|e| {
+            error!("concat error: {}", e);
+            e
+        })?;
 
         //spawn an independent future to parse the stream
         spawn(async move {
@@ -162,11 +150,7 @@ async fn main() -> Result<(), ()> {
     //retrieve address and port, defaulting if not configured
     let addr = format!(
         "{}:{}",
-        config::CONFIG
-            .service
-            .address
-            .as_deref()
-            .unwrap_or("0.0.0.0"),
+        config::CONFIG.service.address.as_deref().unwrap_or("0.0.0.0"),
         config::CONFIG.service.port.unwrap_or(80)
     )
     .parse()

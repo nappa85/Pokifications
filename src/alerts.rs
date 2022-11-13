@@ -14,10 +14,9 @@ const INTERVAL: i64 = 900;
 
 pub fn init() {
     spawn(async {
-        if let (Some(bot_token), Some(chat_id)) = (
-            CONFIG.telegram.alert_bot_token.as_ref(),
-            CONFIG.telegram.alert_chat.as_ref(),
-        ) {
+        if let (Some(bot_token), Some(chat_id)) =
+            (CONFIG.telegram.alert_bot_token.as_ref(), CONFIG.telegram.alert_chat.as_ref())
+        {
             let mut interval = interval(Duration::from_secs(INTERVAL as u64));
             loop {
                 interval.tick().await;
@@ -48,12 +47,7 @@ pub fn init() {
                     //     check_timestamp(&stats.last_raid, timestamp, "Raid", &mut city_alerts);
                     //     check_timestamp(&stats.last_invasion, timestamp, "Invasioni", &mut city_alerts);
                     // }
-                    check_timestamp(
-                        &stats.last_quest,
-                        timestamp - 86400,
-                        "Quest",
-                        &mut city_alerts,
-                    );
+                    check_timestamp(&stats.last_quest, timestamp - 86400, "Quest", &mut city_alerts);
 
                     if !city_alerts.is_empty() {
                         alerts.push(format!(
@@ -66,10 +60,7 @@ pub fn init() {
                 }
 
                 if !alerts.is_empty() {
-                    send_message(bot_token, chat_id, &alerts.join("\n\n"))
-                        .send()
-                        .await
-                        .ok();
+                    send_message(bot_token, chat_id, &alerts.join("\n\n")).send().await.ok();
                 }
             }
         }

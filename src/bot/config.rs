@@ -16,9 +16,7 @@ use geo_raycasting::RayCasting;
 
 use tracing::{error, info};
 
-use rocketmap_entities::{
-    gamemaster, Gender, GymDetails, Pokemon, Pokestop, PvpRanking, Raid, Request, Weather,
-};
+use rocketmap_entities::{gamemaster, Gender, GymDetails, Pokemon, Pokestop, PvpRanking, Raid, Request, Weather};
 
 use crate::Platform;
 // use crate::lists::COMMON;
@@ -27,10 +25,7 @@ use crate::lists::{CITIES, FORMS, LIST};
 // use crate::telegram::Image;
 
 use super::{
-    message::{
-        GymMessage, InvasionMessage, LureMessage, Message, PokemonMessage, RaidMessage,
-        WeatherMessage,
-    },
+    message::{GymMessage, InvasionMessage, LureMessage, Message, PokemonMessage, RaidMessage, WeatherMessage},
     WATCHES,
 };
 
@@ -72,10 +67,7 @@ impl BotConfig {
         //     }
         // }
 
-        if let (Ok(x), Ok(y)) = (
-            BotLocs::convert_to_f64(&self.locs.p[0]),
-            BotLocs::convert_to_f64(&self.locs.p[1]),
-        ) {
+        if let (Ok(x), Ok(y)) = (BotLocs::convert_to_f64(&self.locs.p[0]), BotLocs::convert_to_f64(&self.locs.p[1])) {
             let p: Point<f64> = (x, y).into();
             if !polygon.within(&p) {
                 info!("{} has pokemon pointer out of city {}", user_id, city_id);
@@ -83,10 +75,7 @@ impl BotConfig {
             }
         }
 
-        if let (Ok(x), Ok(y)) = (
-            BotLocs::convert_to_f64(&self.locs.r[0]),
-            BotLocs::convert_to_f64(&self.locs.r[1]),
-        ) {
+        if let (Ok(x), Ok(y)) = (BotLocs::convert_to_f64(&self.locs.r[0]), BotLocs::convert_to_f64(&self.locs.r[1])) {
             let p: Point<f64> = (x, y).into();
             if !polygon.within(&p) {
                 info!("{} has raid pointer out of city {}", user_id, city_id);
@@ -95,10 +84,7 @@ impl BotConfig {
         }
 
         if let Some(pos) = self.locs.i.as_ref() {
-            if let (Ok(x), Ok(y)) = (
-                BotLocs::convert_to_f64(&pos[0]),
-                BotLocs::convert_to_f64(&pos[1]),
-            ) {
+            if let (Ok(x), Ok(y)) = (BotLocs::convert_to_f64(&pos[0]), BotLocs::convert_to_f64(&pos[1])) {
                 let p: Point<f64> = (x, y).into();
                 if !polygon.within(&p) {
                     info!("{} has pokestop pointer out of city {}", user_id, city_id);
@@ -110,10 +96,9 @@ impl BotConfig {
         let now = Utc::now().timestamp();
 
         if BotLocs::convert_to_i64(&self.locs.t_p[2]).map(|i| i > now) == Ok(true) {
-            if let (Ok(x), Ok(y)) = (
-                BotLocs::convert_to_f64(&self.locs.t_p[0]),
-                BotLocs::convert_to_f64(&self.locs.t_p[1]),
-            ) {
+            if let (Ok(x), Ok(y)) =
+                (BotLocs::convert_to_f64(&self.locs.t_p[0]), BotLocs::convert_to_f64(&self.locs.t_p[1]))
+            {
                 let p: Point<f64> = (x, y).into();
                 let mut not_found = true;
                 let mut city_id: u16 = 0;
@@ -129,10 +114,8 @@ impl BotConfig {
                     return Ok(false);
                 } else {
                     // update city_id on temp pos log
-                    let mut conn = MYSQL
-                        .get_conn()
-                        .await
-                        .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+                    let mut conn =
+                        MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
                     conn.exec_drop(
                         "UPDATE utenti_temp_pos SET city_id = :city_id WHERE user_id = :user_id AND pos_type IN ('a', 'p') AND start_time <= :now AND end_time > :now",
                         params! {
@@ -146,10 +129,9 @@ impl BotConfig {
         }
 
         if BotLocs::convert_to_i64(&self.locs.t_r[2]).map(|i| i > now) == Ok(true) {
-            if let (Ok(x), Ok(y)) = (
-                BotLocs::convert_to_f64(&self.locs.t_r[0]),
-                BotLocs::convert_to_f64(&self.locs.t_r[1]),
-            ) {
+            if let (Ok(x), Ok(y)) =
+                (BotLocs::convert_to_f64(&self.locs.t_r[0]), BotLocs::convert_to_f64(&self.locs.t_r[1]))
+            {
                 let p: Point<f64> = (x, y).into();
                 let mut not_found = true;
                 let mut city_id: u16 = 0;
@@ -165,10 +147,8 @@ impl BotConfig {
                     return Ok(false);
                 } else {
                     // update city_id on temp pos log
-                    let mut conn = MYSQL
-                        .get_conn()
-                        .await
-                        .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+                    let mut conn =
+                        MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
                     conn.exec_drop(
                         "UPDATE utenti_temp_pos SET city_id = :city_id WHERE user_id = :user_id AND pos_type IN ('a', 'r') AND start_time <= :now AND end_time > :now",
                         params! {
@@ -183,10 +163,7 @@ impl BotConfig {
 
         if let Some(pos) = self.locs.t_i.as_ref() {
             if BotLocs::convert_to_i64(&pos[2]).map(|i| i > now) == Ok(true) {
-                if let (Ok(x), Ok(y)) = (
-                    BotLocs::convert_to_f64(&pos[0]),
-                    BotLocs::convert_to_f64(&pos[1]),
-                ) {
+                if let (Ok(x), Ok(y)) = (BotLocs::convert_to_f64(&pos[0]), BotLocs::convert_to_f64(&pos[1])) {
                     let p: Point<f64> = (x, y).into();
                     let mut not_found = true;
                     let mut city_id: u16 = 0;
@@ -202,10 +179,8 @@ impl BotConfig {
                         return Ok(false);
                     } else {
                         // update city_id on temp pos log
-                        let mut conn = MYSQL
-                            .get_conn()
-                            .await
-                            .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+                        let mut conn =
+                            MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
                         conn.exec_drop(
                             "UPDATE utenti_temp_pos SET city_id = :city_id WHERE user_id = :user_id AND pos_type IN ('a', 'i') AND start_time <= :now AND end_time > :now",
                             params! {
@@ -257,38 +232,18 @@ impl BotConfig {
         }
     }
 
-    fn submit_pokemon(
-        &self,
-        now: &DateTime<Utc>,
-        platform: &Platform,
-        input: &Pokemon,
-    ) -> Result<PokemonMessage, ()> {
+    fn submit_pokemon(&self, now: &DateTime<Utc>, platform: &Platform, input: &Pokemon) -> Result<PokemonMessage, ()> {
         let loc = self.locs.get_pokemon_settings();
         let pos = (input.latitude, input.longitude);
-        let iv = match (
-            input.individual_attack,
-            input.individual_defense,
-            input.individual_stamina,
-        ) {
-            (Some(atk), Some(def), Some(sta)) => {
-                Some(((f64::from(atk + def + sta) / 45_f64) * 100_f64).round() as u8)
-            }
+        let iv = match (input.individual_attack, input.individual_defense, input.individual_stamina) {
+            (Some(atk), Some(def), Some(sta)) => Some(((f64::from(atk + def + sta) / 45_f64) * 100_f64).round() as u8),
             _ => None,
         };
-        let mut debug = format!(
-            "Scansione avvenuta{} alle {}\n",
-            platform,
-            now.with_timezone(&Rome).format("%T")
-        );
+        let mut debug = format!("Scansione avvenuta{} alle {}\n", platform, now.with_timezone(&Rome).format("%T"));
 
-        if (self.pkmn.p1 == Some(1) && iv == Some(100))
-            || (self.pkmn.p0 == Some(1) && iv == Some(0))
-        {
-            let rad = MAX_DISTANCE
-                .min(BotLocs::convert_to_f64(
-                    loc.get(3).unwrap_or_else(|| &self.locs.p[2]),
-                )?)
-                .max(0.1);
+        if (self.pkmn.p1 == Some(1) && iv == Some(100)) || (self.pkmn.p0 == Some(1) && iv == Some(0)) {
+            let rad =
+                MAX_DISTANCE.min(BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &self.locs.p[2]))?).max(0.1);
             let dist = BotLocs::calc_dist(loc, pos)?;
             if dist <= rad {
                 write!(debug, "Bypass IV {:.0}%", iv.unwrap_or_default()).map_err(|_| ())?;
@@ -298,11 +253,7 @@ impl BotConfig {
                     iv,
                     distance: BotLocs::calc_dist(&self.locs.h, pos)?,
                     direction: BotLocs::get_direction(&self.locs.h, pos)?,
-                    debug: if self.debug == Some(true) {
-                        Some(debug)
-                    } else {
-                        None
-                    },
+                    debug: if self.debug == Some(true) { Some(debug) } else { None },
                 });
             }
         }
@@ -331,36 +282,20 @@ impl BotConfig {
                     })?),
                 ))
                 .max(0.1);
-            write!(
-                debug,
-                "Distanza personalizzata per Pokémon inferiore a {:.2} km",
-                rad
-            )
-            .map_err(|_| ())?;
+            write!(debug, "Distanza personalizzata per Pokémon inferiore a {:.2} km", rad).map_err(|_| ())?;
             rad
         } else {
             // $pkmn_rad = ValMinMax($locs["p"][2], 0.1, MAX_DISTANCE);
-            let rad = MAX_DISTANCE
-                .min(BotLocs::convert_to_f64(
-                    loc.get(3).unwrap_or_else(|| &self.locs.p[2]),
-                )?)
-                .max(0.1);
-            write!(
-                debug,
-                "Distanza standard per Pokémon inferiore a {:.2} km",
-                rad
-            )
-            .map_err(|_| ())?;
+            let rad =
+                MAX_DISTANCE.min(BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &self.locs.p[2]))?).max(0.1);
+            write!(debug, "Distanza standard per Pokémon inferiore a {:.2} km", rad).map_err(|_| ())?;
             rad
         };
 
         let dist = BotLocs::calc_dist(loc, pos)?;
         if dist > rad {
             #[cfg(test)]
-            info!(
-                "Pokémon discarded for distance: loc {:?} pos {:?} dist {} rad {}",
-                loc, pos, dist, rad
-            );
+            info!("Pokémon discarded for distance: loc {:?} pos {:?} dist {} rad {}", loc, pos, dist, rad);
 
             return Err(());
         } else {
@@ -391,8 +326,7 @@ impl BotConfig {
 
         if !self.time.is_active(now)? {
             if let Some(s) = self.time.bypass(iv, input.pokemon_level) {
-                write!(debug, "\nFiltro orario non attivo ma eccezione per {}", s)
-                    .map_err(|_| ())?;
+                write!(debug, "\nFiltro orario non attivo ma eccezione per {}", s).map_err(|_| ())?;
             } else {
                 #[cfg(test)]
                 info!(
@@ -429,24 +363,12 @@ impl BotConfig {
             iv,
             distance: BotLocs::calc_dist(&self.locs.h, pos)?,
             direction: BotLocs::get_direction(&self.locs.h, pos)?,
-            debug: if self.debug == Some(true) {
-                Some(debug)
-            } else {
-                None
-            },
+            debug: if self.debug == Some(true) { Some(debug) } else { None },
         })
     }
 
-    fn submit_raid(
-        &self,
-        now: &DateTime<Utc>,
-        platform: &Platform,
-        input: &Raid,
-    ) -> Result<RaidMessage, ()> {
-        let pokemon_id =
-            input
-                .pokemon_id
-                .and_then(|id| if id > 0 { Some(id.to_string()) } else { None });
+    fn submit_raid(&self, now: &DateTime<Utc>, platform: &Platform, input: &Raid) -> Result<RaidMessage, ()> {
+        let pokemon_id = input.pokemon_id.and_then(|id| if id > 0 { Some(id.to_string()) } else { None });
         let loc = self.locs.get_raid_settings();
         let pos = (input.latitude, input.longitude);
         if self.raid.x != Some(1) || input.ex_raid_eligible != Some(true) {
@@ -465,33 +387,17 @@ impl BotConfig {
         }
 
         // $raid_rad = ValMinMax($locs["r"][2], 0.1, MAX_DISTANCE);
-        let rad = MAX_DISTANCE
-            .min(BotLocs::convert_to_f64(
-                loc.get(3).unwrap_or_else(|| &self.locs.r[2]),
-            )?)
-            .max(0.1);
+        let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &self.locs.r[2]))?).max(0.1);
 
-        let mut debug = format!(
-            "Scansione avvenuta{} alle {}\n",
-            platform,
-            now.with_timezone(&Rome).format("%T")
-        );
+        let mut debug = format!("Scansione avvenuta{} alle {}\n", platform, now.with_timezone(&Rome).format("%T"));
         let dist = BotLocs::calc_dist(loc, pos)?;
         if dist > rad {
             #[cfg(test)]
-            info!(
-                "Raid discarded for distance: loc {:?} pos {:?} dist {} rad {}",
-                loc, pos, dist, rad
-            );
+            info!("Raid discarded for distance: loc {:?} pos {:?} dist {} rad {}", loc, pos, dist, rad);
 
             return Err(());
         } else {
-            write!(
-                debug,
-                "Distanza per Raid inferiore a {:.2} km ({:.2} km)",
-                rad, dist
-            )
-            .map_err(|_| ())?;
+            write!(debug, "Distanza per Raid inferiore a {:.2} km ({:.2} km)", rad, dist).map_err(|_| ())?;
         }
 
         if !self.time.is_active(now)? {
@@ -508,10 +414,7 @@ impl BotConfig {
                 Some(pkmn_id) if pkmn_id > 0 => {
                     if !self.raid.p.iter().any(|p| p == input) {
                         #[cfg(test)]
-                        info!(
-                            "Raid discarded for disabled raidboss: raidboss {} config {:?}",
-                            pkmn_id, self.raid.p
-                        );
+                        info!("Raid discarded for disabled raidboss: raidboss {} config {:?}", pkmn_id, self.raid.p);
 
                         return Err(());
                     } else {
@@ -521,10 +424,7 @@ impl BotConfig {
                 _ => {
                     if !self.raid.l.contains(&input.level) {
                         #[cfg(test)]
-                        info!(
-                            "Raid discarded for disabled egg level: level {} config {:?}",
-                            input.level, self.raid.l
-                        );
+                        info!("Raid discarded for disabled egg level: level {} config {:?}", input.level, self.raid.l);
 
                         return Err(());
                     } else {
@@ -537,52 +437,27 @@ impl BotConfig {
         Ok(RaidMessage {
             raid: input.clone(),
             distance: BotLocs::calc_dist(&self.locs.h, pos)?,
-            debug: if self.debug == Some(true) {
-                Some(debug)
-            } else {
-                None
-            },
+            debug: if self.debug == Some(true) { Some(debug) } else { None },
         })
     }
 
-    fn submit_pokestop(
-        &self,
-        now: &DateTime<Utc>,
-        platform: &Platform,
-        input: &Pokestop,
-    ) -> Result<LureMessage, ()> {
+    fn submit_pokestop(&self, now: &DateTime<Utc>, platform: &Platform, input: &Pokestop) -> Result<LureMessage, ()> {
         let lure = self.lure.as_ref().ok_or(())?;
-        if lure.n == 0
-            || input.lure_id.unwrap_or_default() == 0
-            || input.lure_expiration <= Some(now.timestamp())
-        {
+        if lure.n == 0 || input.lure_id.unwrap_or_default() == 0 || input.lure_expiration <= Some(now.timestamp()) {
             return Err(());
         }
 
         let loc = self.locs.get_invs_settings()?;
         let pos = (input.latitude, input.longitude);
 
-        let rad = MAX_DISTANCE
-            .min(BotLocs::convert_to_f64(
-                loc.get(3).unwrap_or_else(|| &loc[2]),
-            )?)
-            .max(0.1);
+        let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &loc[2]))?).max(0.1);
 
-        let mut debug = format!(
-            "Scansione avvenuta{} alle {}\n",
-            platform,
-            now.with_timezone(&Rome).format("%T")
-        );
+        let mut debug = format!("Scansione avvenuta{} alle {}\n", platform, now.with_timezone(&Rome).format("%T"));
         let dist = BotLocs::calc_dist(loc, pos)?;
         if dist > rad {
             return Err(());
         } else {
-            write!(
-                debug,
-                "Distanza per Pokéstop inferiore a {:.2} km ({:.2} km)",
-                rad, dist
-            )
-            .map_err(|_| ())?;
+            write!(debug, "Distanza per Pokéstop inferiore a {:.2} km ({:.2} km)", rad, dist).map_err(|_| ())?;
         }
 
         if lure.f == 1 {
@@ -597,14 +472,7 @@ impl BotConfig {
             debug.push_str("\nNessun filtro esche attivo");
         }
 
-        Ok(LureMessage {
-            pokestop: input.clone(),
-            debug: if self.debug == Some(true) {
-                Some(debug)
-            } else {
-                None
-            },
-        })
+        Ok(LureMessage { pokestop: input.clone(), debug: if self.debug == Some(true) { Some(debug) } else { None } })
     }
 
     fn submit_invasion(
@@ -621,27 +489,14 @@ impl BotConfig {
         let loc = self.locs.get_invs_settings()?;
         let pos = (input.latitude, input.longitude);
 
-        let rad = MAX_DISTANCE
-            .min(BotLocs::convert_to_f64(
-                loc.get(3).unwrap_or_else(|| &loc[2]),
-            )?)
-            .max(0.1);
+        let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &loc[2]))?).max(0.1);
 
-        let mut debug = format!(
-            "Scansione avvenuta{} alle {}\n",
-            platform,
-            now.with_timezone(&Rome).format("%T")
-        );
+        let mut debug = format!("Scansione avvenuta{} alle {}\n", platform, now.with_timezone(&Rome).format("%T"));
         let dist = BotLocs::calc_dist(loc, pos)?;
         if dist > rad {
             return Err(());
         } else {
-            write!(
-                debug,
-                "Distanza per Pokéstop inferiore a {:.2} km ({:.2} km)",
-                rad, dist
-            )
-            .map_err(|_| ())?;
+            write!(debug, "Distanza per Pokéstop inferiore a {:.2} km ({:.2} km)", rad, dist).map_err(|_| ())?;
         }
 
         if invs.f == 1 {
@@ -656,20 +511,11 @@ impl BotConfig {
 
         Ok(InvasionMessage {
             invasion: input.clone(),
-            debug: if self.debug == Some(true) {
-                Some(debug)
-            } else {
-                None
-            },
+            debug: if self.debug == Some(true) { Some(debug) } else { None },
         })
     }
 
-    fn submit_gym(
-        &self,
-        now: &DateTime<Utc>,
-        platform: &Platform,
-        input: &GymDetails,
-    ) -> Result<GymMessage, ()> {
+    fn submit_gym(&self, now: &DateTime<Utc>, platform: &Platform, input: &GymDetails) -> Result<GymMessage, ()> {
         if self.raid.c != Some(1) {
             return Err(());
         }
@@ -681,39 +527,22 @@ impl BotConfig {
             .min(
                 // here we have an optional override that remains even with temp position
                 if self.locs.r.get(3).map(BotLocs::convert_to_i64) == Some(Ok(1)) {
-                    self.locs
-                        .r
-                        .get(4)
-                        .map(BotLocs::convert_to_f64)
-                        .transpose()?
-                        .unwrap_or_default()
+                    self.locs.r.get(4).map(BotLocs::convert_to_f64).transpose()?.unwrap_or_default()
                 } else {
                     BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &self.locs.r[2]))?
                 },
             )
             .max(0.1);
 
-        let mut debug = format!(
-            "Scansione avvenuta{} alle {}\n",
-            platform,
-            now.with_timezone(&Rome).format("%T")
-        );
+        let mut debug = format!("Scansione avvenuta{} alle {}\n", platform, now.with_timezone(&Rome).format("%T"));
         let dist = BotLocs::calc_dist(loc, pos)?;
         if dist > rad {
             #[cfg(test)]
-            info!(
-                "Gym discarded for distance: loc {:?} pos {:?} dist {} rad {}",
-                loc, pos, dist, rad
-            );
+            info!("Gym discarded for distance: loc {:?} pos {:?} dist {} rad {}", loc, pos, dist, rad);
 
             return Err(());
         } else {
-            write!(
-                debug,
-                "Distanza per Palestre inferiore a {:.2} km ({:.2} km)",
-                rad, dist
-            )
-            .map_err(|_| ())?;
+            write!(debug, "Distanza per Palestre inferiore a {:.2} km ({:.2} km)", rad, dist).map_err(|_| ())?;
         }
 
         if !self.time.is_active(now)? {
@@ -726,11 +555,7 @@ impl BotConfig {
         Ok(GymMessage {
             gym: input.clone(),
             distance: BotLocs::calc_dist(&self.locs.h, pos)?,
-            debug: if self.debug == Some(true) {
-                Some(debug)
-            } else {
-                None
-            },
+            debug: if self.debug == Some(true) { Some(debug) } else { None },
         })
     }
 
@@ -755,11 +580,7 @@ impl BotConfig {
                         return Ok(WeatherMessage {
                             watch: watch.clone(),
                             // actual_weather: weather.clone(),
-                            debug: if self.debug == Some(true) {
-                                Some(time)
-                            } else {
-                                None
-                            },
+                            debug: if self.debug == Some(true) { Some(time) } else { None },
                         });
                     }
                 }
@@ -788,18 +609,14 @@ impl BotLocs {
                 if s.is_empty() {
                     Err(())
                 } else {
-                    s.parse()
-                        .map_err(|e| error!("json value convert_to_i64 error: {}", e))
+                    s.parse().map_err(|e| error!("json value convert_to_i64 error: {}", e))
                 }
             }
-            JsonValue::Number(n) => n.as_i64().ok_or_else(|| {
-                error!("json value convert_to_i64 error: json element isn't an integer")
-            }),
+            JsonValue::Number(n) => {
+                n.as_i64().ok_or_else(|| error!("json value convert_to_i64 error: json element isn't an integer"))
+            }
             _ => {
-                error!(
-                    "json value convert_to_i64 format not recognized: {:?}",
-                    input
-                );
+                error!("json value convert_to_i64 format not recognized: {:?}", input);
                 Err(())
             }
         }
@@ -814,18 +631,14 @@ impl BotLocs {
 
                     Err(())
                 } else {
-                    s.parse()
-                        .map_err(|e| error!("json value convert_to_f64 error: {}", e))
+                    s.parse().map_err(|e| error!("json value convert_to_f64 error: {}", e))
                 }
             }
-            JsonValue::Number(n) => n.as_f64().ok_or_else(|| {
-                error!("json value convert_to_f64 error: json element isn't a float")
-            }),
+            JsonValue::Number(n) => {
+                n.as_f64().ok_or_else(|| error!("json value convert_to_f64 error: json element isn't a float"))
+            }
             _ => {
-                error!(
-                    "json value convert_to_f64 format not recognized: {:?}",
-                    input
-                );
+                error!("json value convert_to_f64 format not recognized: {:?}", input);
                 Err(())
             }
         }
@@ -851,8 +664,7 @@ impl BotLocs {
         match self.t_i {
             Some(ref t_i)
                 if !t_i[2].is_null()
-                    && Self::convert_to_i64(&t_i[2]).map(|i| i > Utc::now().timestamp())
-                        == Ok(true) =>
+                    && Self::convert_to_i64(&t_i[2]).map(|i| i > Utc::now().timestamp()) == Ok(true) =>
             {
                 Ok(t_i)
             }
@@ -877,10 +689,9 @@ impl BotLocs {
 
         // $angle = 2 * asin(sqrt(pow(sin($latDelta / 2), 2) + cos($latFrom) * cos($latTo) * pow(sin($lonDelta / 2), 2)));
         let angle = 2f64
-            * ((lat_delta / 2f64).sin().powi(2)
-                + lat_from.cos() * lat_to.cos() * (lon_delta / 2f64).sin().powi(2))
-            .sqrt()
-            .asin();
+            * ((lat_delta / 2f64).sin().powi(2) + lat_from.cos() * lat_to.cos() * (lon_delta / 2f64).sin().powi(2))
+                .sqrt()
+                .asin();
         // return intval($angle * 63710) / 10;
         Ok(angle * 6371f64)
     }
@@ -894,9 +705,7 @@ impl BotLocs {
         // $dLon = deg2rad($lon2) - deg2rad($lon1);
         let mut d_lon = pos.1.to_radians() - lon1.to_radians();
         // $dPhi = log(tan(deg2rad($lat2) / 2 + pi() / 4) / tan(deg2rad($lat1) / 2 + pi() / 4));
-        let d_phi = ((pos.0.to_radians() / 2f64 + PI / 4f64).tan()
-            / (lat1.to_radians() / 2f64 + PI / 4f64).tan())
-        .ln();
+        let d_phi = ((pos.0.to_radians() / 2f64 + PI / 4f64).tan() / (lat1.to_radians() / 2f64 + PI / 4f64).tan()).ln();
 
         if d_lon.abs() > PI {
             if d_lon > 0f64 {
@@ -1000,11 +809,7 @@ impl BotPkmn {
                     ));
                 }
             } else if iv >= filter.get(2) && lvl >= filter.get(4) {
-                return Some(format!(
-                    "IV >= {} E LVL >= {}",
-                    filter.get(2).unwrap_or(&0),
-                    filter.get(4).unwrap_or(&0)
-                ));
+                return Some(format!("IV >= {} E LVL >= {}", filter.get(2).unwrap_or(&0), filter.get(4).unwrap_or(&0)));
             }
             None
         } else if filter.get(1) >= Some(&1) || filter.get(3) == Some(&1) {
@@ -1114,10 +919,7 @@ impl BotPkmn {
             Some(&1) => {
                 if input.gender != Gender::Male {
                     #[cfg(test)]
-                    info!(
-                        "{} Pokémon discarded for Advanced Filters config: isn't male",
-                        input.encounter_id
-                    );
+                    info!("{} Pokémon discarded for Advanced Filters config: isn't male", input.encounter_id);
 
                     return Ok(None);
                 } else {
@@ -1127,10 +929,7 @@ impl BotPkmn {
             Some(&2) => {
                 if input.gender != Gender::Female {
                     #[cfg(test)]
-                    info!(
-                        "{} Pokémon discarded for Advanced Filters config: isn't female",
-                        input.encounter_id
-                    );
+                    info!("{} Pokémon discarded for Advanced Filters config: isn't female", input.encounter_id);
 
                     return Ok(None);
                 } else {
@@ -1148,10 +947,7 @@ impl BotPkmn {
             if f > 0 {
                 if Some(f) != input.form {
                     #[cfg(test)]
-                    info!(
-                        "{} Pokémon discarded for Advanced Filters config: wrong form",
-                        input.encounter_id
-                    );
+                    info!("{} Pokémon discarded for Advanced Filters config: wrong form", input.encounter_id);
 
                     return Ok(None);
                 } else {
@@ -1159,10 +955,7 @@ impl BotPkmn {
                     write!(
                         dbg,
                         "\nFiltro avanzato: Forma {}",
-                        forms
-                            .get(&f)
-                            .map(|f| f.name.as_str())
-                            .unwrap_or_else(|| "<sconosciuta>")
+                        forms.get(&f).map(|f| f.name.as_str()).unwrap_or_else(|| "<sconosciuta>")
                     )
                     .map_err(|_| ())?;
                 }
@@ -1180,10 +973,7 @@ impl BotPkmn {
                                     return Some(Some(*rank));
                                 } else {
                                     #[cfg(test)]
-                                    info!(
-                                        "{} percentage {:?} < {}",
-                                        input.encounter_id, rank.percentage, perf
-                                    );
+                                    info!("{} percentage {:?} < {}", input.encounter_id, rank.percentage, perf);
                                 }
                             }
                         }
@@ -1217,24 +1007,15 @@ impl BotPkmn {
                 write!(
                     res,
                     " pokémon {}",
-                    list.get(&r.pokemon)
-                        .map(|s| s.name.as_str())
-                        .unwrap_or_else(|| "<sconosciuto>")
+                    list.get(&r.pokemon).map(|s| s.name.as_str()).unwrap_or_else(|| "<sconosciuto>")
                 )
                 .map_err(|_| ())?;
             }
             if let Some(v) = &r.form {
                 if v > &0 {
                     let forms = FORMS.load();
-                    write!(
-                        res,
-                        " forma {}",
-                        forms
-                            .get(v)
-                            .map(|f| f.name.as_str())
-                            .unwrap_or_else(|| "<sconosciuta>")
-                    )
-                    .map_err(|_| ())?;
+                    write!(res, " forma {}", forms.get(v).map(|f| f.name.as_str()).unwrap_or_else(|| "<sconosciuta>"))
+                        .map_err(|_| ())?;
                 }
             }
             if let Some(v) = &r.cp {
@@ -1266,8 +1047,7 @@ impl BotPkmn {
             match atkf {
                 Some(&1) => {
                     if atkv > atk {
-                        write!(res, " ATK {} < {}", atkv.unwrap_or(&0), atk.unwrap_or(&0))
-                            .map_err(|_| ())?;
+                        write!(res, " ATK {} < {}", atkv.unwrap_or(&0), atk.unwrap_or(&0)).map_err(|_| ())?;
                     } else {
                         #[cfg(test)]
                         info!("{} ATK {:?} <= {:?}", input.encounter_id, atkv, atk);
@@ -1277,8 +1057,7 @@ impl BotPkmn {
                 }
                 Some(&2) => {
                     if atkv == atk {
-                        write!(res, " ATK {} = {}", atkv.unwrap_or(&0), atk.unwrap_or(&0))
-                            .map_err(|_| ())?;
+                        write!(res, " ATK {} = {}", atkv.unwrap_or(&0), atk.unwrap_or(&0)).map_err(|_| ())?;
                     } else {
                         #[cfg(test)]
                         info!("{} ATK {:?} != {:?}", input.encounter_id, atkv, atk);
@@ -1288,8 +1067,7 @@ impl BotPkmn {
                 }
                 Some(&3) => {
                     if atkv < atk {
-                        write!(res, " ATK {} > {}", atkv.unwrap_or(&0), atk.unwrap_or(&0))
-                            .map_err(|_| ())?;
+                        write!(res, " ATK {} > {}", atkv.unwrap_or(&0), atk.unwrap_or(&0)).map_err(|_| ())?;
                     } else {
                         #[cfg(test)]
                         info!("{} ATK {:?} >= {:?}", input.encounter_id, atkv, atk);
@@ -1302,8 +1080,7 @@ impl BotPkmn {
             match deff {
                 Some(&1) => {
                     if defv > def {
-                        write!(res, " DEF {} < {}", defv.unwrap_or(&0), def.unwrap_or(&0))
-                            .map_err(|_| ())?;
+                        write!(res, " DEF {} < {}", defv.unwrap_or(&0), def.unwrap_or(&0)).map_err(|_| ())?;
                     } else {
                         #[cfg(test)]
                         info!("{} DEF {:?} <= {:?}", input.encounter_id, defv, def);
@@ -1313,8 +1090,7 @@ impl BotPkmn {
                 }
                 Some(&2) => {
                     if defv == def {
-                        write!(res, " DEF {} = {}", defv.unwrap_or(&0), def.unwrap_or(&0))
-                            .map_err(|_| ())?;
+                        write!(res, " DEF {} = {}", defv.unwrap_or(&0), def.unwrap_or(&0)).map_err(|_| ())?;
                     } else {
                         #[cfg(test)]
                         info!("{} DEF {:?} != {:?}", input.encounter_id, defv, def);
@@ -1324,8 +1100,7 @@ impl BotPkmn {
                 }
                 Some(&3) => {
                     if defv < def {
-                        write!(res, " DEF {} > {}", defv.unwrap_or(&0), def.unwrap_or(&0))
-                            .map_err(|_| ())?;
+                        write!(res, " DEF {} > {}", defv.unwrap_or(&0), def.unwrap_or(&0)).map_err(|_| ())?;
                     } else {
                         #[cfg(test)]
                         info!("{} DEF {:?} >= {:?}", input.encounter_id, defv, def);
@@ -1338,8 +1113,7 @@ impl BotPkmn {
             match staf {
                 Some(&1) => {
                     if stav > sta {
-                        write!(res, " STA {} < {}", stav.unwrap_or(&0), sta.unwrap_or(&0))
-                            .map_err(|_| ())?;
+                        write!(res, " STA {} < {}", stav.unwrap_or(&0), sta.unwrap_or(&0)).map_err(|_| ())?;
                     } else {
                         #[cfg(test)]
                         info!("{} STA {:?} <= {:?}", input.encounter_id, stav, sta);
@@ -1349,8 +1123,7 @@ impl BotPkmn {
                 }
                 Some(&2) => {
                     if stav == sta {
-                        write!(res, " STA {} = {}", stav.unwrap_or(&0), sta.unwrap_or(&0))
-                            .map_err(|_| ())?;
+                        write!(res, " STA {} = {}", stav.unwrap_or(&0), sta.unwrap_or(&0)).map_err(|_| ())?;
                     } else {
                         #[cfg(test)]
                         info!("{} STA {:?} != {:?}", input.encounter_id, stav, sta);
@@ -1360,8 +1133,7 @@ impl BotPkmn {
                 }
                 Some(&3) => {
                     if stav < sta {
-                        write!(res, " STA {} > {}", stav.unwrap_or(&0), sta.unwrap_or(&0))
-                            .map_err(|_| ())?;
+                        write!(res, " STA {} > {}", stav.unwrap_or(&0), sta.unwrap_or(&0)).map_err(|_| ())?;
                     } else {
                         #[cfg(test)]
                         info!("{} STA {:?} >= {:?}", input.encounter_id, stav, sta);
@@ -1383,16 +1155,8 @@ impl BotPkmn {
         // Some(None) => check failed
         // Some(Some(s)) => check passed
         match (
-            filter_rank(
-                filter.get(19),
-                filter.get(20),
-                input.pvp_rankings_great_league.as_deref(),
-            ),
-            filter_rank(
-                filter.get(21),
-                filter.get(22),
-                input.pvp_rankings_ultra_league.as_deref(),
-            ),
+            filter_rank(filter.get(19), filter.get(20), input.pvp_rankings_great_league.as_deref()),
+            filter_rank(filter.get(21), filter.get(22), input.pvp_rankings_ultra_league.as_deref()),
             filter_iv(
                 filter.get(10),
                 filter.get(11),
@@ -1425,29 +1189,18 @@ impl BotPkmn {
                 .map_err(|_| ())?;
             }
             (Some(Some(mega)), _, Some(Some(s))) => {
-                write!(
-                    dbg,
-                    "\nFiltro avanzato: Mega{}\nFiltro avanzato: IV{}",
-                    rank_to_string(mega)?,
-                    s,
-                )
-                .map_err(|_| ())?;
+                write!(dbg, "\nFiltro avanzato: Mega{}\nFiltro avanzato: IV{}", rank_to_string(mega)?, s,)
+                    .map_err(|_| ())?;
             }
             (Some(Some(mega)), _, _) => {
                 write!(dbg, "\nFiltro avanzato: Mega{}", rank_to_string(mega)?,).map_err(|_| ())?;
             }
             (_, Some(Some(ultra)), Some(Some(s))) => {
-                write!(
-                    dbg,
-                    "\nFiltro avanzato: Ultra{}\nFiltro avanzato: IV{}",
-                    rank_to_string(ultra)?,
-                    s,
-                )
-                .map_err(|_| ())?;
+                write!(dbg, "\nFiltro avanzato: Ultra{}\nFiltro avanzato: IV{}", rank_to_string(ultra)?, s,)
+                    .map_err(|_| ())?;
             }
             (_, Some(Some(ultra)), _) => {
-                write!(dbg, "\nFiltro avanzato: Ultra{}", rank_to_string(ultra)?,)
-                    .map_err(|_| ())?;
+                write!(dbg, "\nFiltro avanzato: Ultra{}", rank_to_string(ultra)?,).map_err(|_| ())?;
             }
             (_, _, Some(Some(s))) => {
                 write!(dbg, "\nFiltro avanzato: IV{}", s).map_err(|_| ())?;
@@ -1455,10 +1208,7 @@ impl BotPkmn {
             (None, None, None) => {}
             (Some(None), _, _) | (_, Some(None), _) | (_, _, Some(None)) => {
                 #[cfg(test)]
-                info!(
-                    "{:?} Pokémon discarded for Advanced Filters config",
-                    serde_json::to_string(input)
-                );
+                info!("{:?} Pokémon discarded for Advanced Filters config", serde_json::to_string(input));
 
                 return Ok(None);
             }
@@ -1491,9 +1241,7 @@ impl<'de> Deserialize<'de> for PkmnRaid {
             IntOrStr::Str(s) => {
                 let mut parts = s.split('-').map(str::parse::<u16>);
                 match (parts.next(), parts.next()) {
-                    (Some(Ok(pokemon_id)), Some(Ok(form_id))) => {
-                        PkmnRaid::PokemonForm(pokemon_id, form_id)
-                    }
+                    (Some(Ok(pokemon_id)), Some(Ok(form_id))) => PkmnRaid::PokemonForm(pokemon_id, form_id),
                     (Some(Ok(pokemon_id)), None) => PkmnRaid::Pokemon(pokemon_id),
                     _ => return Err(serde::de::Error::custom("Invalid PkmnRaid")),
                 }
@@ -1507,9 +1255,7 @@ impl Serialize for PkmnRaid {
         match self {
             PkmnRaid::RaildLevel(level) => (*level as i8).neg().serialize(serializer),
             PkmnRaid::Pokemon(pokemon_id) => pokemon_id.serialize(serializer),
-            PkmnRaid::PokemonForm(pokemon_id, form_id) => {
-                format!("{}-{}", pokemon_id, form_id).serialize(serializer)
-            }
+            PkmnRaid::PokemonForm(pokemon_id, form_id) => format!("{}-{}", pokemon_id, form_id).serialize(serializer),
         }
     }
 }
@@ -1658,11 +1404,7 @@ mod tests {
         let config = serde_json::from_str::<BotConfig>(r#"{"locs":{"h":["45.577350","12.367318"],"p":["45.576508","12.367384","10"],"r":["45.576989","12.366138","10"],"i":["45.575699","12.362555","10"],"t_p":["0","0","0"],"t_r":["0","0","0"],"t_i":["","",""]},"raid":{"u":1,"s":0,"x":0,"l":[5],"p":[599,403,129,639]},"pkmn":{"l":{"1":[1,1,94,0,0,0,0,1],"4":[1,1,94,0,0,0,0,1],"7":[1,1,94,0,0,0,0,1],"60":[1,1,94,0,0,0,0,1],"63":[1,1,94,0,0,0,0,1],"66":[1,1,94,0,0,0,0,1],"74":[1,1,94,0,0,0,0,1],"81":[1,1,94,0,0,0,0,1],"111":[1,1,94,0,0,0,0,1],"116":[1,1,94,0,0,0,0,1],"123":[1,1,94,0,0,0,0,1],"125":[1,1,94,0,0,0,0,1],"126":[1,1,94,0,0,0,0,1],"129":[1,1,94,0,0,0,0,1],"147":[1,1,94,0,0,0,0,1],"152":[1,1,94,0,0,0,0,1],"155":[1,1,94,0,0,0,0,1],"158":[1,1,94,0,0,0,0,1],"228":[1,1,95,0,0,0,0,1],"246":[1,1,94,0,0,0,0,1],"252":[1,1,94,0,0,0,0,1],"255":[1,1,94,0,0,0,0,1],"258":[1,1,94,0,0,0,0,1],"270":[1,1,94,0,0,0,0,1],"273":[1,1,94,0,0,0,0,1],"280":[1,1,94,0,0,0,0,1],"296":[1,1,94,0,0,0,0,1],"304":[1,1,94,0,0,0,0,1],"315":[1,1,95,0,0,0,0,1],"328":[1,1,94,0,0,0,0,1],"333":[1,1,94,0,0,0,0,1],"355":[1,1,94,0,0,0,0,1],"371":[1,1,94,0,0,0,0,1],"374":[1,1,94,0,0,0,0,1],"387":[1,1,94,0,0,0,0,1],"390":[1,1,94,0,0,0,0,1],"393":[1,1,94,0,0,0,0,1],"408":[1,1,94,0,0,0,0,1],"436":[1,1,94,0,0,0,0,1],"495":[1,1,94,0,0,0,0,1],"498":[1,1,94,0,0,0,0,1],"501":[1,1,94,0,0,0,0,1],"633":[1,1,94,0,0,0,0,1]}},"time":{"fi":[0,90],"fl":[0,30],"fc":0,"w1":[0,1,10,11,12,13,14,15,16,17,18,19,20,21,22,23],"w2":[0,9,10,11,14,15,16,17,18,19,20,21,22,23]},"qest":{"n":0,"l":[]},"invs":{"n":0,"f":0,"l":[]},"more":{"l":"g"}}"#).unwrap();
         let input: Pokemon = serde_json::from_str(r#"{"pokestop_id":"3d716717cc65421490684ef9b213a382.16","disappear_time":1571079918,"cp":null,"form":0,"move_1":null,"longitude":12.19398,"costume":0,"pokemon_id":280,"disappear_time_verified":false,"gender":1,"individual_attack":9,"spawnpoint_id":"None","latitude":45.35340,"pokemon_level":15,"move_2":null,"individual_defense":3,"weight":null,"encounter_id":"12661125248363616471","height":null,"weather":1,"first_seen":1571078718,"individual_stamina":15,"last_modified_time":1571078718}"#).unwrap();
         assert!(config
-            .submit(
-                &Utc::now(),
-                &Platform::Unknown,
-                &Request::Pokemon(Box::new(input.into()))
-            )
+            .submit(&Utc::now(), &Platform::Unknown, &Request::Pokemon(Box::new(input.into())))
             .await
             .is_err());
     }
@@ -1674,11 +1416,7 @@ mod tests {
         let config = serde_json::from_str::<BotConfig>(r#"{"locs":{"h":["43.787206","11.252832"],"p":["43.781134","11.259613","7"],"r":["43.778035","11.259184","7"],"i":["43.778159","11.259098","7"],"t_p":["0","0","0"],"t_r":["0","0","0"],"t_i":["","",""]},"raid":{"u":0,"s":0,"x":0,"l":[5],"p":[-5]},"pkmn":{"l":{"1":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"2":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"3":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"4":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"5":[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1,99,1,99],"6":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"7":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"8":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"9":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"10":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"11":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"12":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"15":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"18":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"19":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"20":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"21":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"22":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"23":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"24":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"25":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"26":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"27":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"28":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"29":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"30":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"31":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"32":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"33":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"34":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"35":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"36":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"39":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"40":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"41":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"42":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"45":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"46":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"47":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"48":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"49":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"50":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"51":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"52":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"53":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"54":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"55":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"56":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"57":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"58":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"59":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"61":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"62":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"65":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"66":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"67":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"68":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"69":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"70":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"71":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"72":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"73":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"74":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"75":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"76":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"77":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"78":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"79":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"80":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"83":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"84":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"85":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"88":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"89":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"90":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"91":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"92":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"93":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"94":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"95":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"96":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"97":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"98":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"99":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"102":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"103":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"104":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"105":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"106":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"107":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"108":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"109":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"110":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"111":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"112":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"113":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"114":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"116":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"117":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"118":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"119":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"120":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"121":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"122":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"123":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"124":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"125":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"126":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"127":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"130":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"131":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"132":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"133":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"134":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"135":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"136":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"137":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"138":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"139":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"140":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"141":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"143":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"149":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"152":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"153":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"154":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"155":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"156":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"157":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"158":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"159":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"160":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"163":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"164":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"167":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"168":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"169":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"170":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"171":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"176":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"177":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"178":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"179":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"180":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"181":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"183":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"184":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"185":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"187":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"188":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"189":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"190":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"191":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"194":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"195":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"198":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"200":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"201":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"202":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"203":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"204":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"205":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"206":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"207":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"209":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"210":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"211":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"213":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"215":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"216":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"217":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"219":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"220":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"221":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"222":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"223":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"224":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"225":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"226":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"227":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"229":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"231":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"232":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"234":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"237":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"241":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"242":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"246":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"247":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"248":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"252":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"253":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"254":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"255":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"256":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"257":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"258":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"259":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"260":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"261":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"262":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"263":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"264":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"265":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"270":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"271":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"272":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"273":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"274":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"275":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"276":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"277":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"278":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"279":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"280":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"281":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"283":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"284":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"285":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"287":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"288":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"289":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"290":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"295":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"296":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"297":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"299":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"301":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"302":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"304":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"305":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"306":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"308":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"309":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"310":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"311":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"312":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"313":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"314":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"318":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"319":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"320":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"322":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"323":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"325":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"326":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"328":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"329":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"330":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"331":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"332":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"333":[1,0,0,0,0,0,0,0,0,0,2,3,2,11,2,11,1,0,0,1,99,1,99],"335":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"336":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"337":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"339":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"340":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"341":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"342":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"343":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"345":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"346":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"347":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"348":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"349":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"353":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"354":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"356":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"357":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"358":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"359":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"361":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"362":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"364":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"366":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"370":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"371":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"372":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"373":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"374":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"375":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"376":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"387":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"388":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"391":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"393":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"394":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"397":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"399":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"400":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"401":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"402":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"408":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"410":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"412":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"415":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"418":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"419":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"420":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"421":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"422":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"426":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"427":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"428":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"431":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"432":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"434":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"435":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"436":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"437":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"441":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"443":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"444":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"449":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"450":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"452":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"453":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"456":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"457":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"459":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"460":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"481":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"495":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"496":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"498":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"499":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"501":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"502":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"506":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"507":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"509":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"513":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"515":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"520":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"522":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"524":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"529":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"531":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"535":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"538":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"540":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"543":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"546":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"548":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"550":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"554":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"557":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"562":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"564":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"566":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"568":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"572":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"574":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"577":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"580":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"585":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"587":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"588":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"594":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"597":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"605":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"607":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"608":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"610":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"611":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"613":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"615":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"616":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"618":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"622":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"631":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"632":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"633":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"634":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"650":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"653":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"656":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"661":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"667":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99],"714":[1,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,1,0,0,1,99,1,99]}},"time":{"fi":[0,80],"fl":[0,30],"fc":0,"w1":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23],"w2":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]},"invs":{"n":0,"f":0,"l":[41,42,43,44]},"more":{"l":"g"},"debug":true}"#).unwrap();
         let input: Pokemon = serde_json::from_str(r#"{"pokestop_id":"3d716717cc65421490684ef9b213a382.16","disappear_time":1571079918,"cp":null,"form":0,"move_1":null,"longitude":11.241531239206385,"costume":0,"pokemon_id":656,"disappear_time_verified":false,"gender":1,"individual_attack":0,"spawnpoint_id":"None","latitude":43.771913285587665,"pokemon_level":15,"move_2":null,"individual_defense":15,"weight":null,"encounter_id":"12661125248363616471","height":null,"weather":1,"first_seen":1571078718,"individual_stamina":15,"last_modified_time":1571078718,"pvp_rankings_great_league":[{"rank":809,"percentage":0.8700643398554556,"level":40.0,"form":0,"cp":989,"pokemon":255},{"rank":351,"percentage":0.9907850542156611,"level":38.5,"pokemon":256,"form":0,"cp":1490},{"pokemon":257,"form":0,"percentage":null,"cp":null,"level":null,"rank":null}]}"#).unwrap();
         assert!(config
-            .submit(
-                &Utc::now(),
-                &Platform::Unknown,
-                &Request::Pokemon(Box::new(input.into()))
-            )
+            .submit(&Utc::now(), &Platform::Unknown, &Request::Pokemon(Box::new(input.into())))
             .await
             .is_ok());
     }
@@ -1689,14 +1427,7 @@ mod tests {
 
         let config = serde_json::from_str::<BotConfig>(r#"{"locs":{"h":["45.517574", "9.19395"],"p":["45.517574", "9.19395","10"],"r":["45.517574", "9.19395","0"],"i":["45.517574", "9.19395","0"],"t_p":["0","0","0"],"t_r":["0","0","0"],"t_i":["","",""]},"raid":{"u":0,"s":1,"x":1,"l":[5],"p":[]},"pkmn":{"l":{"1":[1,1,100,0,0,0,0,1],"2":[1,1,100],"3":[1,1,100],"4":[1,1,100],"5":[1,1,100],"6":[1,1,100],"7":[1,1,100],"8":[1,1,100],"9":[1,1,100],"10":[1,1,100],"11":[1,1,100],"12":[1,1,100],"13":[1,1,100],"14":[1,1,100],"15":[1,1,100],"16":[1,1,100],"17":[1,1,100],"18":[1,1,100],"19":[1,1,100],"20":[1,1,100],"21":[1,1,100],"22":[1,1,100],"23":[1,1,100],"24":[1,1,100],"25":[1,1,100],"26":[1,1,100],"27":[1,1,100],"28":[1,1,100],"29":[1,1,100],"30":[1,1,100],"31":[1,1,100],"32":[1,1,100],"33":[1,1,100],"34":[1,1,100],"35":[1,1,100],"36":[1,1,100],"37":[1,1,100],"38":[1,1,100],"39":[1,1,100],"40":[1,1,100],"41":[1,1,100],"42":[1,1,100],"43":[1,1,100],"44":[1,1,100],"45":[1,1,100],"46":[1,1,100],"47":[1,1,100],"48":[1,1,100],"49":[1,1,100],"50":[1,1,100],"51":[1,1,100],"52":[1,1,100],"53":[1,1,100],"54":[1,1,100],"55":[1,1,100],"56":[1,1,100],"57":[1,1,100],"58":[1,1,100],"59":[1,1,100],"60":[1,1,100],"61":[1,1,100],"62":[1,1,100],"63":[1,1,100],"64":[1,1,100],"65":[1,1,100],"66":[1,1,100],"67":[1,1,100],"68":[1,1,100],"69":[1,1,100],"70":[1,1,100],"71":[1,1,100],"72":[1,1,100],"73":[1,1,100],"74":[1,1,100],"75":[1,1,100],"76":[1,1,100],"77":[1,1,100],"78":[1,1,100],"79":[1,1,100],"80":[1,1,100],"81":[1,1,100],"82":[1,1,100],"83":[1,1,80],"84":[1,1,100],"85":[1,1,100],"86":[1,1,100],"87":[1,1,100],"88":[1,1,100],"89":[1,1,100],"90":[1,1,100],"91":[1,1,100],"92":[1,1,100],"93":[1,1,100],"94":[1,1,100],"95":[1,1,100],"96":[1,1,100],"97":[1,1,100],"98":[1,1,100],"99":[1,1,100],"100":[1,1,100],"101":[1,1,100],"102":[1,1,100],"103":[1,1,100],"104":[1,1,100],"105":[1,1,100],"106":[1,1,100],"107":[1,1,100],"108":[1,1,100],"109":[1,1,100],"110":[1,1,100],"111":[1,1,100],"112":[1,1,100],"113":[1,0,0,0,0,0,0,1],"114":[1,1,100],"116":[1,1,100],"117":[1,1,100],"118":[1,1,100],"119":[1,1,100],"120":[1,1,100],"121":[1,1,100],"122":[1,1,100],"123":[1,1,100],"124":[1,1,100],"125":[1,1,100],"126":[1,1,100],"127":[1,1,100],"129":[1,1,100,0,0,0,0,1],"130":[1,1,100,0,0,0,0,1],"131":[1,1,96,0,0,0,0,1],"132":[1,1,100],"133":[1,1,100],"134":[1,1,100],"135":[1,1,100],"136":[1,1,100],"137":[1,1,100],"138":[1,1,100],"139":[1,1,100],"140":[1,1,100],"141":[1,1,100],"142":[1,1,100],"143":[1,1,90,0,0,0,0,1],"147":[1,1,98,0,0,0,0,1],"148":[1,1,90,0,0,0,0,1],"149":[1,0,0,0,0,0,0,1],"152":[1,1,100],"153":[1,1,100],"154":[1,1,100],"155":[1,1,100],"156":[1,1,100],"157":[1,1,100],"158":[1,1,100],"159":[1,1,100],"160":[1,1,100],"161":[1,1,100],"162":[1,1,100],"163":[1,1,100],"164":[1,1,100],"165":[1,1,100],"166":[1,1,100],"167":[1,1,100],"168":[1,1,100],"169":[1,1,100],"170":[1,1,100],"171":[1,1,100],"176":[1,1,80],"177":[1,1,100],"178":[1,1,100],"179":[1,1,100],"180":[1,1,100],"181":[1,1,100],"183":[1,1,100],"184":[1,1,100],"185":[1,1,100],"187":[1,1,100],"188":[1,1,100],"189":[1,1,100],"190":[1,1,100],"191":[1,1,100],"193":[1,1,100],"194":[1,1,100],"195":[1,1,100],"198":[1,1,100,0,0,0,0,1],"200":[1,1,100],"201":[1,0,0,0,0,0,0,1],"202":[1,1,100],"203":[1,1,100],"204":[1,1,100],"205":[1,1,100],"206":[1,1,100],"207":[1,1,100],"209":[1,1,100],"210":[1,1,100],"211":[1,1,100],"213":[1,1,100],"215":[1,1,100,0,0,0,0,1],"216":[1,1,100],"217":[1,1,100],"218":[1,1,100],"219":[1,1,100],"220":[1,1,100],"221":[1,1,100],"222":[1,1,100],"223":[1,1,100],"224":[1,1,100],"225":[1,1,100],"226":[1,1,100],"227":[1,1,100],"228":[1,1,100],"229":[1,1,100],"231":[1,1,100],"232":[1,1,100],"234":[1,1,100],"237":[1,1,100],"241":[1,1,100],"242":[1,1,0,0,0,0,0,1],"246":[1,1,96,0,0,0,0,1],"247":[1,1,4,0,0,0,0,1],"248":[1,0,0,0,0,0,0,1],"252":[1,1,100],"253":[1,1,100],"254":[1,1,100],"255":[1,1,100],"256":[1,1,100],"257":[1,1,100],"258":[1,1,100],"259":[1,1,100],"260":[1,1,100],"261":[1,1,100],"262":[1,1,100],"263":[1,1,100],"264":[1,1,100],"265":[1,1,100],"270":[1,1,100],"271":[1,1,100],"272":[1,1,100],"273":[1,1,100],"274":[1,1,100],"275":[1,1,100],"276":[1,1,100],"277":[1,1,100],"278":[1,1,100],"279":[1,1,100],"280":[1,1,100,0,0,0,0,1],"281":[1,1,96,0,0,0,0,1],"283":[1,1,100],"284":[1,1,100],"285":[1,1,100],"286":[1,1,100],"287":[1,1,100],"288":[1,1,100],"289":[1,1,100],"293":[1,1,100],"294":[1,1,100],"295":[1,1,100],"296":[1,1,100],"297":[1,1,100],"299":[1,1,100],"300":[1,1,100],"301":[1,1,100],"302":[1,1,100],"304":[1,1,100],"305":[1,1,100],"306":[1,1,100],"307":[1,1,100],"308":[1,1,100],"309":[1,1,100],"310":[1,1,100],"311":[1,1,100],"312":[1,1,100],"313":[1,1,100],"314":[1,1,100],"315":[1,1,100,0,0,0,0,1],"316":[1,1,100],"317":[1,1,100],"318":[1,1,100],"319":[1,1,100],"320":[1,1,100],"322":[1,1,100],"323":[1,1,100],"325":[1,1,100],"326":[1,1,100],"328":[1,1,100],"329":[1,1,100],"330":[1,1,100],"331":[1,1,100],"332":[1,1,100],"333":[1,1,100],"335":[1,1,100],"336":[1,1,100],"337":[1,1,100],"338":[1,1,100],"339":[1,1,100],"340":[1,1,100],"341":[1,1,100],"342":[1,1,100],"343":[1,1,100],"344":[1,1,100],"345":[1,1,100],"346":[1,1,100],"347":[1,1,100],"348":[1,1,100],"349":[1,1,100,0,0,0,0,1],"351":[1,1,100],"353":[1,1,100],"354":[1,1,100],"355":[1,1,100],"356":[1,1,100],"357":[1,1,100],"358":[1,1,100],"359":[1,1,100],"361":[1,1,100],"362":[1,1,100],"363":[1,1,100],"364":[1,1,100],"366":[1,1,100],"370":[1,1,100],"371":[1,1,96,0,0,0,0,1],"372":[1,1,4,0,0,0,0,1],"373":[1,1,4,0,0,0,0,1],"374":[1,1,98,0,0,0,0,1],"375":[1,1,4,0,0,0,0,1],"376":[1,0,0,0,0,0,0,1],"387":[1,1,100],"388":[1,1,100],"390":[1,1,100],"391":[1,1,100],"393":[1,1,100],"394":[1,1,100],"396":[1,1,100],"397":[1,1,100],"399":[1,1,100],"400":[1,1,100],"401":[1,1,100],"402":[1,1,100],"408":[1,1,96],"410":[1,1,100],"412":[1,1,100],"415":[1,1,100],"418":[1,1,100],"419":[1,1,100],"420":[1,1,100],"421":[1,1,100],"422":[1,1,100],"425":[1,1,100],"426":[1,1,100],"427":[1,1,100],"428":[1,1,100],"431":[1,1,100],"432":[1,1,100],"434":[1,1,100],"435":[1,1,100],"436":[1,1,100],"437":[1,1,100],"443":[1,0,0,0,0,0,0,1],"444":[1,1,0,0,0,0,0,1],"449":[1,1,100],"450":[1,1,100],"451":[1,1,100],"452":[1,1,100],"453":[1,1,100],"454":[1,1,100],"456":[1,1,100],"457":[1,1,100],"459":[1,1,100],"460":[1,1,100],"481":[1,0,0,0,0,0,0,1],"495":[1,1,100],"496":[1,1,100],"498":[1,1,100],"499":[1,1,100],"501":[1,1,100],"502":[1,1,100],"504":[1,1,100],"509":[1,1,100],"513":[1,1,100],"515":[1,1,100],"519":[1,1,100],"520":[1,1,100],"522":[1,1,100],"524":[1,1,100],"527":[1,1,100],"529":[1,1,100,0,0,0,0,1],"531":[1,1,100],"535":[1,1,100],"539":[1,1,100],"540":[1,1,80],"543":[1,1,100],"546":[1,1,100],"548":[1,1,100],"550":[1,1,100],"554":[1],"557":[1,1,100],"562":[1,1,100],"564":[1,1,100],"566":[1,1,100],"568":[1,1,100],"572":[1,1,100],"574":[1,1,94],"577":[1,1,100],"580":[1,1,100],"585":[1,1,100],"587":[1,1,100],"588":[1,1,100],"590":[1,1,100],"594":[1,1,100],"595":[1,1,100],"597":[1,1,100],"605":[1,1,100],"607":[1,1,96,0,0,0,0,1],"608":[1,0,0,0,0,0,0,1],"610":[1],"611":[1],"613":[1,1,100],"615":[1,1,100],"616":[1,1,100],"618":[1,1,100],"622":[1,1,100],"631":[1,1,100],"632":[1,1,100],"633":[1,0,0,0,0,0,0,1],"634":[1,0,0,0,0,0,0,1],"650":[1,1,100],"653":[1,1,100],"656":[1,1,100],"659":[1,1,100],"661":[1,1,100],"667":[1,1,100],"714":[1,1,94]}},"time":{"fi":[0,80],"fl":[0,30],"fc":0,"w1":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23],"w2":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]},"invs":{"n":0,"f":0,"l":[4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,37,38,39,47,48,49,50]},"more":{"l":"g"}}"#).unwrap();
         let input: Raid = serde_json::from_str(r#"{"ar_scan_eligible":false,"costume":0,"cp":0,"end":1658944429,"evolution":0,"ex_raid_eligible":true,"form":0,"gender":0,"gym_id":"117c4217aaaa4eebaeb064b76966e445.11","gym_name":"Unknown","gym_url":"http://lh3.googleusercontent.com/QXW8OzeZkWHECP_Gii3MOzfTpWhue8Z_Kw14_Fzp8i9chSs1pDCFQbYBA0xZ_FKkSvnv4Q30nh_-70EEnOX8GptaGV0","is_exclusive":false,"latitude":45.517574,"level":5,"longitude":9.19395,"move_1":0,"move_2":0,"partner_id":0,"pokemon_id":0,"power_up_end_timestamp":0,"power_up_level":0,"power_up_points":30,"spawn":1658939629,"sponsor_id":0,"start":1658940829,"team_id":3}"#).unwrap();
-        assert!(config
-            .submit(
-                &Utc::now(),
-                &Platform::Unknown,
-                &Request::Raid(Box::new(input))
-            )
-            .await
-            .is_ok());
+        assert!(config.submit(&Utc::now(), &Platform::Unknown, &Request::Raid(Box::new(input))).await.is_ok());
     }
 
     #[tokio::test]
@@ -1705,14 +1436,7 @@ mod tests {
 
         let config = serde_json::from_str::<BotConfig>(r#"{"locs":{"h":["39.243490","9.121891"],"p":["39.243673","9.121859","10"],"r":["39.243035","9.121345","0"],"i":["39.243493","9.121624","0"],"t_p":["0","0","0"],"t_r":["0","0","0"],"t_i":["","",""]},"raid":{"u":0,"s":1,"x":1,"l":[5],"p":[]},"pkmn":{"l":{"1":[1,1,100,0,0,0,0,1],"2":[1,1,100],"3":[1,1,100],"4":[1,1,100],"5":[1,1,100],"6":[1,1,100],"7":[1,1,100],"8":[1,1,100],"9":[1,1,100],"10":[1,1,100],"11":[1,1,100],"12":[1,1,100],"13":[1,1,100],"14":[1,1,100],"15":[1,1,100],"16":[1,1,100],"17":[1,1,100],"18":[1,1,100],"19":[1,1,100],"20":[1,1,100],"21":[1,1,100],"22":[1,1,100],"23":[1,1,100],"24":[1,1,100],"25":[1,1,100],"26":[1,1,100],"27":[1,1,100],"28":[1,1,100],"29":[1,1,100],"30":[1,1,100],"31":[1,1,100],"32":[1,1,100],"33":[1,1,100],"34":[1,1,100],"35":[1,1,100],"36":[1,1,100],"37":[1,1,100],"38":[1,1,100],"39":[1,1,100],"40":[1,1,100],"41":[1,1,100],"42":[1,1,100],"43":[1,1,100],"44":[1,1,100],"45":[1,1,100],"46":[1,1,100],"47":[1,1,100],"48":[1,1,100],"49":[1,1,100],"50":[1,1,100],"51":[1,1,100],"52":[1,1,100],"53":[1,1,100],"54":[1,1,100],"55":[1,1,100],"56":[1,1,100],"57":[1,1,100],"58":[1,1,100],"59":[1,1,100],"60":[1,1,100],"61":[1,1,100],"62":[1,1,100],"63":[1,1,100],"64":[1,1,100],"65":[1,1,100],"66":[1,1,100],"67":[1,1,100],"68":[1,1,100],"69":[1,1,100],"70":[1,1,100],"71":[1,1,100],"72":[1,1,100],"73":[1,1,100],"74":[1,1,100],"75":[1,1,100],"76":[1,1,100],"77":[1,1,100],"78":[1,1,100],"79":[1,1,100],"80":[1,1,100],"81":[1,1,100],"82":[1,1,100],"83":[1,1,80],"84":[1,1,100],"85":[1,1,100],"86":[1,1,100],"87":[1,1,100],"88":[1,1,100],"89":[1,1,100],"90":[1,1,100],"91":[1,1,100],"92":[1,1,100],"93":[1,1,100],"94":[1,1,100],"95":[1,1,100],"96":[1,1,100],"97":[1,1,100],"98":[1,1,100],"99":[1,1,100],"100":[1,1,100],"101":[1,1,100],"102":[1,1,100],"103":[1,1,100],"104":[1,1,100],"105":[1,1,100],"106":[1,1,100],"107":[1,1,100],"108":[1,1,100],"109":[1,1,100],"110":[1,1,100],"111":[1,1,100],"112":[1,1,100],"113":[1,0,0,0,0,0,0,1],"114":[1,1,100],"116":[1,1,100],"117":[1,1,100],"118":[1,1,100],"119":[1,1,100],"120":[1,1,100],"121":[1,1,100],"122":[1,1,100],"123":[1,1,100],"124":[1,1,100],"125":[1,1,100],"126":[1,1,100],"127":[1,1,100],"129":[1,1,100,0,0,0,0,1],"130":[1,1,100,0,0,0,0,1],"131":[1,1,96,0,0,0,0,1],"132":[1,1,100],"133":[1,1,100],"134":[1,1,100],"135":[1,1,100],"136":[1,1,100],"137":[1,1,100],"138":[1,1,100],"139":[1,1,100],"140":[1,1,100],"141":[1,1,100],"142":[1,1,100],"143":[1,1,90,0,0,0,0,1],"147":[1,1,98,0,0,0,0,1],"148":[1,1,90,0,0,0,0,1],"149":[1,0,0,0,0,0,0,1],"152":[1,1,100],"153":[1,1,100],"154":[1,1,100],"155":[1,1,100],"156":[1,1,100],"157":[1,1,100],"158":[1,1,100],"159":[1,1,100],"160":[1,1,100],"161":[1,1,100],"162":[1,1,100],"163":[1,1,100],"164":[1,1,100],"165":[1,1,100],"166":[1,1,100],"167":[1,1,100],"168":[1,1,100],"169":[1,1,100],"170":[1,1,100],"171":[1,1,100],"176":[1,1,80],"177":[1,1,100],"178":[1,1,100],"179":[1,1,100],"180":[1,1,100],"181":[1,1,100],"183":[1,1,100],"184":[1,1,100],"185":[1,1,100],"187":[1,1,100],"188":[1,1,100],"189":[1,1,100],"190":[1,1,100],"191":[1,1,100],"193":[1,1,100],"194":[1,1,100],"195":[1,1,100],"198":[1,1,100,0,0,0,0,1],"200":[1,1,100],"201":[1,0,0,0,0,0,0,1],"202":[1,1,100],"203":[1,1,100],"204":[1,1,100],"205":[1,1,100],"206":[1,1,100],"207":[1,1,100],"209":[1,1,100],"210":[1,1,100],"211":[1,1,100],"213":[1,1,100],"215":[1,1,100,0,0,0,0,1],"216":[1,1,100],"217":[1,1,100],"218":[1,1,100],"219":[1,1,100],"220":[1,1,100],"221":[1,1,100],"222":[1,1,100],"223":[1,1,100],"224":[1,1,100],"225":[1,1,100],"226":[1,1,100],"227":[1,1,100],"228":[1,1,100],"229":[1,1,100],"231":[1,1,100],"232":[1,1,100],"234":[1,1,100],"237":[1,1,100],"241":[1,1,100],"242":[1,1,0,0,0,0,0,1],"246":[1,1,96,0,0,0,0,1],"247":[1,1,4,0,0,0,0,1],"248":[1,0,0,0,0,0,0,1],"252":[1,1,100],"253":[1,1,100],"254":[1,1,100],"255":[1,1,100],"256":[1,1,100],"257":[1,1,100],"258":[1,1,100],"259":[1,1,100],"260":[1,1,100],"261":[1,1,100],"262":[1,1,100],"263":[1,1,100],"264":[1,1,100],"265":[1,1,100],"270":[1,1,100],"271":[1,1,100],"272":[1,1,100],"273":[1,1,100],"274":[1,1,100],"275":[1,1,100],"276":[1,1,100],"277":[1,1,100],"278":[1,1,100],"279":[1,1,100],"280":[1,1,100,0,0,0,0,1],"281":[1,1,96,0,0,0,0,1],"283":[1,1,100],"284":[1,1,100],"285":[1,1,100],"286":[1,1,100],"287":[1,1,100],"288":[1,1,100],"289":[1,1,100],"293":[1,1,100],"294":[1,1,100],"295":[1,1,100],"296":[1,1,100],"297":[1,1,100],"299":[1,1,100],"300":[1,1,100],"301":[1,1,100],"302":[1,1,100],"304":[1,1,100],"305":[1,1,100],"306":[1,1,100],"307":[1,1,100],"308":[1,1,100],"309":[1,1,100],"310":[1,1,100],"311":[1,1,100],"312":[1,1,100],"313":[1,1,100],"314":[1,1,100],"315":[1,1,100,0,0,0,0,1],"316":[1,1,100],"317":[1,1,100],"318":[1,1,100],"319":[1,1,100],"320":[1,1,100],"322":[1,1,100],"323":[1,1,100],"325":[1,1,100],"326":[1,1,100],"328":[1,1,100],"329":[1,1,100],"330":[1,1,100],"331":[1,1,100],"332":[1,1,100],"333":[1,1,100],"335":[1,1,100],"336":[1,1,100],"337":[1,1,100],"338":[1,1,100],"339":[1,1,100],"340":[1,1,100],"341":[1,1,100],"342":[1,1,100],"343":[1,1,100],"344":[1,1,100],"345":[1,1,100],"346":[1,1,100],"347":[1,1,100],"348":[1,1,100],"349":[1,1,100,0,0,0,0,1],"351":[1,1,100],"353":[1,1,100],"354":[1,1,100],"355":[1,1,100],"356":[1,1,100],"357":[1,1,100],"358":[1,1,100],"359":[1,1,100],"361":[1,1,100],"362":[1,1,100],"363":[1,1,100],"364":[1,1,100],"366":[1,1,100],"370":[1,1,100],"371":[1,1,96,0,0,0,0,1],"372":[1,1,4,0,0,0,0,1],"373":[1,1,4,0,0,0,0,1],"374":[1,1,98,0,0,0,0,1],"375":[1,1,4,0,0,0,0,1],"376":[1,0,0,0,0,0,0,1],"387":[1,1,100],"388":[1,1,100],"390":[1,1,100],"391":[1,1,100],"393":[1,1,100],"394":[1,1,100],"396":[1,1,100],"397":[1,1,100],"399":[1,1,100],"400":[1,1,100],"401":[1,1,100],"402":[1,1,100],"408":[1,1,96],"410":[1,1,100],"412":[1,1,100],"415":[1,1,100],"418":[1,1,100],"419":[1,1,100],"420":[1,1,100],"421":[1,1,100],"422":[1,1,100],"425":[1,1,100],"426":[1,1,100],"427":[1,1,100],"428":[1,1,100],"431":[1,1,100],"432":[1,1,100],"434":[1,1,100],"435":[1,1,100],"436":[1,1,100],"437":[1,1,100],"443":[1,0,0,0,0,0,0,1],"444":[1,1,0,0,0,0,0,1],"449":[1,1,100],"450":[1,1,100],"451":[1,1,100],"452":[1,1,100],"453":[1,1,100],"454":[1,1,100],"456":[1,1,100],"457":[1,1,100],"459":[1,1,100],"460":[1,1,100],"481":[1,0,0,0,0,0,0,1],"495":[1,1,100],"496":[1,1,100],"498":[1,1,100],"499":[1,1,100],"501":[1,1,100],"502":[1,1,100],"504":[1,1,100],"509":[1,1,100],"513":[1,1,100],"515":[1,1,100],"519":[1,1,100],"520":[1,1,100],"522":[1,1,100],"524":[1,1,100],"527":[1,1,100],"529":[1,1,100,0,0,0,0,1],"531":[1,1,100],"535":[1,1,100],"539":[1,1,100],"540":[1,1,80],"543":[1,1,100],"546":[1,1,100],"548":[1,1,100],"550":[1,1,100],"554":[1],"557":[1,1,100],"562":[1,1,100],"564":[1,1,100],"566":[1,1,100],"568":[1,1,100],"572":[1,1,100],"574":[1,1,94],"577":[1,1,100],"580":[1,1,100],"585":[1,1,100],"587":[1,1,100],"588":[1,1,100],"590":[1,1,100],"594":[1,1,100],"595":[1,1,100],"597":[1,1,100],"605":[1,1,100],"607":[1,1,96,0,0,0,0,1],"608":[1,0,0,0,0,0,0,1],"610":[1],"611":[1],"613":[1,1,100],"615":[1,1,100],"616":[1,1,100],"618":[1,1,100],"622":[1,1,100],"631":[1,1,100],"632":[1,1,100],"633":[1,0,0,0,0,0,0,1],"634":[1,0,0,0,0,0,0,1],"650":[1,1,100],"653":[1,1,100],"656":[1,1,100],"659":[1,1,100],"661":[1,1,100],"667":[1,1,100],"714":[1,1,94]}},"time":{"fi":[0,80],"fl":[0,30],"fc":0,"w1":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23],"w2":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]},"invs":{"n":0,"f":0,"l":[4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,37,38,39,47,48,49,50]},"more":{"l":"g"}}"#).unwrap();
         let input: Raid = serde_json::from_str(r#"{"gym_name":"","gym_url":"","end":1564338495,"form":0,"is_exclusive":false,"longitude":9.121235,"cp":0,"team_id":1,"pokemon_id":0,"gym_id":"fe20dd37398341a4b83751c5c050aaec.16","move_2":0,"level":4,"move_1":0,"start":1564335795,"ex_raid_eligible":false,"spawn":1564332195,"latitude":39.243042,"gender":0}"#).unwrap();
-        assert!(config
-            .submit(
-                &Utc::now(),
-                &Platform::Unknown,
-                &Request::Raid(Box::new(input))
-            )
-            .await
-            .is_err());
+        assert!(config.submit(&Utc::now(), &Platform::Unknown, &Request::Raid(Box::new(input))).await.is_err());
     }
 
     #[tokio::test]
@@ -1721,14 +1445,7 @@ mod tests {
 
         let config = serde_json::from_str::<BotConfig>(r#"{"locs":{"h":["45.610849","8.842825"],"p":["45.603492","8.823278","15"],"r":["45.611302","8.828447","15"],"i":["45.605751","8.810241","15"],"t_p":["0","0","0"],"t_r":["0","0","0"],"t_i":["","",""]},"raid":{"u":0,"s":1,"x":0,"l":[5],"p":[]},"pkmn":{"p1":0,"p0":0,"l":{"1":[1,1,25,0,0,0,0,0,0,0,1,2,3,11,3,10,1],"4":[1,1,19,0,0,0,0,0,0,0,1,1,3,11,3,11],"7":[1,1,95],"13":[1,1,96,0,0,0,0,0,0,0,2,0,2,11,3,14,1],"27":[1,1,32,0,0,0,0,0,0,0,1,2,3,10,3,10],"35":[1,1,24,0,0,0,0,0,0,0,1,1,3,13,3,10],"39":[1,1,24,0,0,0,0,0,0,0,1,1,3,13,3,12],"56":[1,1,24,0,0,0,0,0,0,0,1,2,3,10,3,8],"60":[1,1,24,0,0,0,0,0,0,0,2,8,3,13,3,13],"66":[1,1,19,0,0,0,0,0,0,0,2,0,3,10,3,8,1],"72":[1,1,35,0,0,0,0,0,0,0,2,0,3,11,3,11],"74":[1,1,24,0,0,0,0,0,0,0,1,3,3,10,3,7],"79":[1,1,25,0,0,0,0,0,0,0,1,2,3,7,3,6],"81":[1,1,97,0,0,0,0,0,0,0,1,2,3,10,3,10,1],"83":[1,1,26,0,0,0,0,0,0,0,1,4,3,9,3,9],"86":[1,1,98,0,0,0,0,0,0,0,0,0,0,0,0,0,1],"88":[1,1,24,0,0,0,0,0,0,0,1,1,3,13,3,11],"92":[1,1,97],"95":[1,1,25,0,0,0,0,0,0,0,1,2,3,11,3,10],"96":[1,1,25,0,0,0,0,0,0,0,1,2,3,10,3,9],"98":[1,1,95],"102":[1,1,24,0,0,0,0,0,0,0,1,1,3,10,3,9],"105":[1,1,80,0,0,0,0,0,0,0,1,2,3,11,3,11],"108":[1,1,24,0,0,0,0,0,0,0,1,8,3,13,3,11],"114":[1,1,24,0,0,0,0,0,0,0,1,3,3,9,3,8],"123":[1,1,26,0,0,0,0,0,0,0,2,0,3,10,3,9,1],"124":[1,1,98],"125":[1,1,97],"127":[1,1,97],"131":[1,1,25,0,0,0,0,0,0,0,1,2,3,10,3,10],"133":[1,1,25,0,0,0,0,0,0,0,1,1,3,6,3,8,1],"143":[1,1,95,0,0,0,0,0,0,0,0,0,0,0,0,0,1],"147":[1,1,24,0,0,0,0,0,0,0,1,2,3,10,3,11],"152":[1,1,25,0,0,0,0,0,0,0,1,2,3,7,3,9],"153":[1,1,24,0,0,0,0,0,0,0,1,2,3,7,3,9],"158":[1,1,97],"170":[1,1,25,0,0,0,0,0,0,0,1,2,3,10,3,8],"179":[1,1,97],"180":[1,1,98],"183":[1,1,26,0,0,0,0,0,0,0,1,1,3,11,3,11],"184":[1,1,26,0,0,0,0,0,0,0,1,1,3,11,3,11],"187":[1,1,24,0,0,0,0,0,0,0,2,4,3,14,3,13],"193":[1,1,96],"194":[1,1,20,0,0,0,0,0,0,0,2,0,3,10,3,12],"201":[1,1,6],"207":[1,1,24,0,0,0,0,0,0,0,1,3,3,6,3,7],"215":[1,1,98,0,0,0,0,0,0,0,0,0,0,0,0,0,1],"216":[1,1,95],"220":[1,1,100,0,0,0,0,0,0,0,0,0,0,0,0,0,1],"226":[1,1,25,0,0,0,0,0,0,0,2,0,3,8,3,7],"227":[1,1,96],"228":[1,1,95],"246":[1,1,97],"255":[1,1,25,0,0,0,0,0,0,0,1,4,3,11,3,10],"258":[1,1,24,0,0,0,0,0,0,0,1,2,3,10,3,9],"278":[1,1,22,0,0,0,0,0,0,0,2,0,3,10,3,8],"280":[1,1,100,0,0,0,0,0,0,0,0,0,0,0,0,0,1],"285":[1,1,24,0,0,0,0,0,0,0,1,4,3,9,3,9,1],"287":[1,1,23,0,0,0,0,0,0,0,1,2,3,10,3,10],"296":[1,1,96],"297":[1,1,96],"302":[1,1,96,0,0,0,0,0,0,0,1,1,3,15,3,12],"307":[1,1,24,0,0,0,0,0,0,0,1,5,3,13,3,12],"309":[1,1,96],"318":[1,1,95],"328":[1,1,24,0,0,0,0,0,0,0,1,3,3,11,3,7],"333":[1,1,98],"335":[1,1,95],"339":[1,1,24,0,0,0,0,0,0,0,1,2,3,8,3,9],"341":[1,1,96],"349":[1,1,98],"359":[1,1,95],"361":[1,1,25,0,0,0,0,0,0,2,1,2,3,12,3,13,1],"371":[1,1,100],"374":[1,1,100],"390":[1,1,96],"408":[1,1,96],"410":[1,1,26,0,0,0,0,1,0,0,1,2,3,10,3,10],"425":[1,1,95,0,0,0,0,0,0,0,1,1,3,13,3,11],"443":[1,1,97],"449":[1,1,98],"451":[1,1,24,0,0,0,0,0,0,0,1,1,3,10,3,10],"453":[1,1,26,0,0,0,0,0,0,0,1,2,3,13,3,11],"459":[1,1,38,0,0,0,0,0,0,0,1,5,3,12,3,12,1],"460":[1,1,22,0,0,0,0,1,0,0,1,4,3,12,3,12],"495":[1,1,95],"498":[1,1,95],"501":[1,1,95],"529":[1,1,97],"531":[1,1,95],"540":[1,1,10],"546":[1,1,24,0,0,0,0,0,0,0,2,0,3,7,3,8],"548":[1,1,10],"554":[1,1,95],"557":[1,1,24,0,0,0,0,0,0,0,1,1,3,9,3,10],"566":[1,1,98],"587":[1,1,15],"588":[1,1,24,0,0,0,0,0,0,0,1,2,3,10,3,10],"595":[1,1,22,0,0,0,0,0,0,0,1,15,3,13,3,14],"597":[1,1,24,0,0,0,0,0,0,0,1,3,3,9,3,8,1],"607":[1,1,97],"610":[1,1,95],"618":[1,1,20,0,0,0,0,0,0,0,2,0,2,12,3,15,1],"622":[1,1,24,0,0,0,0,0,0,0,1,3,3,9,3,8],"633":[1,1,95],"650":[1,1,26,0,0,0,0,0,0,0,1,3,3,6,3,7],"653":[1,1,96],"656":[1,1,24,0,0,0,0,0,0,0,2,0,3,10,3,11],"659":[1,1,24,0,0,0,0,0,0,0,2,0,2,15,2,11,1],"661":[1,1,96],"714":[1,1,24]}},"time":{"fi":[1,94],"fl":[0,25],"fc":0,"w1":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23],"w2":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]},"lure":{"n":0,"f":0,"l":[]},"invs":{"n":1,"f":1,"l":[9,11,12,16,26,49]},"more":{"l":"g"},"debug":true}"#).unwrap();
         let input: Pokestop = serde_json::from_str(r#"{"lure_expiration":0,"enabled":true,"updated":1564332327,"url":"http://lh6.ggpht.com/ga78DsEtufPUGu0H0oE2ZOeagwxe8aQ4k4-kBLEDdSfeFVshH8gHhQN1GMcw1OFd_n94NpwTkOa16zR5DqUL","pokestop_display":1,"longitude":8.845038,"lure_id":501,"last_modified":1564329955,"pokestop_id":"54e0ee4c0e7a42ca93d2e93ee720dc90.16","name":"Macello Civico - Sede Scout","incident_expire_timestamp":1564333601,"grunt_type":48,"latitude":45.606137}"#).unwrap();
-        assert!(config
-            .submit(
-                &Utc::now(),
-                &Platform::Unknown,
-                &Request::Invasion(Box::new(input))
-            )
-            .await
-            .is_err());
+        assert!(config.submit(&Utc::now(), &Platform::Unknown, &Request::Invasion(Box::new(input))).await.is_err());
     }
 
     #[derive(Debug)]
@@ -1758,20 +1475,14 @@ mod tests {
     async fn pokemon_pvp_ok() {
         tracing_subscriber::fmt::try_init().ok();
 
-        rocketmap_entities::gamemaster::load_master_file()
-            .await
-            .unwrap();
+        rocketmap_entities::gamemaster::load_master_file().await.unwrap();
 
         let config = serde_json::from_str::<BotConfig>(r#"{"locs":{"h":["45.558235","12.433863"],"p":["45.564914","12.37436","10"],"r":["45.54964","12.43515","5",0,15],"i":["45.557889","12.433863","0"],"t_p":["44.634571","11.184902","1652056164"],"t_r":["44.643291","10.927879","1645283374"],"t_i":["44.643291","10.927879","1645283374"]},"raid":{"c":1,"u":1,"s":1,"x":1,"l":[5,6],"p":[-5,-6]},"pkmn":{"p1":1,"p0":1,"l":{"69":[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1],"201":[1]}},"time":{"fi":[0,80],"fl":[0,30],"fc":0,"w1":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23],"w2":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]},"lure":{"n":1,"f":0,"l":[]},"invs":{"n":1,"f":0,"l":[]},"more":{"l":"g"},"debug":true}"#).unwrap();
         let input: PokemonWithPvpInfo<FakeCache, FakeCache> = serde_json::from_str(r#"{"base_catch":0.3334396,"costume":0,"cp":893,"cp_multiplier":0.749761,"disappear_time":1655239379,"display_pokemon_id":null,"encounter_id":"12121595143611067674","form":664,"gender":1,"great_catch":0.4557991,"height":0.645319,"individual_attack":14,"individual_defense":15,"individual_stamina":5,"latitude":45.564914,"longitude":12.433863,"move_1":214,"move_2":118,"pokemon_id":69,"pokemon_level":33.0,"rarity":2,"seen_type":"encounter","spawnpoint_id":4915476003669,"ultra_catch":0.5556972,"verified":true,"weather":1,"weight":4.01554}"#).unwrap();
         // let input: PokemonWithPvpInfo<FakeCache, FakeCache> = serde_json::from_str("{\"spawnpoint_id\":\"1293658875297\",\"encounter_id\":\"17152698416612483323\",\"pokemon_id\":194,\"pokestop_id\":null,\"latitude\":44.412012014560645,\"longitude\":8.898968671125694,\"disappear_time\":1656959111,\"disappear_time_verified\":true,\"last_modified_time\":null,\"first_seen\":null,\"gender\":2,\"cp\":192,\"form\":1226,\"costume\":0,\"individual_attack\":6,\"individual_defense\":11,\"individual_stamina\":14,\"cp_multiplier\":0.462798,\"move_1\":216,\"move_2\":96,\"weight\":5.14566,\"height\":0.31296,\"base_catch\":0.4783665,\"great_catch\":0.6232543,\"ultra_catch\":0.7278985,\"boosted_weather\":null,\"def_grade\":null,\"atk_grade\":null,\"rating_attack\":null,\"rating_defense\":null,\"catch_prob_1\":null,\"catch_prob_2\":null,\"catch_prob_3\":null,\"weather\":1,\"weather_boosted_condition\":null,\"pokemon_level\":12,\"s2_cell_id\":null,\"username\":null,\"shiny\":null,\"display_pokemon_id\":null,\"display_gender\":null,\"display_form\":null,\"capture_1\":null,\"capture_2\":null,\"capture_3\":null,\"pvp\":null,\"pvp_rankings_great_league\":null,\"pvp_rankings_ultra_league\":null,\"is_event\":null,\"rarity\":3,\"seen_type\":\"encounter\"}").unwrap();
         tracing::info!("{:?}", input);
         assert!(config
-            .submit(
-                &Utc::now(),
-                &Platform::Unknown,
-                &rocketmap_entities::Request::Pokemon(Box::new(input))
-            )
+            .submit(&Utc::now(), &Platform::Unknown, &rocketmap_entities::Request::Pokemon(Box::new(input)))
             .await
             .is_ok());
     }

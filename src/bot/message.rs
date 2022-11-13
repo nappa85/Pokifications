@@ -30,8 +30,7 @@ use crate::telegram::{send_message, send_photo, CallResult, Image};
 
 static MAP_CACHE: Lazy<FileCache<PathBuf, Result<image::DynamicImage, ()>>> =
     Lazy::new(|| FileCache::new(CONFIG.service.lru_size));
-static IMG_CACHE: Lazy<FileCache<PathBuf, Result<Image, ()>>> =
-    Lazy::new(|| FileCache::new(CONFIG.service.lru_size));
+static IMG_CACHE: Lazy<FileCache<PathBuf, Result<Image, ()>>> = Lazy::new(|| FileCache::new(CONFIG.service.lru_size));
 
 fn truncate_str(s: &str, limit: usize, placeholder: char) -> String {
     if s.is_empty() {
@@ -49,24 +48,16 @@ fn truncate_str(s: &str, limit: usize, placeholder: char) -> String {
 }
 
 async fn open_font(path: &str) -> Result<rusttype::Font<'static>, ()> {
-    let mut file = File::open(path)
-        .await
-        .map_err(|e| error!("error opening font {}: {}", path, e))?;
+    let mut file = File::open(path).await.map_err(|e| error!("error opening font {}: {}", path, e))?;
     let mut data = Vec::new();
-    file.read_to_end(&mut data)
-        .await
-        .map_err(|e| error!("error reading font {}: {}", path, e))?;
+    file.read_to_end(&mut data).await.map_err(|e| error!("error reading font {}: {}", path, e))?;
     rusttype::Font::try_from_vec(data).ok_or_else(|| error!("error decoding font {}", path))
 }
 
 async fn open_image(path: &Path) -> Result<image::DynamicImage, ()> {
-    let mut file = File::open(path)
-        .await
-        .map_err(|e| error!("error opening image {}: {}", path.display(), e))?;
+    let mut file = File::open(path).await.map_err(|e| error!("error opening image {}: {}", path.display(), e))?;
     let mut data = Vec::new();
-    file.read_to_end(&mut data)
-        .await
-        .map_err(|e| error!("error reading image {}: {}", path.display(), e))?;
+    file.read_to_end(&mut data).await.map_err(|e| error!("error reading image {}: {}", path.display(), e))?;
     image::load_from_memory_with_format(&data, image::ImageFormat::Png)
         .map_err(|e| error!("error opening image {}: {}", path.display(), e))
 }
@@ -83,27 +74,15 @@ async fn save_image(img: &image::DynamicImage, path: &Path) -> Result<Vec<u8>, (
         .open(path)
         .await
         .map_err(|e| error!("error saving image {}: {}", path.display(), e))?;
-    file.write_all(&out)
-        .await
-        .map_err(|e| error!("error writing image {}: {}", path.display(), e))?;
+    file.write_all(&out).await.map_err(|e| error!("error writing image {}: {}", path.display(), e))?;
 
     Ok(out)
 }
 
 fn get_text_width(font: &rusttype::Font, scale: rusttype::Scale, text: &str) -> i32 {
-    let space = font
-        .glyph(' ')
-        .scaled(scale)
-        .h_metrics()
-        .advance_width
-        .round() as i32;
+    let space = font.glyph(' ').scaled(scale).h_metrics().advance_width.round() as i32;
     font.layout(text, scale, rusttype::Point { x: 0f32, y: 0f32 })
-        .fold(0, |acc, l| {
-            acc + l
-                .pixel_bounding_box()
-                .map(|bb| bb.width())
-                .unwrap_or_else(|| space)
-        })
+        .fold(0, |acc, l| acc + l.pixel_bounding_box().map(|bb| bb.width()).unwrap_or_else(|| space))
 }
 
 fn meteo_icon(meteo: u8) -> Result<String, ()> {
@@ -141,19 +120,11 @@ pub trait Message {
             .set_reply_markup(self.message_button(chat_id, map_type)?);
         match temp.send().await {
             Ok(_) => {
-                let mut conn = MYSQL
-                    .get_conn()
-                    .await
-                    .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+                let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
                 self.update_stats(&mut conn).await?;
 
-                let query = format!(
-                    "UPDATE utenti_config_bot SET sent = sent + 1 WHERE user_id = {}",
-                    chat_id
-                );
-                conn.query_drop(query)
-                    .await
-                    .map_err(|e| error!("MySQL query error: increment sent count\n{}", e))?;
+                let query = format!("UPDATE utenti_config_bot SET sent = sent + 1 WHERE user_id = {}", chat_id);
+                conn.query_drop(query).await.map_err(|e| error!("MySQL query error: increment sent count\n{}", e))?;
 
                 let query = format!("INSERT INTO utenti_bot_stats (user_id, day, sent) VALUES ({}, CURDATE(), 1) ON DUPLICATE KEY UPDATE sent = sent + 1", chat_id);
                 conn.query_drop(query)
@@ -163,24 +134,17 @@ pub trait Message {
                 Ok(())
             }
             Err(CallResult::Body((_, body))) => {
-                let json: Value = serde_json::from_str(&body)
-                    .map_err(|e| error!("error while decoding {}: {}", body, e))?;
+                let json: Value =
+                    serde_json::from_str(&body).map_err(|e| error!("error while decoding {}: {}", body, e))?;
 
                 // blocked or deactivated, disable bot
                 if json["description"] == "Forbidden: bot was blocked by the user"
                     || json["description"] == "Forbidden: user is deactivated"
                 {
-                    let mut conn = MYSQL
-                        .get_conn()
-                        .await
-                        .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
-                    let query = format!(
-                        "UPDATE utenti_config_bot SET enabled = 0 WHERE user_id = {}",
-                        chat_id
-                    );
-                    conn.query_drop(query)
-                        .await
-                        .map_err(|e| error!("MySQL query error: disable bot\n{}", e))?;
+                    let mut conn =
+                        MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+                    let query = format!("UPDATE utenti_config_bot SET enabled = 0 WHERE user_id = {}", chat_id);
+                    conn.query_drop(query).await.map_err(|e| error!("MySQL query error: disable bot\n{}", e))?;
                     // apply
                     BotConfigs::reload(vec![chat_id.to_owned()]).await
                 } else {
@@ -195,12 +159,8 @@ pub trait Message {
         // $lat = number_format(round($ilat, 3), 3);
         // $lon = number_format(round($ilon, 3), 3);
         // $map_path = "../../data/bot/img_maps/" . $lat . "_" . $lon . ".png";
-        let map_path_str = format!(
-            "{}img_maps/{:.3}_{:.3}.png",
-            CONFIG.images.bot,
-            self.get_latitude(),
-            self.get_longitude()
-        );
+        let map_path_str =
+            format!("{}img_maps/{:.3}_{:.3}.png", CONFIG.images.bot, self.get_latitude(), self.get_longitude());
 
         MAP_CACHE
             .get(map_path_str.into(), |map_path| async move {
@@ -208,14 +168,8 @@ pub trait Message {
                     return open_image(&map_path).await;
                 }
 
-                let map = super::map::Map::new(
-                    &CONFIG.osm.tile_url,
-                    14,
-                    280,
-                    101,
-                    self.get_latitude(),
-                    self.get_longitude(),
-                );
+                let map =
+                    super::map::Map::new(&CONFIG.osm.tile_url, 14, 280, 101, self.get_latitude(), self.get_longitude());
                 let marker: PathBuf = format!("{}img/marker.png", CONFIG.images.assets).into();
                 let image = map.get_map(open_image(&marker).await.ok()).await?;
 
@@ -238,22 +192,15 @@ pub trait Message {
         let maplink = match mtype {
             "g" => format!("https://maps.google.it/maps/?q={},{}", lat, lon),
             "g2" => format!("https://www.google.it/maps/place/{},{}", lat, lon),
-            "g3" => format!(
-                "https://www.google.com/maps/search/?api=1&query={},{}",
-                lat, lon
-            ),
-            "gd" => format!(
-                "https://www.google.com/maps/dir/?api=1&destination={},{}",
-                lat, lon
-            ),
+            "g3" => format!("https://www.google.com/maps/search/?api=1&query={},{}", lat, lon),
+            "gd" => format!("https://www.google.com/maps/dir/?api=1&destination={},{}", lat, lon),
             "a" => format!("http://maps.apple.com/?address={},{}", lat, lon),
             "w" => format!("https://waze.com/ul?ll={},{}", lat, lon),
             _ => format!("https://maps.google.it/maps/?q={},{}", lat, lon),
         };
         let title = format!(
             "{} Mappa",
-            String::from_utf8(vec![0xf0, 0x9f, 0x8c, 0x8e])
-                .map_err(|e| error!("error encoding map icon: {}", e))?
+            String::from_utf8(vec![0xf0, 0x9f, 0x8c, 0x8e]).map_err(|e| error!("error encoding map icon: {}", e))?
         );
 
         Ok(json!({
@@ -334,92 +281,77 @@ impl Message for PokemonMessage {
         };
 
         // if ($t_msg["cp"] != "") {
-        let caption = if let Some(iv) = self.iv {
-            // $v_iv = GetIV($t_msg["atk_iv"], $t_msg["def_iv"], $t_msg["sta_iv"]);
+        let caption =
+            if let Some(iv) = self.iv {
+                // $v_iv = GetIV($t_msg["atk_iv"], $t_msg["def_iv"], $t_msg["sta_iv"]);
 
-            // $t_corpo = $icon_pkmn . " " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]);
-            // $t_corpo .= ($t_msg["pokemon_id"] == 201 ? " (" . $unown_letter[$t_msg["form"]] . ")" : "");
-            // $t_corpo .= " (" . $v_iv . "%)" . MeteoIcon($t_msg["wb"]) . "\n";
-            // $t_corpo .= "PL " . number_format($t_msg["cp"], 0, ",", ".") . " | Lv " . $t_msg["level"] . "\n";
-            // $t_corpo .= $t_msg["distance"] . "km" . $dir_icon . " | " . date("H:i", $t_msg["expire_timestamp"]);
-            let gender = self.pokemon.gender.get_glyph();
-            format!(
-                "{} {}{}{}{} ({:.0}%){}\n{}{:.1} km {} | {}",
-                icon,
-                LIST.load()
-                    .get(&self.pokemon.pokemon_id)
-                    .map(|p| p.name.to_uppercase())
+                // $t_corpo = $icon_pkmn . " " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]);
+                // $t_corpo .= ($t_msg["pokemon_id"] == 201 ? " (" . $unown_letter[$t_msg["form"]] . ")" : "");
+                // $t_corpo .= " (" . $v_iv . "%)" . MeteoIcon($t_msg["wb"]) . "\n";
+                // $t_corpo .= "PL " . number_format($t_msg["cp"], 0, ",", ".") . " | Lv " . $t_msg["level"] . "\n";
+                // $t_corpo .= $t_msg["distance"] . "km" . $dir_icon . " | " . date("H:i", $t_msg["expire_timestamp"]);
+                let gender = self.pokemon.gender.get_glyph();
+                format!(
+                    "{} {}{}{}{} ({:.0}%){}\n{}{:.1} km {} | {}",
+                    icon,
+                    LIST.load().get(&self.pokemon.pokemon_id).map(|p| p.name.to_uppercase()).unwrap_or_default(),
+                    gender,
+                    match self.pokemon.form {
+                        Some(id) => FORMS.load().get(&id).and_then(|f| if f.hidden {
+                            None
+                        } else {
+                            Some(format!(" ({})", f.name))
+                        }),
+                        None => None,
+                    }
                     .unwrap_or_default(),
-                gender,
-                match self.pokemon.form {
-                    Some(id) => FORMS.load().get(&id).and_then(|f| if f.hidden {
-                        None
-                    } else {
-                        Some(format!(" ({})", f.name))
-                    }),
-                    None => None,
-                }
-                .unwrap_or_default(),
-                match self.pokemon.display_pokemon_id {
-                    Some(id) => LIST.load().get(&id).map(|f| format!(" ({})", f.name)),
-                    None => None,
-                }
-                .unwrap_or_default(),
-                iv,
-                self.pokemon
-                    .weather
-                    .and_then(|id| meteo_icon(id).ok())
+                    match self.pokemon.display_pokemon_id {
+                        Some(id) => LIST.load().get(&id).map(|f| format!(" ({})", f.name)),
+                        None => None,
+                    }
                     .unwrap_or_default(),
-                match (self.pokemon.cp, self.pokemon.pokemon_level) {
-                    (Some(cp), Some(level)) => format!("PL {} | Lv {}\n", cp, level),
-                    _ => String::new(),
-                },
-                self.distance,
-                dir_icon,
-                Utc.timestamp(self.pokemon.disappear_time, 0)
-                    .with_timezone(&Rome)
-                    .format("%T")
-            )
-            .replace(&gender.repeat(2), &gender) //fix nidoran double gender
-        } else {
-            // $t_corpo = $icon_pkmn . " " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]);
-            // $t_corpo .= ($t_msg["pokemon_id"] == 201 ? " (" . $unown_letter[$t_msg["form"]] . ")" : "") . MeteoIcon($t_msg["wb"]) . "\n";
-            // $t_corpo .= $t_msg["distance"] . "km" . $dir_icon . " | " . date("H:i", $t_msg["expire_timestamp"]);
-            let gender = self.pokemon.gender.get_glyph();
-            format!(
-                "{} {}{}{}{}{}\n{:.1} km {} | {}",
-                icon,
-                LIST.load()
-                    .get(&self.pokemon.pokemon_id)
-                    .map(|p| p.name.to_uppercase())
+                    iv,
+                    self.pokemon.weather.and_then(|id| meteo_icon(id).ok()).unwrap_or_default(),
+                    match (self.pokemon.cp, self.pokemon.pokemon_level) {
+                        (Some(cp), Some(level)) => format!("PL {} | Lv {}\n", cp, level),
+                        _ => String::new(),
+                    },
+                    self.distance,
+                    dir_icon,
+                    Utc.timestamp(self.pokemon.disappear_time, 0).with_timezone(&Rome).format("%T")
+                )
+                .replace(&gender.repeat(2), &gender) //fix nidoran double gender
+            } else {
+                // $t_corpo = $icon_pkmn . " " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]);
+                // $t_corpo .= ($t_msg["pokemon_id"] == 201 ? " (" . $unown_letter[$t_msg["form"]] . ")" : "") . MeteoIcon($t_msg["wb"]) . "\n";
+                // $t_corpo .= $t_msg["distance"] . "km" . $dir_icon . " | " . date("H:i", $t_msg["expire_timestamp"]);
+                let gender = self.pokemon.gender.get_glyph();
+                format!(
+                    "{} {}{}{}{}{}\n{:.1} km {} | {}",
+                    icon,
+                    LIST.load().get(&self.pokemon.pokemon_id).map(|p| p.name.to_uppercase()).unwrap_or_default(),
+                    gender,
+                    match self.pokemon.form {
+                        Some(id) => FORMS.load().get(&id).and_then(|f| if f.hidden {
+                            None
+                        } else {
+                            Some(format!(" ({})", f.name))
+                        }),
+                        None => None,
+                    }
                     .unwrap_or_default(),
-                gender,
-                match self.pokemon.form {
-                    Some(id) => FORMS.load().get(&id).and_then(|f| if f.hidden {
-                        None
-                    } else {
-                        Some(format!(" ({})", f.name))
-                    }),
-                    None => None,
-                }
-                .unwrap_or_default(),
-                match self.pokemon.display_pokemon_id {
-                    Some(id) => LIST.load().get(&id).map(|f| format!(" ({})", f.name)),
-                    None => None,
-                }
-                .unwrap_or_default(),
-                self.pokemon
-                    .weather
-                    .and_then(|id| meteo_icon(id).ok())
+                    match self.pokemon.display_pokemon_id {
+                        Some(id) => LIST.load().get(&id).map(|f| format!(" ({})", f.name)),
+                        None => None,
+                    }
                     .unwrap_or_default(),
-                self.distance,
-                dir_icon,
-                Utc.timestamp(self.pokemon.disappear_time, 0)
-                    .with_timezone(&Rome)
-                    .format("%T")
-            )
-            .replace(&gender.repeat(2), &gender) //fix nidoran double gender
-        };
+                    self.pokemon.weather.and_then(|id| meteo_icon(id).ok()).unwrap_or_default(),
+                    self.distance,
+                    dir_icon,
+                    Utc.timestamp(self.pokemon.disappear_time, 0).with_timezone(&Rome).format("%T")
+                )
+                .replace(&gender.repeat(2), &gender) //fix nidoran double gender
+            };
 
         Ok(match self.debug {
             Some(ref s) => format!("{}\n\n{}", caption, s),
@@ -442,19 +374,16 @@ impl Message for PokemonMessage {
             .get(img_path_str.into(), |img_path| async move {
                 if img_path.exists() {
                     if let Some(url) = &CONFIG.images.bot_pub {
-                        return Ok(Image::FileUrl(img_path.display().to_string().replacen(
-                            &CONFIG.images.bot,
-                            url,
-                            1,
-                        )));
+                        return Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)));
                     } else {
-                        let mut image = File::open(&img_path).await.map_err(|e| {
-                            error!("error opening pokemon image {}: {}", img_path.display(), e)
-                        })?;
+                        let mut image = File::open(&img_path)
+                            .await
+                            .map_err(|e| error!("error opening pokemon image {}: {}", img_path.display(), e))?;
                         let mut bytes = Vec::new();
-                        image.read_to_end(&mut bytes).await.map_err(|e| {
-                            error!("error reading pokemon image {}: {}", img_path.display(), e)
-                        })?;
+                        image
+                            .read_to_end(&mut bytes)
+                            .await
+                            .map_err(|e| error!("error reading pokemon image {}: {}", img_path.display(), e))?;
                         return Ok(Image::Bytes(bytes));
                     }
                 }
@@ -479,10 +408,8 @@ impl Message for PokemonMessage {
                         CONFIG.images.sender,
                         match self.iv {
                             Some(i) if i < 80 => "images/msg-bgs/msg-poke-big-norm.png",
-                            Some(i) if (80..90).contains(&i) =>
-                                "images/msg-bgs/msg-poke-big-med.png",
-                            Some(i) if (90..100).contains(&i) =>
-                                "images/msg-bgs/msg-poke-big-hi.png",
+                            Some(i) if (80..90).contains(&i) => "images/msg-bgs/msg-poke-big-med.png",
+                            Some(i) if (90..100).contains(&i) => "images/msg-bgs/msg-poke-big-hi.png",
                             Some(i) if i >= 100 => "images/msg-bgs/msg-poke-big-top.png",
                             _ => "images/msg-bgs/msg-poke-sm.png",
                         }
@@ -511,11 +438,8 @@ impl Message for PokemonMessage {
                         }
                     }
                     _ => {
-                        let image: PathBuf = format!(
-                            "{}img/pkmns/shuffle/{}.png",
-                            CONFIG.images.assets, self.pokemon.pokemon_id
-                        )
-                        .into();
+                        let image: PathBuf =
+                            format!("{}img/pkmns/shuffle/{}.png", CONFIG.images.assets, self.pokemon.pokemon_id).into();
                         open_image(&image).await?
                     }
                 };
@@ -527,11 +451,7 @@ impl Message for PokemonMessage {
                         let path: PathBuf = format!(
                             "{}img/{}.png",
                             CONFIG.images.assets,
-                            if self.pokemon.gender == Gender::Female {
-                                "female"
-                            } else {
-                                "male"
-                            }
+                            if self.pokemon.gender == Gender::Female { "female" } else { "male" }
                         )
                         .into();
                         let icon = open_image(&path).await?;
@@ -562,10 +482,7 @@ impl Message for PokemonMessage {
 
                 if let Some(id) = self.pokemon.form {
                     if let Some(form_name) =
-                        FORMS
-                            .load()
-                            .get(&id)
-                            .and_then(|f| if f.hidden { None } else { Some(&f.name) })
+                        FORMS.load().get(&id).and_then(|f| if f.hidden { None } else { Some(&f.name) })
                     {
                         let dm = get_text_width(&f_cal2, scale18, &name);
                         imageproc::drawing::draw_text_mut(
@@ -593,12 +510,7 @@ impl Message for PokemonMessage {
                 );
 
                 //     imagecopymerge($mBg, $mMap, 0, ($v_ivs ? 136 : 58), 0, 0, 280, 101, 100);
-                image::imageops::overlay(
-                    &mut background,
-                    &map,
-                    0,
-                    if self.iv.is_some() { 136 } else { 58 },
-                );
+                image::imageops::overlay(&mut background, &map, 0, if self.iv.is_some() { 136 } else { 58 });
 
                 // //////////////////////////////////////////////
                 // // IV, PL e MOSSE
@@ -640,9 +552,7 @@ impl Message for PokemonMessage {
 
                     let v_ivcolor = match self.iv {
                         Some(i) if i == 0 => image::Rgba::<u8>([0x2D, 0x90, 0xFF, 0]), //0x002D90FF, // NULL Azzurro
-                        Some(i) if (80..90).contains(&i) => {
-                            image::Rgba::<u8>([0xFF, 0x62, 0x14, 0])
-                        } //0x00FF6214, // MED Arancione
+                        Some(i) if (80..90).contains(&i) => image::Rgba::<u8>([0xFF, 0x62, 0x14, 0]), //0x00FF6214, // MED Arancione
                         Some(i) if (90..100).contains(&i) => image::Rgba::<u8>([0xFF, 0, 0, 0]), //0x00FF0000, // HI Rosso
                         Some(i) if i >= 100 => image::Rgba::<u8>([0xDC, 0, 0xEA, 0]), //0x00DC00EA, // TOP Viola
                         _ => image::Rgba::<u8>([0, 0, 0, 0]),                         //0x00000000,
@@ -662,9 +572,7 @@ impl Message for PokemonMessage {
                     );
 
                     let v_plcolor = match self.pokemon.pokemon_level {
-                        Some(i) if (25..30).contains(&i) => {
-                            image::Rgba::<u8>([0xFF, 0x62, 0x14, 0])
-                        } //0x00FF6214, // MED Arancione
+                        Some(i) if (25..30).contains(&i) => image::Rgba::<u8>([0xFF, 0x62, 0x14, 0]), //0x00FF6214, // MED Arancione
                         Some(i) if (30..35).contains(&i) => image::Rgba::<u8>([0xFF, 0, 0, 0]), //0x00FF0000, // HI Rosso
                         Some(i) if i >= 35 => image::Rgba::<u8>([0xDC, 0, 0xEA, 0]), //0x00DC00EA, // TOP Viola
                         _ => image::Rgba::<u8>([0, 0, 0, 0]),                        //0x00000000,
@@ -707,11 +615,7 @@ impl Message for PokemonMessage {
                 let bytes = save_image(&background, &img_path).await?;
 
                 if let Some(url) = &CONFIG.images.bot_pub {
-                    Ok(Image::FileUrl(img_path.display().to_string().replacen(
-                        &CONFIG.images.bot,
-                        url,
-                        1,
-                    )))
+                    Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)))
                 } else {
                     Ok(Image::Bytes(bytes))
                 }
@@ -726,22 +630,15 @@ impl Message for PokemonMessage {
         let maplink = match mtype {
             "g" => format!("https://maps.google.it/maps/?q={},{}", lat, lon),
             "g2" => format!("https://www.google.it/maps/place/{},{}", lat, lon),
-            "g3" => format!(
-                "https://www.google.com/maps/search/?api=1&query={},{}",
-                lat, lon
-            ),
-            "gd" => format!(
-                "https://www.google.com/maps/dir/?api=1&destination={},{}",
-                lat, lon
-            ),
+            "g3" => format!("https://www.google.com/maps/search/?api=1&query={},{}", lat, lon),
+            "gd" => format!("https://www.google.com/maps/dir/?api=1&destination={},{}", lat, lon),
             "a" => format!("http://maps.apple.com/?address={},{}", lat, lon),
             "w" => format!("https://waze.com/ul?ll={},{}", lat, lon),
             _ => format!("https://maps.google.it/maps/?q={},{}", lat, lon),
         };
         let title = format!(
             "{} Mappa",
-            String::from_utf8(vec![0xf0, 0x9f, 0x8c, 0x8e])
-                .map_err(|e| error!("error encoding map icon: {}", e))?
+            String::from_utf8(vec![0xf0, 0x9f, 0x8c, 0x8e]).map_err(|e| error!("error encoding map icon: {}", e))?
         );
 
         let mut keyboard = json!({
@@ -770,10 +667,11 @@ impl Message for PokemonMessage {
     }
 
     async fn update_stats(&self, conn: &mut Conn) -> Result<(), ()> {
-        let query = format!("INSERT INTO bot_sent_pkmn (pokemon_id, sent) VALUES ({}, 1) ON DUPLICATE KEY UPDATE sent = sent + 1", self.pokemon.pokemon_id);
-        conn.query_drop(query)
-            .await
-            .map_err(|e| error!("MySQL query error: update stats\n{}", e))?;
+        let query = format!(
+            "INSERT INTO bot_sent_pkmn (pokemon_id, sent) VALUES ({}, 1) ON DUPLICATE KEY UPDATE sent = sent + 1",
+            self.pokemon.pokemon_id
+        );
+        conn.query_drop(query).await.map_err(|e| error!("MySQL query error: update stats\n{}", e))?;
         Ok(())
     }
 }
@@ -817,81 +715,66 @@ impl Message for RaidMessage {
                 .map_err(|e| error!("error parsing raid icon: {}", e))?
         };
 
-        let caption = if let Some(pokemon_id) =
-            self.raid
-                .pokemon_id
-                .and_then(|id| if id > 0 { Some(id) } else { None })
-        {
-            let gender = self
-                .raid
-                .gender
-                .as_ref()
-                .map(|g| g.get_glyph())
-                .unwrap_or_default();
-            // $t_corpo = $icon_raid . " "; // Battaglia
-            // $t_corpo .= "RAID " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]) . " iniziato\n";
-            // $t_corpo .= "\xf0\x9f\x93\x8d " . (strlen($gym_name) > 36 ? substr($gym_name, 0, 35) . ".." : $gym_name) . "\n";
-            // $t_corpo .= "\xf0\x9f\x95\x92 Termina: " . date("H:i:s", $t_msg["time_end"]);
-            format!(
-                "{} RAID {}{}{}{} iniziato\n{} {}\n{} Termina: {}", //debug
-                icon,
-                LIST.load()
-                    .get(&pokemon_id)
-                    .map(|p| p.name.to_uppercase())
+        let caption =
+            if let Some(pokemon_id) = self.raid.pokemon_id.and_then(|id| if id > 0 { Some(id) } else { None }) {
+                let gender = self.raid.gender.as_ref().map(|g| g.get_glyph()).unwrap_or_default();
+                // $t_corpo = $icon_raid . " "; // Battaglia
+                // $t_corpo .= "RAID " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]) . " iniziato\n";
+                // $t_corpo .= "\xf0\x9f\x93\x8d " . (strlen($gym_name) > 36 ? substr($gym_name, 0, 35) . ".." : $gym_name) . "\n";
+                // $t_corpo .= "\xf0\x9f\x95\x92 Termina: " . date("H:i:s", $t_msg["time_end"]);
+                format!(
+                    "{} RAID {}{}{}{} iniziato\n{} {}\n{} Termina: {}", //debug
+                    icon,
+                    LIST.load().get(&pokemon_id).map(|p| p.name.to_uppercase()).unwrap_or_default(),
+                    gender,
+                    match self.raid.form {
+                        Some(id) => FORMS.load().get(&id).and_then(|f| if f.hidden {
+                            None
+                        } else {
+                            Some(format!(" ({})", f.name))
+                        }),
+                        None => None,
+                    }
                     .unwrap_or_default(),
-                gender,
-                match self.raid.form {
-                    Some(id) => FORMS.load().get(&id).and_then(|f| if f.hidden {
-                        None
+                    match self.raid.evolution {
+                        Some(id) if id == 1 => " (Mega)",
+                        Some(id) if id == 2 => " (Mega X)",
+                        Some(id) if id == 3 => " (Mega Y)",
+                        _ => "",
+                    },
+                    String::from_utf8(if self.raid.ex_raid_eligible == Some(true) {
+                        vec![0xE2, 0x9B, 0xB3]
                     } else {
-                        Some(format!(" ({})", f.name))
-                    }),
-                    None => None,
-                }
-                .unwrap_or_default(),
-                match self.raid.evolution {
-                    Some(id) if id == 1 => " (Mega)",
-                    Some(id) if id == 2 => " (Mega X)",
-                    Some(id) if id == 3 => " (Mega Y)",
-                    _ => "",
-                },
-                String::from_utf8(if self.raid.ex_raid_eligible == Some(true) {
-                    vec![0xE2, 0x9B, 0xB3]
-                } else {
-                    vec![0xf0, 0x9f, 0x93, 0x8d]
-                })
-                .map_err(|e| error!("error parsing POI icon: {}", e))?,
-                self.raid.gym_name,
-                String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92])
-                    .map_err(|e| error!("error parsing clock icon: {}", e))?,
-                Utc.timestamp(self.raid.end, 0)
-                    .with_timezone(&Rome)
-                    .format("%T")
-            )
-        } else {
-            // $t_corpo = "\xf0\x9f\xa5\x9a "; // Uovo
-            // $t_corpo .= "RAID liv. " . $t_msg["level"] . "\n";
-            // $t_corpo .= "\xf0\x9f\x93\x8d " . (strlen($gym_name) > 36 ? substr($gym_name, 0, 35) . ".." : $gym_name) . "\n";
-            // $t_corpo .= "\xf0\x9f\x95\x92 Schiude: " . date("H:i:s", $t_msg["time_battle"]);
-            format!(
-                "{} RAID liv. {}\n{} {}\n{} Schiude: {}", //debug
-                String::from_utf8(vec![0xf0, 0x9f, 0xa5, 0x9a])
-                    .map_err(|e| error!("error parsing egg icon: {}", e))?,
-                self.raid.level,
-                String::from_utf8(if self.raid.ex_raid_eligible == Some(true) {
-                    vec![0xE2, 0x9B, 0xB3]
-                } else {
-                    vec![0xf0, 0x9f, 0x93, 0x8d]
-                })
-                .map_err(|e| error!("error parsing POI icon: {}", e))?,
-                self.raid.gym_name,
-                String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92])
-                    .map_err(|e| error!("error parsing clock icon: {}", e))?,
-                Utc.timestamp(self.raid.start, 0)
-                    .with_timezone(&Rome)
-                    .format("%T")
-            )
-        };
+                        vec![0xf0, 0x9f, 0x93, 0x8d]
+                    })
+                    .map_err(|e| error!("error parsing POI icon: {}", e))?,
+                    self.raid.gym_name,
+                    String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92])
+                        .map_err(|e| error!("error parsing clock icon: {}", e))?,
+                    Utc.timestamp(self.raid.end, 0).with_timezone(&Rome).format("%T")
+                )
+            } else {
+                // $t_corpo = "\xf0\x9f\xa5\x9a "; // Uovo
+                // $t_corpo .= "RAID liv. " . $t_msg["level"] . "\n";
+                // $t_corpo .= "\xf0\x9f\x93\x8d " . (strlen($gym_name) > 36 ? substr($gym_name, 0, 35) . ".." : $gym_name) . "\n";
+                // $t_corpo .= "\xf0\x9f\x95\x92 Schiude: " . date("H:i:s", $t_msg["time_battle"]);
+                format!(
+                    "{} RAID liv. {}\n{} {}\n{} Schiude: {}", //debug
+                    String::from_utf8(vec![0xf0, 0x9f, 0xa5, 0x9a])
+                        .map_err(|e| error!("error parsing egg icon: {}", e))?,
+                    self.raid.level,
+                    String::from_utf8(if self.raid.ex_raid_eligible == Some(true) {
+                        vec![0xE2, 0x9B, 0xB3]
+                    } else {
+                        vec![0xf0, 0x9f, 0x93, 0x8d]
+                    })
+                    .map_err(|e| error!("error parsing POI icon: {}", e))?,
+                    self.raid.gym_name,
+                    String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92])
+                        .map_err(|e| error!("error parsing clock icon: {}", e))?,
+                    Utc.timestamp(self.raid.start, 0).with_timezone(&Rome).format("%T")
+                )
+            };
 
         Ok(match self.debug {
             Some(ref s) => format!("{}\n\n{}", caption, s),
@@ -907,29 +790,23 @@ impl Message for RaidMessage {
             now.with_timezone(&Rome).format("%Y%m%d%H"),
             self.raid.gym_id,
             self.raid.start,
-            self.raid
-                .pokemon_id
-                .map(|i| i.to_string())
-                .unwrap_or_default()
+            self.raid.pokemon_id.map(|i| i.to_string()).unwrap_or_default()
         );
 
         IMG_CACHE
             .get(img_path_str.into(), |img_path| async move {
                 if img_path.exists() {
                     if let Some(url) = &CONFIG.images.bot_pub {
-                        return Ok(Image::FileUrl(img_path.display().to_string().replacen(
-                            &CONFIG.images.bot,
-                            url,
-                            1,
-                        )));
+                        return Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)));
                     } else {
-                        let mut image = File::open(&img_path).await.map_err(|e| {
-                            error!("error opening raid image {}: {}", img_path.display(), e)
-                        })?;
+                        let mut image = File::open(&img_path)
+                            .await
+                            .map_err(|e| error!("error opening raid image {}: {}", img_path.display(), e))?;
                         let mut bytes = Vec::new();
-                        image.read_to_end(&mut bytes).await.map_err(|e| {
-                            error!("error reading raid image {}: {}", img_path.display(), e)
-                        })?;
+                        image
+                            .read_to_end(&mut bytes)
+                            .await
+                            .map_err(|e| error!("error reading raid image {}: {}", img_path.display(), e))?;
                         return Ok(Image::Bytes(bytes));
                     }
                 }
@@ -953,11 +830,7 @@ impl Message for RaidMessage {
                             "{}images/msg-bgs/msg-raid-big-t{}{}.png",
                             CONFIG.images.sender,
                             self.raid.team_id.get_id(),
-                            if self.raid.ex_raid_eligible == Some(true) {
-                                "-ex"
-                            } else {
-                                ""
-                            }
+                            if self.raid.ex_raid_eligible == Some(true) { "-ex" } else { "" }
                         )
                         .into();
                         let mut background = open_image(&path).await?;
@@ -980,11 +853,9 @@ impl Message for RaidMessage {
                                 match open_image(&image).await {
                                     Ok(img) => img,
                                     Err(_) => {
-                                        let image: PathBuf = format!(
-                                            "{}img/pkmns/shuffle/{}{}.png",
-                                            CONFIG.images.assets, pkmn_id, evo
-                                        )
-                                        .into();
+                                        let image: PathBuf =
+                                            format!("{}img/pkmns/shuffle/{}{}.png", CONFIG.images.assets, pkmn_id, evo)
+                                                .into();
                                         match open_image(&image).await {
                                             Ok(img) => img,
                                             Err(_) => {
@@ -1000,19 +871,13 @@ impl Message for RaidMessage {
                                 }
                             }
                             _ => {
-                                let image: PathBuf = format!(
-                                    "{}img/pkmns/shuffle/{}{}.png",
-                                    CONFIG.images.assets, pkmn_id, evo
-                                )
-                                .into();
+                                let image: PathBuf =
+                                    format!("{}img/pkmns/shuffle/{}{}.png", CONFIG.images.assets, pkmn_id, evo).into();
                                 match open_image(&image).await {
                                     Ok(img) => img,
                                     Err(_) => {
-                                        let image: PathBuf = format!(
-                                            "{}img/pkmns/shuffle/{}.png",
-                                            CONFIG.images.assets, pkmn_id
-                                        )
-                                        .into();
+                                        let image: PathBuf =
+                                            format!("{}img/pkmns/shuffle/{}.png", CONFIG.images.assets, pkmn_id).into();
                                         open_image(&image).await?
                                     }
                                 }
@@ -1023,11 +888,7 @@ impl Message for RaidMessage {
                             let path: PathBuf = format!(
                                 "{}img/{}.png",
                                 CONFIG.images.assets,
-                                if self.raid.gender == Some(Gender::Female) {
-                                    "female"
-                                } else {
-                                    "male"
-                                }
+                                if self.raid.gender == Some(Gender::Female) { "female" } else { "male" }
                             )
                             .into();
                             let icon = open_image(&path).await?;
@@ -1096,11 +957,7 @@ impl Message for RaidMessage {
                         );
 
                         // imagettftext($mBg, 18, 0, 63, 25, 0x00000000, $f_cal2, $p_name);
-                        let name = LIST
-                            .load()
-                            .get(&pkmn_id)
-                            .map(|p| p.name.to_uppercase())
-                            .unwrap_or_default();
+                        let name = LIST.load().get(&pkmn_id).map(|p| p.name.to_uppercase()).unwrap_or_default();
                         imageproc::drawing::draw_text_mut(
                             &mut background,
                             image::Rgba::<u8>([0, 0, 0, 0]),
@@ -1112,13 +969,9 @@ impl Message for RaidMessage {
                         );
                         let mut has_form = false;
                         if let Some(id) = self.raid.form {
-                            if let Some(form_name) = FORMS.load().get(&id).and_then(|f| {
-                                if f.hidden {
-                                    None
-                                } else {
-                                    Some(&f.name)
-                                }
-                            }) {
+                            if let Some(form_name) =
+                                FORMS.load().get(&id).and_then(|f| if f.hidden { None } else { Some(&f.name) })
+                            {
                                 has_form = true;
                                 let dm = get_text_width(&f_cal2, scale18, &name);
                                 imageproc::drawing::draw_text_mut(
@@ -1128,11 +981,7 @@ impl Message for RaidMessage {
                                     7,
                                     scale11,
                                     &f_cal2,
-                                    &format!(
-                                        "({}) {}",
-                                        form_name,
-                                        get_mega_desc(&self.raid.evolution)
-                                    ),
+                                    &format!("({}) {}", form_name, get_mega_desc(&self.raid.evolution)),
                                 );
                             }
                         }
@@ -1157,21 +1006,14 @@ impl Message for RaidMessage {
                                 "{}images/msg-bgs/msg-raid-sm-t{}{}.png",
                                 CONFIG.images.sender,
                                 self.raid.team_id.get_id(),
-                                if self.raid.ex_raid_eligible == Some(true) {
-                                    "-ex"
-                                } else {
-                                    ""
-                                }
+                                if self.raid.ex_raid_eligible == Some(true) { "-ex" } else { "" }
                             )
                             .into();
                             open_image(&path).await?
                         };
                         let pokemon = {
-                            let path: PathBuf = format!(
-                                "{}images/raid_{}.png",
-                                CONFIG.images.sender, self.raid.level
-                            )
-                            .into();
+                            let path: PathBuf =
+                                format!("{}images/raid_{}.png", CONFIG.images.sender, self.raid.level).into();
                             open_image(&path).await?
                         };
 
@@ -1220,12 +1062,7 @@ impl Message for RaidMessage {
                     &mut background,
                     &map,
                     0,
-                    if self
-                        .raid
-                        .pokemon_id
-                        .and_then(|i| if i > 0 { Some(i) } else { None })
-                        .is_none()
-                    {
+                    if self.raid.pokemon_id.and_then(|i| if i > 0 { Some(i) } else { None }).is_none() {
                         83
                     } else {
                         136
@@ -1235,11 +1072,7 @@ impl Message for RaidMessage {
                 let bytes = save_image(&background, &img_path).await?;
 
                 if let Some(url) = &CONFIG.images.bot_pub {
-                    Ok(Image::FileUrl(img_path.display().to_string().replacen(
-                        &CONFIG.images.bot,
-                        url,
-                        1,
-                    )))
+                    Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)))
                 } else {
                     Ok(Image::Bytes(bytes))
                 }
@@ -1248,13 +1081,16 @@ impl Message for RaidMessage {
     }
 
     async fn update_stats(&self, conn: &mut Conn) -> Result<(), ()> {
-        let query = format!("INSERT INTO bot_sent_raid (raid_id, sent) VALUES ('{}', 1) ON DUPLICATE KEY UPDATE sent = sent + 1", match self.raid.pokemon_id {
-            Some(id) if id > 0 => { format!("p{}", id) },
-            _ => format!("l{}", self.raid.level),
-        });
-        conn.query_drop(query)
-            .await
-            .map_err(|e| error!("MySQL query error: insert sent raid\n{}", e))?;
+        let query = format!(
+            "INSERT INTO bot_sent_raid (raid_id, sent) VALUES ('{}', 1) ON DUPLICATE KEY UPDATE sent = sent + 1",
+            match self.raid.pokemon_id {
+                Some(id) if id > 0 => {
+                    format!("p{}", id)
+                }
+                _ => format!("l{}", self.raid.level),
+            }
+        );
+        conn.query_drop(query).await.map_err(|e| error!("MySQL query error: insert sent raid\n{}", e))?;
         Ok(())
     }
 }
@@ -1283,9 +1119,7 @@ impl Message for LureMessage {
      * 505 => "Modulo Esca Pluviale",
      */
     async fn get_caption(&self) -> Result<String, ()> {
-        if let (Some(timestamp), Some(lure_id)) =
-            (self.pokestop.lure_expiration, self.pokestop.lure_id)
-        {
+        if let (Some(timestamp), Some(lure_id)) = (self.pokestop.lure_expiration, self.pokestop.lure_id) {
             let caption = format!(
                 "{} {}\n{} {}\n{} {}",
                 match lure_id {
@@ -1309,14 +1143,11 @@ impl Message for LureMessage {
                     505 => "Modulo Esca Pluviale",
                     _ => "",
                 },
-                String::from_utf8(vec![0xf0, 0x9f, 0x93, 0x8d])
-                    .map_err(|e| error!("error parsing POI icon: {}", e))?,
+                String::from_utf8(vec![0xf0, 0x9f, 0x93, 0x8d]).map_err(|e| error!("error parsing POI icon: {}", e))?,
                 self.pokestop.name.as_deref().unwrap_or("Sconosciuto"),
                 String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92])
                     .map_err(|e| error!("error parsing clock icon: {}", e))?,
-                Utc.timestamp(timestamp, 0)
-                    .with_timezone(&Rome)
-                    .format("%T")
+                Utc.timestamp(timestamp, 0).with_timezone(&Rome).format("%T")
             );
 
             Ok(match self.debug {
@@ -1342,19 +1173,16 @@ impl Message for LureMessage {
             .get(img_path_str.into(), |img_path| async move {
                 if img_path.exists() {
                     if let Some(url) = &CONFIG.images.bot_pub {
-                        return Ok(Image::FileUrl(img_path.display().to_string().replacen(
-                            &CONFIG.images.bot,
-                            url,
-                            1,
-                        )));
+                        return Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)));
                     } else {
-                        let mut image = File::open(&img_path).await.map_err(|e| {
-                            error!("error opening invasion image {}: {}", img_path.display(), e)
-                        })?;
+                        let mut image = File::open(&img_path)
+                            .await
+                            .map_err(|e| error!("error opening invasion image {}: {}", img_path.display(), e))?;
                         let mut bytes = Vec::new();
-                        image.read_to_end(&mut bytes).await.map_err(|e| {
-                            error!("error reading invasion image {}: {}", img_path.display(), e)
-                        })?;
+                        image
+                            .read_to_end(&mut bytes)
+                            .await
+                            .map_err(|e| error!("error reading invasion image {}: {}", img_path.display(), e))?;
                         return Ok(Image::Bytes(bytes));
                     }
                 }
@@ -1373,18 +1201,14 @@ impl Message for LureMessage {
                 // let scale18 = rusttype::Scale::uniform(23f32);
 
                 let mut background = {
-                    let path: PathBuf =
-                        format!("{}images/msg-bgs/msg-lure.png", CONFIG.images.sender).into();
+                    let path: PathBuf = format!("{}images/msg-bgs/msg-lure.png", CONFIG.images.sender).into();
                     open_image(&path).await?
                 };
 
                 let icon = {
-                    let path: PathBuf = format!(
-                        "{}img/items/{}.png",
-                        CONFIG.images.assets,
-                        self.pokestop.lure_id.unwrap_or_default()
-                    )
-                    .into();
+                    let path: PathBuf =
+                        format!("{}img/items/{}.png", CONFIG.images.assets, self.pokestop.lure_id.unwrap_or_default())
+                            .into();
                     open_image(&path).await?
                 };
                 image::imageops::overlay(&mut background, &icon, 5, 5);
@@ -1396,11 +1220,7 @@ impl Message for LureMessage {
                     7,
                     scale13,
                     &f_cal2,
-                    &truncate_str(
-                        self.pokestop.name.as_deref().unwrap_or("Sconosciuto"),
-                        25,
-                        '-',
-                    ),
+                    &truncate_str(self.pokestop.name.as_deref().unwrap_or("Sconosciuto"), 25, '-'),
                 );
 
                 if let Some(timestamp) = self.pokestop.lure_expiration {
@@ -1421,11 +1241,7 @@ impl Message for LureMessage {
                 let bytes = save_image(&background, &img_path).await?;
 
                 if let Some(url) = &CONFIG.images.bot_pub {
-                    Ok(Image::FileUrl(img_path.display().to_string().replacen(
-                        &CONFIG.images.bot,
-                        url,
-                        1,
-                    )))
+                    Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)))
                 } else {
                     Ok(Image::Bytes(bytes))
                 }
@@ -1454,8 +1270,7 @@ impl Message for InvasionMessage {
         if let Some(timestamp) = self.invasion.incident_expire_timestamp {
             let caption = format!(
                 "{} {}\n{} {}\n{} {}",
-                String::from_utf8(vec![0xC2, 0xAE])
-                    .map_err(|e| error!("error parsing R icon: {}", e))?,
+                String::from_utf8(vec![0xC2, 0xAE]).map_err(|e| error!("error parsing R icon: {}", e))?,
                 match self.invasion.grunt_type {
                     Some(id) => {
                         let grunts = GRUNTS.load();
@@ -1464,14 +1279,11 @@ impl Message for InvasionMessage {
                     None => None,
                 }
                 .unwrap_or_default(),
-                String::from_utf8(vec![0xf0, 0x9f, 0x93, 0x8d])
-                    .map_err(|e| error!("error parsing POI icon: {}", e))?,
+                String::from_utf8(vec![0xf0, 0x9f, 0x93, 0x8d]).map_err(|e| error!("error parsing POI icon: {}", e))?,
                 self.invasion.name.as_deref().unwrap_or("Sconosciuto"),
                 String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92])
                     .map_err(|e| error!("error parsing clock icon: {}", e))?,
-                Utc.timestamp(timestamp, 0)
-                    .with_timezone(&Rome)
-                    .format("%T")
+                Utc.timestamp(timestamp, 0).with_timezone(&Rome).format("%T")
             );
 
             Ok(match self.debug {
@@ -1490,29 +1302,23 @@ impl Message for InvasionMessage {
             CONFIG.images.bot,
             now.with_timezone(&Rome).format("%Y%m%d%H"),
             self.invasion.pokestop_id,
-            self.invasion
-                .grunt_type
-                .map(|id| id.to_string())
-                .unwrap_or_default()
+            self.invasion.grunt_type.map(|id| id.to_string()).unwrap_or_default()
         );
 
         IMG_CACHE
             .get(img_path_str.into(), |img_path| async move {
                 if img_path.exists() {
                     if let Some(url) = &CONFIG.images.bot_pub {
-                        return Ok(Image::FileUrl(img_path.display().to_string().replacen(
-                            &CONFIG.images.bot,
-                            url,
-                            1,
-                        )));
+                        return Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)));
                     } else {
-                        let mut image = File::open(&img_path).await.map_err(|e| {
-                            error!("error opening invasion image {}: {}", img_path.display(), e)
-                        })?;
+                        let mut image = File::open(&img_path)
+                            .await
+                            .map_err(|e| error!("error opening invasion image {}: {}", img_path.display(), e))?;
                         let mut bytes = Vec::new();
-                        image.read_to_end(&mut bytes).await.map_err(|e| {
-                            error!("error reading invasion image {}: {}", img_path.display(), e)
-                        })?;
+                        image
+                            .read_to_end(&mut bytes)
+                            .await
+                            .map_err(|e| error!("error reading invasion image {}: {}", img_path.display(), e))?;
                         return Ok(Image::Bytes(bytes));
                     }
                 }
@@ -1531,8 +1337,7 @@ impl Message for InvasionMessage {
                 // let scale18 = rusttype::Scale::uniform(23f32);
 
                 let mut background = {
-                    let path: PathBuf =
-                        format!("{}images/msg-bgs/msg-invasion.png", CONFIG.images.sender).into();
+                    let path: PathBuf = format!("{}images/msg-bgs/msg-invasion.png", CONFIG.images.sender).into();
                     open_image(&path).await?
                 };
 
@@ -1541,9 +1346,7 @@ impl Message for InvasionMessage {
                     if let Some(grunt) = lock.get(&id) {
                         if let Some(sex) = &grunt.sex {
                             let icon = {
-                                let path: PathBuf =
-                                    format!("{}img/grunts/{}.png", CONFIG.images.assets, sex)
-                                        .into();
+                                let path: PathBuf = format!("{}img/grunts/{}.png", CONFIG.images.assets, sex).into();
                                 open_image(&path).await?
                             };
                             image::imageops::overlay(&mut background, &icon, 5, 5);
@@ -1578,11 +1381,7 @@ impl Message for InvasionMessage {
                     7,
                     scale13,
                     &f_cal2,
-                    &truncate_str(
-                        self.invasion.name.as_deref().unwrap_or("Sconosciuto"),
-                        25,
-                        '-',
-                    ),
+                    &truncate_str(self.invasion.name.as_deref().unwrap_or("Sconosciuto"), 25, '-'),
                 );
 
                 if let Some(timestamp) = self.invasion.incident_expire_timestamp {
@@ -1603,11 +1402,7 @@ impl Message for InvasionMessage {
                 let bytes = save_image(&background, &img_path).await?;
 
                 if let Some(url) = &CONFIG.images.bot_pub {
-                    Ok(Image::FileUrl(img_path.display().to_string().replacen(
-                        &CONFIG.images.bot,
-                        url,
-                        1,
-                    )))
+                    Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)))
                 } else {
                     Ok(Image::Bytes(bytes))
                 }
@@ -1637,8 +1432,7 @@ impl Message for WeatherMessage {
         // let old = self.watch.reference_weather.as_ref().ok_or_else(|| error!("reference_weather is None"))?;
         let caption = format!(
             "{} Meteo cambiato nella cella!",
-            String::from_utf8(vec![0xE2, 0x9B, 0x85])
-                .map_err(|e| error!("error encoding meteo icon: {}", e))?,
+            String::from_utf8(vec![0xE2, 0x9B, 0x85]).map_err(|e| error!("error encoding meteo icon: {}", e))?,
             // if old == &self.actual_weather { "invariato" } else { "cambiato" }
         );
         Ok(match &self.debug {
@@ -1659,10 +1453,7 @@ impl Message for WeatherMessage {
             timestamp.with_timezone(&Rome).format("%Y%m%d%H"),
             self.watch.encounter_id,
             self.watch.pokemon_id,
-            self.watch
-                .iv
-                .map(|iv| format!("{:.0}", iv))
-                .unwrap_or_default()
+            self.watch.iv.map(|iv| format!("{:.0}", iv)).unwrap_or_default()
         );
 
         // no need for OnceBarrier
@@ -1739,8 +1530,7 @@ impl Message for GymMessage {
     async fn get_caption(&self) -> Result<String, ()> {
         let caption = format!(
             "{} Situazione cambiata nella palestra {}!",
-            String::from_utf8(vec![0xF0, 0x9F, 0x8F, 0x8B])
-                .map_err(|e| error!("error encoding gym icon: {}", e))?,
+            String::from_utf8(vec![0xF0, 0x9F, 0x8F, 0x8B]).map_err(|e| error!("error encoding gym icon: {}", e))?,
             self.gym.name
         );
         Ok(match &self.debug {
@@ -1758,30 +1548,23 @@ impl Message for GymMessage {
             self.gym.id,
             self.gym.team.get_id(),
             6 - self.gym.slots_available,
-            if self.gym.ex_raid_eligible == Some(true) {
-                1
-            } else {
-                0
-            }
+            if self.gym.ex_raid_eligible == Some(true) { 1 } else { 0 }
         );
 
         IMG_CACHE
             .get(img_path_str.into(), |img_path| async move {
                 if img_path.exists() {
                     if let Some(url) = &CONFIG.images.bot_pub {
-                        return Ok(Image::FileUrl(img_path.display().to_string().replacen(
-                            &CONFIG.images.bot,
-                            url,
-                            1,
-                        )));
+                        return Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)));
                     } else {
-                        let mut image = File::open(&img_path).await.map_err(|e| {
-                            error!("error opening raid image {}: {}", img_path.display(), e)
-                        })?;
+                        let mut image = File::open(&img_path)
+                            .await
+                            .map_err(|e| error!("error opening raid image {}: {}", img_path.display(), e))?;
                         let mut bytes = Vec::new();
-                        image.read_to_end(&mut bytes).await.map_err(|e| {
-                            error!("error reading raid image {}: {}", img_path.display(), e)
-                        })?;
+                        image
+                            .read_to_end(&mut bytes)
+                            .await
+                            .map_err(|e| error!("error reading raid image {}: {}", img_path.display(), e))?;
                         return Ok(Image::Bytes(bytes));
                     }
                 }
@@ -1803,11 +1586,7 @@ impl Message for GymMessage {
                         "{}images/msg-bgs/msg-raid-sm-t{}{}.png",
                         CONFIG.images.sender,
                         self.gym.team.get_id(),
-                        if self.gym.ex_raid_eligible == Some(true) {
-                            "-ex"
-                        } else {
-                            ""
-                        }
+                        if self.gym.ex_raid_eligible == Some(true) { "-ex" } else { "" }
                     )
                     .into();
                     open_image(&path).await?
@@ -1818,11 +1597,7 @@ impl Message for GymMessage {
                         CONFIG.images.assets,
                         self.gym.team.get_id(),
                         6 - self.gym.slots_available,
-                        if self.gym.ex_raid_eligible == Some(true) {
-                            1
-                        } else {
-                            0
-                        }
+                        if self.gym.ex_raid_eligible == Some(true) { 1 } else { 0 }
                     )
                     .into();
                     open_image(&path).await?
@@ -1847,11 +1622,7 @@ impl Message for GymMessage {
                 let bytes = save_image(&background, &img_path).await?;
 
                 if let Some(url) = &CONFIG.images.bot_pub {
-                    Ok(Image::FileUrl(img_path.display().to_string().replacen(
-                        &CONFIG.images.bot,
-                        url,
-                        1,
-                    )))
+                    Ok(Image::FileUrl(img_path.display().to_string().replacen(&CONFIG.images.bot, url, 1)))
                 } else {
                     Ok(Image::Bytes(bytes))
                 }
@@ -1896,15 +1667,9 @@ impl<'a> Message for DeviceTierMessage<'a> {
         let name = if self.tier.name.is_some() {
             None
         } else {
-            let mut conn = MYSQL
-                .get_conn()
-                .await
-                .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+            let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
             let res: Option<(String,)> = conn
-                .exec_first(
-                    "SELECT name FROM device_tier WHERE id = :id",
-                    params! { "id" => self.tier.id },
-                )
+                .exec_first("SELECT name FROM device_tier WHERE id = :id", params! { "id" => self.tier.id })
                 .await
                 .map_err(|e| error!("MySQL query error: select device tier\n{}", e))?;
             res.map(|(s,)| s)

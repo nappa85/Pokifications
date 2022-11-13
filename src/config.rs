@@ -79,11 +79,9 @@ impl Config {
             }
             path
         };
-        let mut toml = File::open(&config_file)
-            .unwrap_or_else(|_| panic!("File {} not found", config_file.display()));
+        let mut toml = File::open(&config_file).unwrap_or_else(|_| panic!("File {} not found", config_file.display()));
         let mut s = String::new();
-        toml.read_to_string(&mut s)
-            .expect("Unable to read Toml file");
+        toml.read_to_string(&mut s).expect("Unable to read Toml file");
         //read config file in toml format
         toml::from_str(&s).expect("Syntax error on Tolm file")
     }

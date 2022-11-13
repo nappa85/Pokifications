@@ -18,9 +18,7 @@ where
     V: Clone,
 {
     pub fn new(size: NonZeroUsize) -> Self {
-        FileCache {
-            inner: Mutex::new(LruCache::new(size)),
-        }
+        FileCache { inner: Mutex::new(LruCache::new(size)) }
     }
 
     pub async fn get<Create, CreateFut>(&self, key: K, create: Create) -> V
@@ -37,8 +35,6 @@ where
             oc
         };
         drop(lock);
-        oc.get_or_init(|| async move { create(key).await })
-            .await
-            .clone()
+        oc.get_or_init(|| async move { create(key).await }).await.clone()
     }
 }

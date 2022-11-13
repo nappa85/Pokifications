@@ -59,9 +59,7 @@ impl FromRow for Pokemon {
             name: row.take("name").expect("MySQL pokemon_list.name error"),
             ptype: row.take("type").expect("MySQL pokemon_list.type error"),
             rarity: row.take("rarity").expect("MySQL pokemon_list.rarity error"),
-            scanned: row
-                .take("scanned")
-                .expect("MySQL pokemon_list.scanned error"),
+            scanned: row.take("scanned").expect("MySQL pokemon_list.scanned error"),
             status: row.take("status").expect("MySQL pokemon_list.status error"),
             raid: row.take("raid").expect("MySQL pokemon_list.raid error"),
         })
@@ -80,9 +78,7 @@ impl Cache for PokemonCache {
 
     fn reverse(name: &str) -> Option<Self::Id> {
         let list = LIST.load();
-        list.iter()
-            .find(|(_, p)| p.name.eq_ignore_ascii_case(name))
-            .map(|(id, _)| *id)
+        list.iter().find(|(_, p)| p.name.eq_ignore_ascii_case(name)).map(|(id, _)| *id)
     }
 }
 
@@ -98,12 +94,8 @@ impl FromRow for Form {
         Ok(Form {
             id: row.take("id").expect("MySQL pokemon_forms.id error"),
             name: row.take("name").expect("MySQL pokemon_forms.name error"),
-            pokemon_id: row
-                .take("pokemon_id")
-                .expect("MySQL pokemon_forms.pokemon_id error"),
-            hidden: row
-                .take("hidden")
-                .expect("MySQL pokemon_forms.hidden error"),
+            pokemon_id: row.take("pokemon_id").expect("MySQL pokemon_forms.pokemon_id error"),
+            hidden: row.take("hidden").expect("MySQL pokemon_forms.hidden error"),
         })
     }
 }
@@ -120,10 +112,7 @@ impl Cache for FormCache {
 
     fn reverse(name: &str) -> Option<Self::Id> {
         let forms = FORMS.load();
-        forms
-            .iter()
-            .find(|(_, f)| f.name == name)
-            .map(|(id, _)| *id)
+        forms.iter().find(|(_, f)| f.name == name).map(|(id, _)| *id)
     }
 }
 
@@ -158,9 +147,7 @@ impl FromRow for City {
     fn from_row_opt(mut row: Row) -> Result<Self, mysql_async::FromRowError> {
         let id = row.take("id").expect("MySQL city.id error");
         let name = row.take("name").expect("MySQL city.name error");
-        let coords = row
-            .take::<String, _>("coordinates")
-            .expect("MySQL city.coordinates encoding error");
+        let coords = row.take::<String, _>("coordinates").expect("MySQL city.coordinates encoding error");
         let coords = coords.replace(char::is_whitespace, "");
 
         let poly: Vec<Point<f64>> = if coords.len() < 2 {
@@ -222,9 +209,7 @@ impl FromRow for CityPark {
     fn from_row_opt(mut row: Row) -> Result<Self, mysql_async::FromRowError> {
         let id = row.take("id").expect("MySQL city_parks.id error");
         let city_id = row.take("city_id").expect("MySQL city_parks.city_id error");
-        let coords = row
-            .take::<String, _>("coordinates")
-            .expect("MySQL city_parks.coordinates encoding error");
+        let coords = row.take::<String, _>("coordinates").expect("MySQL city_parks.coordinates encoding error");
         let coords = coords.replace(char::is_whitespace, "");
 
         let poly: Vec<Point<f64>> = if coords.len() < 2 {
@@ -237,9 +222,7 @@ impl FromRow for CityPark {
                     let x_y: Vec<f64> = s
                         .split(',')
                         .filter_map(|s| {
-                            s.parse::<f64>()
-                                .map_err(|e| error!("Error parsing \"{}\" as a float: {}", s, e))
-                                .ok()
+                            s.parse::<f64>().map_err(|e| error!("Error parsing \"{}\" as a float: {}", s, e)).ok()
                         })
                         .collect();
                     if x_y.len() == 2 {
@@ -252,19 +235,12 @@ impl FromRow for CityPark {
                 .collect()
         };
 
-        Ok(CityPark {
-            id,
-            city_id,
-            coordinates: Polygon::new(poly.into(), vec![]),
-        })
+        Ok(CityPark { id, city_id, coordinates: Polygon::new(poly.into(), vec![]) })
     }
 }
 
 async fn load_pokemons() -> Result<(), ()> {
-    let mut conn = MYSQL
-        .get_conn()
-        .await
-        .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
     let res = conn
         .query_iter("SELECT * FROM pokemon_list")
         .await
@@ -285,10 +261,7 @@ async fn load_pokemons() -> Result<(), ()> {
 }
 
 async fn load_moves() -> Result<(), ()> {
-    let mut conn = MYSQL
-        .get_conn()
-        .await
-        .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
     let res = conn
         .query_iter("SELECT id, move FROM pokemon_moves")
         .await
@@ -308,10 +281,7 @@ async fn load_moves() -> Result<(), ()> {
 }
 
 async fn load_forms() -> Result<(), ()> {
-    let mut conn = MYSQL
-        .get_conn()
-        .await
-        .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
     let res = conn
         .query_iter("SELECT * FROM pokemon_forms")
         .await
@@ -332,10 +302,7 @@ async fn load_forms() -> Result<(), ()> {
 }
 
 async fn load_grunts() -> Result<(), ()> {
-    let mut conn = MYSQL
-        .get_conn()
-        .await
-        .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
     let res = conn
         .query_iter("SELECT * FROM grunt_types")
         .await
@@ -356,10 +323,7 @@ async fn load_grunts() -> Result<(), ()> {
 }
 
 pub async fn load_cities() -> Result<(), ()> {
-    let mut conn = MYSQL
-        .get_conn()
-        .await
-        .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
     let res = conn
         .query_iter("SELECT id, name, coordinates, scadenza, monitor, admins_users FROM city")
         .await
@@ -380,10 +344,7 @@ pub async fn load_cities() -> Result<(), ()> {
 }
 
 async fn load_parks() -> Result<(), ()> {
-    let mut conn = MYSQL
-        .get_conn()
-        .await
-        .map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
+    let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;
     let res = conn
         .query_iter("SELECT id, city_id, coordinates FROM city_parks")
         .await
