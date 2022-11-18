@@ -417,12 +417,14 @@ impl BotConfigs {
     }
 
     async fn add_watches(watch: Box<Watch>) -> Result<(), ()> {
-        let now = Utc::now().timestamp();
+        let now = Utc::now();
+        let now_timestamp = now.timestamp();
+        let watch_timestamp = Utc.timestamp_opt(watch.expire, 0).single().ok_or(())?;
 
-        let mut lock = Self::clean_watches(now, &watch).await;
+        let mut lock = Self::clean_watches(now_timestamp, &watch).await;
 
-        if watch.expire > now
-            && Utc::now().hour() != Utc.timestamp(watch.expire, 0).hour()
+        if watch.expire > now_timestamp
+            && now.hour() != watch_timestamp.hour()
             && lock.get(&watch.user_id).map(|v| v.contains(&watch)) != Some(true)
         {
             let mut conn = MYSQL.get_conn().await.map_err(|e| error!("MySQL retrieve connection error: {}", e))?;

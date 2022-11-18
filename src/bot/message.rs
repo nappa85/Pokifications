@@ -250,7 +250,7 @@ impl Message for PokemonMessage {
         //   $icon_pkmn = "\xf0\x9f\x8e\x81"; // natale
         //   $icon_raid = "\xf0\x9f\x8e\x84"; // natale
         // }
-        let date = Utc::today();
+        let date = Utc::now();
         let date: usize = date
             .with_timezone(&Rome)
             .format("%m%d")
@@ -281,17 +281,16 @@ impl Message for PokemonMessage {
         };
 
         // if ($t_msg["cp"] != "") {
-        let caption =
-            if let Some(iv) = self.iv {
-                // $v_iv = GetIV($t_msg["atk_iv"], $t_msg["def_iv"], $t_msg["sta_iv"]);
+        let caption = if let Some(iv) = self.iv {
+            // $v_iv = GetIV($t_msg["atk_iv"], $t_msg["def_iv"], $t_msg["sta_iv"]);
 
-                // $t_corpo = $icon_pkmn . " " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]);
-                // $t_corpo .= ($t_msg["pokemon_id"] == 201 ? " (" . $unown_letter[$t_msg["form"]] . ")" : "");
-                // $t_corpo .= " (" . $v_iv . "%)" . MeteoIcon($t_msg["wb"]) . "\n";
-                // $t_corpo .= "PL " . number_format($t_msg["cp"], 0, ",", ".") . " | Lv " . $t_msg["level"] . "\n";
-                // $t_corpo .= $t_msg["distance"] . "km" . $dir_icon . " | " . date("H:i", $t_msg["expire_timestamp"]);
-                let gender = self.pokemon.gender.get_glyph();
-                format!(
+            // $t_corpo = $icon_pkmn . " " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]);
+            // $t_corpo .= ($t_msg["pokemon_id"] == 201 ? " (" . $unown_letter[$t_msg["form"]] . ")" : "");
+            // $t_corpo .= " (" . $v_iv . "%)" . MeteoIcon($t_msg["wb"]) . "\n";
+            // $t_corpo .= "PL " . number_format($t_msg["cp"], 0, ",", ".") . " | Lv " . $t_msg["level"] . "\n";
+            // $t_corpo .= $t_msg["distance"] . "km" . $dir_icon . " | " . date("H:i", $t_msg["expire_timestamp"]);
+            let gender = self.pokemon.gender.get_glyph();
+            format!(
                     "{} {}{}{}{} ({:.0}%){}\n{}{:.1} km {} | {}",
                     icon,
                     LIST.load().get(&self.pokemon.pokemon_id).map(|p| p.name.to_uppercase()).unwrap_or_default(),
@@ -318,15 +317,15 @@ impl Message for PokemonMessage {
                     },
                     self.distance,
                     dir_icon,
-                    Utc.timestamp(self.pokemon.disappear_time, 0).with_timezone(&Rome).format("%T")
+                    Utc.timestamp_opt(self.pokemon.disappear_time, 0).single().ok_or(())?.with_timezone(&Rome).format("%T")
                 )
                 .replace(&gender.repeat(2), &gender) //fix nidoran double gender
-            } else {
-                // $t_corpo = $icon_pkmn . " " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]);
-                // $t_corpo .= ($t_msg["pokemon_id"] == 201 ? " (" . $unown_letter[$t_msg["form"]] . ")" : "") . MeteoIcon($t_msg["wb"]) . "\n";
-                // $t_corpo .= $t_msg["distance"] . "km" . $dir_icon . " | " . date("H:i", $t_msg["expire_timestamp"]);
-                let gender = self.pokemon.gender.get_glyph();
-                format!(
+        } else {
+            // $t_corpo = $icon_pkmn . " " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]);
+            // $t_corpo .= ($t_msg["pokemon_id"] == 201 ? " (" . $unown_letter[$t_msg["form"]] . ")" : "") . MeteoIcon($t_msg["wb"]) . "\n";
+            // $t_corpo .= $t_msg["distance"] . "km" . $dir_icon . " | " . date("H:i", $t_msg["expire_timestamp"]);
+            let gender = self.pokemon.gender.get_glyph();
+            format!(
                     "{} {}{}{}{}{}\n{:.1} km {} | {}",
                     icon,
                     LIST.load().get(&self.pokemon.pokemon_id).map(|p| p.name.to_uppercase()).unwrap_or_default(),
@@ -348,10 +347,10 @@ impl Message for PokemonMessage {
                     self.pokemon.weather.and_then(|id| meteo_icon(id).ok()).unwrap_or_default(),
                     self.distance,
                     dir_icon,
-                    Utc.timestamp(self.pokemon.disappear_time, 0).with_timezone(&Rome).format("%T")
+                    Utc.timestamp_opt(self.pokemon.disappear_time, 0).single().ok_or(())?.with_timezone(&Rome).format("%T")
                 )
                 .replace(&gender.repeat(2), &gender) //fix nidoran double gender
-            };
+        };
 
         Ok(match self.debug {
             Some(ref s) => format!("{}\n\n{}", caption, s),
@@ -360,7 +359,7 @@ impl Message for PokemonMessage {
     }
 
     async fn _get_image(&self, map: image::DynamicImage) -> Result<Image, ()> {
-        let timestamp = Utc.timestamp(self.pokemon.disappear_time, 0);
+        let timestamp = Utc.timestamp_opt(self.pokemon.disappear_time, 0).single().ok_or(())?;
         let img_path_str = format!(
             "{}img_sent/poke_{}_{}_{}_{}.png",
             CONFIG.images.bot,
@@ -498,7 +497,7 @@ impl Message for PokemonMessage {
                 }
 
                 // imagettftext($mBg, 12, 0, 82, 46, 0x00000000, $f_cal2, $v_exit);
-                let v_exit = Utc.timestamp(self.pokemon.disappear_time, 0);
+                let v_exit = Utc.timestamp_opt(self.pokemon.disappear_time, 0).single().ok_or(())?;
                 imageproc::drawing::draw_text_mut(
                     &mut background,
                     image::Rgba::<u8>([0, 0, 0, 0]),
@@ -649,7 +648,7 @@ impl Message for PokemonMessage {
         });
 
         // watch button available only on crossing-hour spawns
-        if Utc::now().hour() != Utc.timestamp(self.pokemon.disappear_time, 0).hour() {
+        if Utc::now().hour() != Utc.timestamp_opt(self.pokemon.disappear_time, 0).single().ok_or(())?.hour() {
             if let (Some(_), Some(_), Some(_), Some(a)) = (
                 self.pokemon.individual_attack,
                 self.pokemon.individual_defense,
@@ -700,7 +699,7 @@ impl Message for RaidMessage {
         //   $icon_pkmn = "\xf0\x9f\x8e\x81"; // natale
         //   $icon_raid = "\xf0\x9f\x8e\x84"; // natale
         // }
-        let date = Utc::today();
+        let date = Utc::now();
         let date: usize = date
             .with_timezone(&Rome)
             .format("%m%d")
@@ -715,14 +714,14 @@ impl Message for RaidMessage {
                 .map_err(|e| error!("error parsing raid icon: {}", e))?
         };
 
-        let caption =
-            if let Some(pokemon_id) = self.raid.pokemon_id.and_then(|id| if id > 0 { Some(id) } else { None }) {
-                let gender = self.raid.gender.as_ref().map(|g| g.get_glyph()).unwrap_or_default();
-                // $t_corpo = $icon_raid . " "; // Battaglia
-                // $t_corpo .= "RAID " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]) . " iniziato\n";
-                // $t_corpo .= "\xf0\x9f\x93\x8d " . (strlen($gym_name) > 36 ? substr($gym_name, 0, 35) . ".." : $gym_name) . "\n";
-                // $t_corpo .= "\xf0\x9f\x95\x92 Termina: " . date("H:i:s", $t_msg["time_end"]);
-                format!(
+        let caption = if let Some(pokemon_id) = self.raid.pokemon_id.and_then(|id| if id > 0 { Some(id) } else { None })
+        {
+            let gender = self.raid.gender.as_ref().map(|g| g.get_glyph()).unwrap_or_default();
+            // $t_corpo = $icon_raid . " "; // Battaglia
+            // $t_corpo .= "RAID " . strtoupper($PKMNS[$t_msg["pokemon_id"]]["name"]) . " iniziato\n";
+            // $t_corpo .= "\xf0\x9f\x93\x8d " . (strlen($gym_name) > 36 ? substr($gym_name, 0, 35) . ".." : $gym_name) . "\n";
+            // $t_corpo .= "\xf0\x9f\x95\x92 Termina: " . date("H:i:s", $t_msg["time_end"]);
+            format!(
                     "{} RAID {}{}{}{} iniziato\n{} {}\n{} Termina: {}", //debug
                     icon,
                     LIST.load().get(&pokemon_id).map(|p| p.name.to_uppercase()).unwrap_or_default(),
@@ -751,30 +750,29 @@ impl Message for RaidMessage {
                     self.raid.gym_name,
                     String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92])
                         .map_err(|e| error!("error parsing clock icon: {}", e))?,
-                    Utc.timestamp(self.raid.end, 0).with_timezone(&Rome).format("%T")
+                    Utc.timestamp_opt(self.raid.end, 0).single().ok_or(())?.with_timezone(&Rome).format("%T")
                 )
-            } else {
-                // $t_corpo = "\xf0\x9f\xa5\x9a "; // Uovo
-                // $t_corpo .= "RAID liv. " . $t_msg["level"] . "\n";
-                // $t_corpo .= "\xf0\x9f\x93\x8d " . (strlen($gym_name) > 36 ? substr($gym_name, 0, 35) . ".." : $gym_name) . "\n";
-                // $t_corpo .= "\xf0\x9f\x95\x92 Schiude: " . date("H:i:s", $t_msg["time_battle"]);
-                format!(
-                    "{} RAID liv. {}\n{} {}\n{} Schiude: {}", //debug
-                    String::from_utf8(vec![0xf0, 0x9f, 0xa5, 0x9a])
-                        .map_err(|e| error!("error parsing egg icon: {}", e))?,
-                    self.raid.level,
-                    String::from_utf8(if self.raid.ex_raid_eligible == Some(true) {
-                        vec![0xE2, 0x9B, 0xB3]
-                    } else {
-                        vec![0xf0, 0x9f, 0x93, 0x8d]
-                    })
-                    .map_err(|e| error!("error parsing POI icon: {}", e))?,
-                    self.raid.gym_name,
-                    String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92])
-                        .map_err(|e| error!("error parsing clock icon: {}", e))?,
-                    Utc.timestamp(self.raid.start, 0).with_timezone(&Rome).format("%T")
-                )
-            };
+        } else {
+            // $t_corpo = "\xf0\x9f\xa5\x9a "; // Uovo
+            // $t_corpo .= "RAID liv. " . $t_msg["level"] . "\n";
+            // $t_corpo .= "\xf0\x9f\x93\x8d " . (strlen($gym_name) > 36 ? substr($gym_name, 0, 35) . ".." : $gym_name) . "\n";
+            // $t_corpo .= "\xf0\x9f\x95\x92 Schiude: " . date("H:i:s", $t_msg["time_battle"]);
+            format!(
+                "{} RAID liv. {}\n{} {}\n{} Schiude: {}", //debug
+                String::from_utf8(vec![0xf0, 0x9f, 0xa5, 0x9a]).map_err(|e| error!("error parsing egg icon: {}", e))?,
+                self.raid.level,
+                String::from_utf8(if self.raid.ex_raid_eligible == Some(true) {
+                    vec![0xE2, 0x9B, 0xB3]
+                } else {
+                    vec![0xf0, 0x9f, 0x93, 0x8d]
+                })
+                .map_err(|e| error!("error parsing POI icon: {}", e))?,
+                self.raid.gym_name,
+                String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92])
+                    .map_err(|e| error!("error parsing clock icon: {}", e))?,
+                Utc.timestamp_opt(self.raid.start, 0).single().ok_or(())?.with_timezone(&Rome).format("%T")
+            )
+        };
 
         Ok(match self.debug {
             Some(ref s) => format!("{}\n\n{}", caption, s),
@@ -896,7 +894,7 @@ impl Message for RaidMessage {
                         }
 
                         // imagettftext($mBg, 12, 0, 82, 71, 0x00000000, $f_cal2, $v_end);
-                        let v_end = Utc.timestamp(self.raid.end, 0);
+                        let v_end = Utc.timestamp_opt(self.raid.end, 0).single().ok_or(())?;
                         imageproc::drawing::draw_text_mut(
                             &mut background,
                             image::Rgba::<u8>([0, 0, 0, 0]),
@@ -1018,7 +1016,7 @@ impl Message for RaidMessage {
                         };
 
                         // imagettftext($mBg, 12, 0, 82, 71, 0x00000000, $f_cal2, $v_battle);
-                        let v_battle = Utc.timestamp(self.raid.start, 0);
+                        let v_battle = Utc.timestamp_opt(self.raid.start, 0).single().ok_or(())?;
                         imageproc::drawing::draw_text_mut(
                             &mut background,
                             image::Rgba::<u8>([0, 0, 0, 0]),
@@ -1147,7 +1145,7 @@ impl Message for LureMessage {
                 self.pokestop.name.as_deref().unwrap_or("Sconosciuto"),
                 String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92])
                     .map_err(|e| error!("error parsing clock icon: {}", e))?,
-                Utc.timestamp(timestamp, 0).with_timezone(&Rome).format("%T")
+                Utc.timestamp_opt(timestamp, 0).single().ok_or(())?.with_timezone(&Rome).format("%T")
             );
 
             Ok(match self.debug {
@@ -1224,7 +1222,7 @@ impl Message for LureMessage {
                 );
 
                 if let Some(timestamp) = self.pokestop.lure_expiration {
-                    let v_exit = Utc.timestamp(timestamp, 0);
+                    let v_exit = Utc.timestamp_opt(timestamp, 0).single().ok_or(())?;
                     imageproc::drawing::draw_text_mut(
                         &mut background,
                         image::Rgba::<u8>([0, 0, 0, 0]),
@@ -1283,7 +1281,7 @@ impl Message for InvasionMessage {
                 self.invasion.name.as_deref().unwrap_or("Sconosciuto"),
                 String::from_utf8(vec![0xf0, 0x9f, 0x95, 0x92])
                     .map_err(|e| error!("error parsing clock icon: {}", e))?,
-                Utc.timestamp(timestamp, 0).with_timezone(&Rome).format("%T")
+                Utc.timestamp_opt(timestamp, 0).single().ok_or(())?.with_timezone(&Rome).format("%T")
             );
 
             Ok(match self.debug {
@@ -1385,7 +1383,7 @@ impl Message for InvasionMessage {
                 );
 
                 if let Some(timestamp) = self.invasion.incident_expire_timestamp {
-                    let v_exit = Utc.timestamp(timestamp, 0);
+                    let v_exit = Utc.timestamp_opt(timestamp, 0).single().ok_or(())?;
                     imageproc::drawing::draw_text_mut(
                         &mut background,
                         image::Rgba::<u8>([0, 0, 0, 0]),
@@ -1446,7 +1444,7 @@ impl Message for WeatherMessage {
     }
 
     async fn get_image(&self) -> Result<Image, ()> {
-        let timestamp = Utc.timestamp(self.watch.expire, 0);
+        let timestamp = Utc.timestamp_opt(self.watch.expire, 0).single().ok_or(())?;
         let img_path_str = format!(
             "{}img_sent/poke_{}_{}_{}_{}.png",
             CONFIG.images.bot,
@@ -1548,7 +1546,7 @@ impl Message for GymMessage {
             self.gym.id,
             self.gym.team.get_id(),
             6 - self.gym.slots_available,
-            if self.gym.ex_raid_eligible == Some(true) { 1 } else { 0 }
+            u8::from(self.gym.ex_raid_eligible == Some(true))
         );
 
         IMG_CACHE
@@ -1597,7 +1595,7 @@ impl Message for GymMessage {
                         CONFIG.images.assets,
                         self.gym.team.get_id(),
                         6 - self.gym.slots_available,
-                        if self.gym.ex_raid_eligible == Some(true) { 1 } else { 0 }
+                        u8::from(self.gym.ex_raid_eligible == Some(true))
                     )
                     .into();
                     open_image(&path).await?
