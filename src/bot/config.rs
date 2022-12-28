@@ -242,8 +242,7 @@ impl BotConfig {
         let mut debug = format!("Scansione avvenuta{} alle {}\n", platform, now.with_timezone(&Rome).format("%T"));
 
         if (self.pkmn.p1 == Some(1) && iv == Some(100)) || (self.pkmn.p0 == Some(1) && iv == Some(0)) {
-            let rad =
-                MAX_DISTANCE.min(BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &self.locs.p[2]))?).max(0.1);
+            let rad = BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &self.locs.p[2]))?.clamp(0.1, MAX_DISTANCE);
             let dist = BotLocs::calc_dist(loc, pos)?;
             if dist <= rad {
                 write!(debug, "Bypass IV {:.0}%", iv.unwrap_or_default()).map_err(|_| ())?;
@@ -273,21 +272,19 @@ impl BotConfig {
 
         let rad = if filter.get(5) == Some(&1) {
             // $pkmn_rad = ValMinMax($filter[6], 0.1, MAX_DISTANCE);
-            let rad = MAX_DISTANCE
-                .min(f64::from(
-                    #[allow(clippy::unnecessary_lazy_evaluations)]
-                    *(filter.get(6).ok_or_else(|| {
-                        #[cfg(test)]
-                        info!("Custom distance but no custom distance value");
-                    })?),
-                ))
-                .max(0.1);
+            let rad = f64::from(
+                #[allow(clippy::unnecessary_lazy_evaluations)]
+                *(filter.get(6).ok_or_else(|| {
+                    #[cfg(test)]
+                    info!("Custom distance but no custom distance value");
+                })?),
+            )
+            .clamp(0.1, MAX_DISTANCE);
             write!(debug, "Distanza personalizzata per Pokémon inferiore a {:.2} km", rad).map_err(|_| ())?;
             rad
         } else {
             // $pkmn_rad = ValMinMax($locs["p"][2], 0.1, MAX_DISTANCE);
-            let rad =
-                MAX_DISTANCE.min(BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &self.locs.p[2]))?).max(0.1);
+            let rad = BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &self.locs.p[2]))?.clamp(0.1, MAX_DISTANCE);
             write!(debug, "Distanza standard per Pokémon inferiore a {:.2} km", rad).map_err(|_| ())?;
             rad
         };
@@ -387,7 +384,7 @@ impl BotConfig {
         }
 
         // $raid_rad = ValMinMax($locs["r"][2], 0.1, MAX_DISTANCE);
-        let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &self.locs.r[2]))?).max(0.1);
+        let rad = BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &self.locs.r[2]))?.clamp(0.1, MAX_DISTANCE);
 
         let mut debug = format!("Scansione avvenuta{} alle {}\n", platform, now.with_timezone(&Rome).format("%T"));
         let dist = BotLocs::calc_dist(loc, pos)?;
@@ -450,7 +447,7 @@ impl BotConfig {
         let loc = self.locs.get_invs_settings()?;
         let pos = (input.latitude, input.longitude);
 
-        let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &loc[2]))?).max(0.1);
+        let rad = BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &loc[2]))?.clamp(0.1, MAX_DISTANCE);
 
         let mut debug = format!("Scansione avvenuta{} alle {}\n", platform, now.with_timezone(&Rome).format("%T"));
         let dist = BotLocs::calc_dist(loc, pos)?;
@@ -462,7 +459,7 @@ impl BotConfig {
 
         if lure.f == 1 {
             if let Some(lure_id) = input.lure_id {
-                if !lure.l.contains(&((lure_id - 500) as u16)) {
+                if !lure.l.contains(&(lure_id - 500)) {
                     return Err(());
                 } else {
                     debug.push_str("\nEsca presente nella lista delle esche abilitate");
@@ -489,7 +486,7 @@ impl BotConfig {
         let loc = self.locs.get_invs_settings()?;
         let pos = (input.latitude, input.longitude);
 
-        let rad = MAX_DISTANCE.min(BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &loc[2]))?).max(0.1);
+        let rad = BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &loc[2]))?.clamp(0.1, MAX_DISTANCE);
 
         let mut debug = format!("Scansione avvenuta{} alle {}\n", platform, now.with_timezone(&Rome).format("%T"));
         let dist = BotLocs::calc_dist(loc, pos)?;
@@ -523,16 +520,15 @@ impl BotConfig {
         let loc = self.locs.get_raid_settings();
         let pos = (input.latitude, input.longitude);
 
-        let rad = MAX_DISTANCE
-            .min(
-                // here we have an optional override that remains even with temp position
-                if self.locs.r.get(3).map(BotLocs::convert_to_i64) == Some(Ok(1)) {
-                    self.locs.r.get(4).map(BotLocs::convert_to_f64).transpose()?.unwrap_or_default()
-                } else {
-                    BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &self.locs.r[2]))?
-                },
-            )
-            .max(0.1);
+        let rad = (
+            // here we have an optional override that remains even with temp position
+            if self.locs.r.get(3).map(BotLocs::convert_to_i64) == Some(Ok(1)) {
+                self.locs.r.get(4).map(BotLocs::convert_to_f64).transpose()?.unwrap_or_default()
+            } else {
+                BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &self.locs.r[2]))?
+            }
+        )
+        .clamp(0.1, MAX_DISTANCE);
 
         let mut debug = format!("Scansione avvenuta{} alle {}\n", platform, now.with_timezone(&Rome).format("%T"));
         let dist = BotLocs::calc_dist(loc, pos)?;
