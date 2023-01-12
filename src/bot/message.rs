@@ -1269,7 +1269,7 @@ impl Message for InvasionMessage {
             let caption = format!(
                 "{} {}\n{} {}\n{} {}",
                 String::from_utf8(vec![0xC2, 0xAE]).map_err(|e| error!("error parsing R icon: {}", e))?,
-                match self.invasion.grunt_type {
+                match self.invasion.get_grunt_type() {
                     Some(id) => {
                         let grunts = GRUNTS.load();
                         grunts.get(&id).map(|grunt| grunt.name.clone())
@@ -1300,7 +1300,7 @@ impl Message for InvasionMessage {
             CONFIG.images.bot,
             now.with_timezone(&Rome).format("%Y%m%d%H"),
             self.invasion.pokestop_id,
-            self.invasion.grunt_type.map(|id| id.to_string()).unwrap_or_default()
+            self.invasion.get_grunt_type().map(|id| id.to_string()).unwrap_or_default()
         );
 
         IMG_CACHE
