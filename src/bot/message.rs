@@ -1339,7 +1339,7 @@ impl Message for InvasionMessage {
                     open_image(&path).await?
                 };
 
-                if let Some(id) = self.invasion.grunt_type {
+                if let Some(id) = self.invasion.get_grunt_type() {
                     let lock = GRUNTS.load();
                     if let Some(grunt) = lock.get(&id) {
                         if let Some(sex) = &grunt.sex {
