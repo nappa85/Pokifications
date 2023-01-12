@@ -497,9 +497,7 @@ impl BotConfig {
         }
 
         if invs.f == 1 {
-            if !invs.l.contains(
-                input.grunt_type.or_else(|| (input.display_type == Some(8)).then_some(352)).as_ref().ok_or(())?, // kecleon
-            ) {
+            if !invs.l.contains(input.get_grunt_type().as_ref().ok_or(())?) {
                 return Err(());
             } else {
                 debug.push_str("\nScagnozzo presente nella lista degli scagnozzi abilitati");
