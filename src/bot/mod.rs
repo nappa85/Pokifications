@@ -180,7 +180,7 @@ impl BotConfigs {
             .map_err(|e| error!("MySQL query error: get city users\n{}", e))?;
         // let (_, user_ids) = res.collect_and_drop().await.map_err(|e| error!("MySQL collect error: {}", e))?;
         let user_ids = res
-            .map_and_drop(|mut row| row.take::<u64, _>("user_id").map(|i| i.to_string()).unwrap_or_else(String::new))
+            .map_and_drop(|mut row| row.take::<u64, _>("user_id").map(|i| i.to_string()).unwrap_or_default())
             .await
             .map_err(|e| error!("MySQL collect error: {}", e))?;
 
@@ -376,7 +376,7 @@ impl BotConfigs {
         }
     }
 
-    async fn clean_watches<'a, 'b>(now: i64, watch: &'a Watch) -> RwLockWriteGuard<'b, HashMap<String, Vec<Watch>>> {
+    async fn clean_watches<'a>(now: i64, watch: &Watch) -> RwLockWriteGuard<'a, HashMap<String, Vec<Watch>>> {
         // remove expired watches
         let mut lock = WATCHES.write().await;
         for (_, v) in lock.iter_mut() {

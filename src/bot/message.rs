@@ -550,7 +550,7 @@ impl Message for PokemonMessage {
                     );
 
                     let v_ivcolor = match self.iv {
-                        Some(i) if i == 0 => image::Rgba::<u8>([0x2D, 0x90, 0xFF, 0]), //0x002D90FF, // NULL Azzurro
+                        Some(0) => image::Rgba::<u8>([0x2D, 0x90, 0xFF, 0]), //0x002D90FF, // NULL Azzurro
                         Some(i) if (80..90).contains(&i) => image::Rgba::<u8>([0xFF, 0x62, 0x14, 0]), //0x00FF6214, // MED Arancione
                         Some(i) if (90..100).contains(&i) => image::Rgba::<u8>([0xFF, 0, 0, 0]), //0x00FF0000, // HI Rosso
                         Some(i) if i >= 100 => image::Rgba::<u8>([0xDC, 0, 0xEA, 0]), //0x00DC00EA, // TOP Viola
@@ -736,9 +736,9 @@ impl Message for RaidMessage {
                     }
                     .unwrap_or_default(),
                     match self.raid.evolution {
-                        Some(id) if id == 1 => " (Mega)",
-                        Some(id) if id == 2 => " (Mega X)",
-                        Some(id) if id == 3 => " (Mega Y)",
+                        Some(1) => " (Mega)",
+                        Some(2) => " (Mega X)",
+                        Some(3) => " (Mega Y)",
                         _ => "",
                     },
                     String::from_utf8(if self.raid.ex_raid_eligible == Some(true) {

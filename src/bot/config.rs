@@ -753,6 +753,7 @@ pub struct BotPkmn {
 #[serde(untagged)]
 enum PkmnList {
     Map(HashMap<String, Vec<u8>>),
+    #[allow(dead_code)]
     Unknown(JsonValue),
 }
 

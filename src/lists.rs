@@ -356,7 +356,7 @@ async fn load_parks() -> Result<(), ()> {
         .map_err(|e| error!("MySQL load_cities error: {}", e))?
         .ok_or_else(|| error!("MySQL load_cities empty"))?
         .try_fold(HashMap::new(), |mut acc, cp| {
-            let cityparks = acc.entry(cp.city_id).or_insert_with(Vec::new);
+            let cityparks: &mut Vec<CityPark> = acc.entry(cp.city_id).or_default();
             cityparks.push(cp);
             future::ready(Ok(acc))
         })
