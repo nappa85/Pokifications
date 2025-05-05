@@ -1,5 +1,4 @@
 #![deny(warnings)]
-#![allow(where_clauses_object_safety)]
 #![deny(missing_docs)]
 
 //! # pokifications

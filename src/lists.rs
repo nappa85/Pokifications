@@ -42,6 +42,7 @@ pub static CITYSTATS: Lazy<RwLock<HashMap<u16, CityStats>>> = Lazy::new(Default:
 
 pub static CITYPARKS: Lazy<ArcSwap<HashMap<u16, Vec<CityPark>>>> = Lazy::new(Default::default);
 
+#[allow(dead_code)]
 pub struct Pokemon {
     pub id: u16,
     pub name: String,
@@ -82,6 +83,7 @@ impl Cache for PokemonCache {
     }
 }
 
+#[allow(dead_code)]
 pub struct Form {
     pub id: u16,
     pub name: String,

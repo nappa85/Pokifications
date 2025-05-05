@@ -239,7 +239,13 @@ impl BotConfig {
             (Some(atk), Some(def), Some(sta)) => Some(((f64::from(atk + def + sta) / 45_f64) * 100_f64).round() as u8),
             _ => None,
         };
-        let mut debug = format!("Scansione avvenuta{} alle {}\n", platform, now.with_timezone(&Rome).format("%T"));
+        let mut debug = format!(
+            "Scansione avvenuta{} alle {}\nEncounter ID: {}\nOrario di despawn{} verificato\n",
+            platform,
+            now.with_timezone(&Rome).format("%T"),
+            input.encounter_id,
+            if input.disappear_time_verified { "" } else { " NON" }
+        );
 
         if (self.pkmn.p1 == Some(1) && iv == Some(100)) || (self.pkmn.p0 == Some(1) && iv == Some(0)) {
             let rad = BotLocs::convert_to_f64(loc.get(3).unwrap_or_else(|| &self.locs.p[2]))?.clamp(0.1, MAX_DISTANCE);

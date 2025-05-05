@@ -45,12 +45,14 @@ pub struct Images {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 pub struct Osm {
     pub tile_url: String,
     pub timeout: Option<u64>,
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 pub struct Telegram {
     pub bot_token: String,
     pub alert_bot_token: Option<String>,

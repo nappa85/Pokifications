@@ -676,6 +676,7 @@ impl Message for PokemonMessage {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct RaidMessage {
     pub raid: Raid,
     pub distance: f64,
@@ -1509,6 +1510,7 @@ impl Message for WeatherMessage {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct GymMessage {
     pub gym: GymDetails,
     pub distance: f64,
